@@ -225,6 +225,33 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             // Don't stop - techsets are complex, just skip
                         }
                     }
+                    else if (gameDefinition.IsXAnimType(assetTypeValue))
+                    {
+                        // Parse xanim using game-specific parser
+                        XAnimParts? xanim = gameDefinition.ParseXAnim(zoneData, startingOffset);
+
+                        if (xanim != null)
+                        {
+                            assetRecordMethod = $"XAnim parsed using {gameDefinition.ShortName} structure-based parser.";
+                            result.XAnims.Add(xanim);
+
+                            // Update the asset record with xanim info
+                            var assetRecord = zoneAssetRecords[i];
+                            assetRecord.AssetRecordEndOffset = xanim.EndOffset;
+                            assetRecord.Name = xanim.Name;
+                            assetRecord.Content = xanim.GetSummary();
+                            assetRecord.AdditionalData = assetRecordMethod;
+                            zoneAssetRecords[i] = assetRecord;
+
+                            indexOfLastAssetRecordParsed = i;
+                        }
+                        else
+                        {
+                            // XAnim parsing failed - continue to next asset
+                            Debug.WriteLine($"[AssetRecordProcessor] Failed to parse xanim at index {i}, offset 0x{startingOffset:X}. Continuing.");
+                            // Don't stop - xanims are complex, just skip
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -434,6 +461,41 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     }
 
                     Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {menuFilesParsed} menufiles");
+                }
+
+                // For xanims, use pattern matching to find them
+                int expectedXAnimCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
+                    structureParsingStoppedAtIndex, gameDefinition.XAnimAssetType);
+                int alreadyParsedXAnims = result.XAnims.Count;
+                int remainingXAnims = expectedXAnimCount - alreadyParsedXAnims;
+
+                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedXAnimCount} xanims, already parsed {alreadyParsedXAnims}, remaining {remainingXAnims}");
+
+                if (remainingXAnims > 0)
+                {
+                    // Use pattern matching to find xanims
+                    int xanimSearchOffset = searchStartOffset;
+                    int xanimsParsed = 0;
+
+                    while (xanimsParsed < remainingXAnims && xanimSearchOffset < zoneData.Length)
+                    {
+                        var xanim = FindNextXAnim(zoneData, xanimSearchOffset, 500000, gameDefinition);
+
+                        if (xanim == null)
+                        {
+                            Debug.WriteLine($"[AssetRecordProcessor] No more xanims found after 0x{xanimSearchOffset:X}");
+                            break;
+                        }
+
+                        result.XAnims.Add(xanim);
+                        xanimsParsed++;
+                        Debug.WriteLine($"[AssetRecordProcessor] Pattern matched xanim #{xanimsParsed}: '{xanim.Name}' at 0x{xanim.StartOffset:X}");
+
+                        // Move past this xanim to find the next one
+                        xanimSearchOffset = xanim.EndOffset;
+                    }
+
+                    Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {xanimsParsed} xanims");
                 }
             }
 
@@ -720,6 +782,36 @@ namespace Call_of_Duty_FastFile_Editor.Services
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Finds the next XAnim by pattern matching.
+        /// Searches for the XAnim header pattern: [FF FF FF FF] followed by valid animation data.
+        /// </summary>
+        private static XAnimParts? FindNextXAnim(byte[] zoneData, int startOffset, int maxSearchBytes, IGameDefinition gameDefinition)
+        {
+            Debug.WriteLine($"[AssetRecordProcessor] Searching for XAnim from 0x{startOffset:X}, max {maxSearchBytes} bytes");
+
+            int endOffset = Math.Min(startOffset + maxSearchBytes, zoneData.Length - 100);
+
+            for (int pos = startOffset; pos < endOffset; pos++)
+            {
+                // Look for the pattern: [FF FF FF FF] - name pointer (inline)
+                uint namePtr = ReadUInt32BE(zoneData, pos);
+                if (namePtr != 0xFFFFFFFF)
+                    continue;
+
+                // Try to parse it using the game definition's parser
+                var xanim = gameDefinition.ParseXAnim(zoneData, pos);
+                if (xanim != null)
+                {
+                    Debug.WriteLine($"[AssetRecordProcessor] Found XAnim '{xanim.Name}' at 0x{pos:X}");
+                    return xanim;
+                }
+            }
+
+            Debug.WriteLine($"[AssetRecordProcessor] No XAnim found in search range");
+            return null;
         }
 
         private static uint ReadUInt32BE(byte[] data, int offset)

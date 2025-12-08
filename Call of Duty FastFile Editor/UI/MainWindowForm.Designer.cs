@@ -87,6 +87,10 @@ namespace Call_of_Duty_FastFile_Editor
             assetPoolListView = new ListView();
             techSetsTabPage = new TabPage();
             techSetsListView = new ListView();
+            xAnimsTabPage = new TabPage();
+            xAnimsListView = new ListView();
+            xAnimsContextMenu = new ContextMenuStrip(components);
+            exportXAnimMenuItem = new ToolStripMenuItem();
             zoneFileTabPage = new TabPage();
             zoneInfoDataGridView = new DataGridView();
             bindingSource1 = new BindingSource(components);
@@ -111,6 +115,8 @@ namespace Call_of_Duty_FastFile_Editor
             tagsTabPage.SuspendLayout();
             assetPoolTabPage.SuspendLayout();
             techSetsTabPage.SuspendLayout();
+            xAnimsTabPage.SuspendLayout();
+            xAnimsContextMenu.SuspendLayout();
             zoneFileTabPage.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).BeginInit();
             ((System.ComponentModel.ISupportInitialize)bindingSource1).BeginInit();
@@ -493,6 +499,7 @@ namespace Call_of_Duty_FastFile_Editor
             mainTabControl.Controls.Add(localizeTabPage);
             mainTabControl.Controls.Add(menuFilesTabPage);
             mainTabControl.Controls.Add(techSetsTabPage);
+            mainTabControl.Controls.Add(xAnimsTabPage);
             mainTabControl.Controls.Add(tagsTabPage);
             mainTabControl.Controls.Add(assetPoolTabPage);
             mainTabControl.Controls.Add(zoneFileTabPage);
@@ -692,6 +699,43 @@ namespace Call_of_Duty_FastFile_Editor
             techSetsListView.View = View.Details;
             techSetsListView.MouseDown += listView_MouseDownCopy;
             //
+            // xAnimsTabPage
+            //
+            xAnimsTabPage.Controls.Add(xAnimsListView);
+            xAnimsTabPage.Location = new Point(4, 24);
+            xAnimsTabPage.Name = "xAnimsTabPage";
+            xAnimsTabPage.Padding = new Padding(3);
+            xAnimsTabPage.Size = new Size(1442, 749);
+            xAnimsTabPage.TabIndex = 10;
+            xAnimsTabPage.Text = "XAnims";
+            xAnimsTabPage.UseVisualStyleBackColor = true;
+            //
+            // xAnimsListView
+            //
+            xAnimsListView.ContextMenuStrip = xAnimsContextMenu;
+            xAnimsListView.Dock = DockStyle.Fill;
+            xAnimsListView.FullRowSelect = true;
+            xAnimsListView.Location = new Point(3, 3);
+            xAnimsListView.Name = "xAnimsListView";
+            xAnimsListView.Size = new Size(1436, 743);
+            xAnimsListView.TabIndex = 0;
+            xAnimsListView.UseCompatibleStateImageBehavior = false;
+            xAnimsListView.View = View.Details;
+            xAnimsListView.MouseDown += listView_MouseDownCopy;
+            //
+            // xAnimsContextMenu
+            //
+            xAnimsContextMenu.Items.AddRange(new ToolStripItem[] { exportXAnimMenuItem });
+            xAnimsContextMenu.Name = "xAnimsContextMenu";
+            xAnimsContextMenu.Size = new Size(180, 26);
+            //
+            // exportXAnimMenuItem
+            //
+            exportXAnimMenuItem.Name = "exportXAnimMenuItem";
+            exportXAnimMenuItem.Size = new Size(179, 22);
+            exportXAnimMenuItem.Text = "Export XAnim Data...";
+            exportXAnimMenuItem.Click += exportXAnimMenuItem_Click;
+            //
             // zoneFileTabPage
             // 
             zoneFileTabPage.Controls.Add(zoneInfoDataGridView);
@@ -752,6 +796,8 @@ namespace Call_of_Duty_FastFile_Editor
             tagsTabPage.ResumeLayout(false);
             assetPoolTabPage.ResumeLayout(false);
             techSetsTabPage.ResumeLayout(false);
+            xAnimsTabPage.ResumeLayout(false);
+            xAnimsContextMenu.ResumeLayout(false);
             zoneFileTabPage.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).EndInit();
             ((System.ComponentModel.ISupportInitialize)bindingSource1).EndInit();
@@ -812,6 +858,10 @@ namespace Call_of_Duty_FastFile_Editor
         private ListView assetPoolListView;
         private TabPage techSetsTabPage;
         private ListView techSetsListView;
+        private TabPage xAnimsTabPage;
+        private ListView xAnimsListView;
+        private ContextMenuStrip xAnimsContextMenu;
+        private ToolStripMenuItem exportXAnimMenuItem;
         private TabPage localizeTabPage;
         private ListView localizeListView;
         private TabPage menuFilesTabPage;

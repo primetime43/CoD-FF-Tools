@@ -22,6 +22,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public const byte RawFileAssetType = 0x23;     // 35
         public const byte LocalizeAssetType = 0x1A;    // 26
         public const byte StringTableAssetType = 0x24; // 36
+        public const byte XAnimAssetType = 0x02;       // 2
 
         // MW2-specific: Extended header info
         public const int ExtendedHeaderEntrySize = 0x14;  // 20 bytes per entry on PS3

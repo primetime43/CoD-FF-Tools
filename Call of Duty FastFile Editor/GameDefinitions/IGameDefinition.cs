@@ -49,9 +49,19 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         byte MenuFileAssetType { get; }
 
         /// <summary>
+        /// Asset type ID for xanim assets.
+        /// </summary>
+        byte XAnimAssetType { get; }
+
+        /// <summary>
         /// Checks if the given asset type value is a rawfile.
         /// </summary>
         bool IsRawFileType(int assetType);
+
+        /// <summary>
+        /// Checks if the given asset type value is an xanim.
+        /// </summary>
+        bool IsXAnimType(int assetType);
 
         /// <summary>
         /// Checks if the given asset type value is a menufile.
@@ -122,5 +132,13 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         /// <param name="offset">Starting offset to parse from.</param>
         /// <returns>Parsed TechSetAsset, or null if parsing failed.</returns>
         TechSetAsset? ParseTechSet(byte[] zoneData, int offset);
+
+        /// <summary>
+        /// Parses an xanim asset from the zone data at the given offset.
+        /// </summary>
+        /// <param name="zoneData">The zone file data.</param>
+        /// <param name="offset">Starting offset to parse from.</param>
+        /// <returns>Parsed XAnimParts, or null if parsing failed.</returns>
+        XAnimParts? ParseXAnim(byte[] zoneData, int offset);
     }
 }

@@ -24,6 +24,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public const byte MenuFileAssetType = 0x17;    // 23
         public const byte MaterialAssetType = 0x06;    // 6
         public const byte TechSetAssetType = 0x09;     // 9
+        public const byte XAnimAssetType = 0x04;       // 4
     }
 
     /// <summary>

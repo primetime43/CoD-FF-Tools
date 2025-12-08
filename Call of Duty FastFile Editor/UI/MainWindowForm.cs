@@ -60,6 +60,11 @@ namespace Call_of_Duty_FastFile_Editor
         private List<TechSetAsset> _techSets;
 
         /// <summary>
+        /// List of XAnim assets extracted from the zone file.
+        /// </summary>
+        private List<XAnimParts> _xanims;
+
+        /// <summary>
         /// List of tags extracted from the zone file.
         /// </summary>
         private TagCollection? _tags;
@@ -151,6 +156,7 @@ namespace Call_of_Duty_FastFile_Editor
             _localizedEntries = loadLocalizedEntries ? _processResult.LocalizedEntries : new List<LocalizedEntry>();
             _menuLists = _processResult.MenuLists ?? new List<MenuList>();
             _techSets = _processResult.TechSets ?? new List<TechSetAsset>();
+            _xanims = _processResult.XAnims ?? new List<XAnimParts>();
 
             // Track unsupported assets and original counts for safe save detection
             _hasUnsupportedAssets = !ZoneFileBuilder.ContainsOnlySupportedAssets(zone, _openedFastFile);
@@ -200,6 +206,7 @@ namespace Call_of_Duty_FastFile_Editor
             PopulateLocalizeAssets();
             PopulateMenuFiles();
             PopulateTechSets();
+            PopulateXAnims();
             PopulateCollision_Map_Asset_StringData();
         }
 
@@ -1424,6 +1431,141 @@ namespace Call_of_Duty_FastFile_Editor
             techSetsListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
         }
 
+        private void PopulateXAnims()
+        {
+            // Check if we have any xanims in our processed results.
+            if (_xanims == null || _xanims.Count <= 0)
+            {
+                mainTabControl.TabPages.Remove(xAnimsTabPage); // hide the tab page if there's no data to show
+                return;
+            }
+
+            // Ensure the tab is shown
+            if (!mainTabControl.TabPages.Contains(xAnimsTabPage))
+            {
+                mainTabControl.TabPages.Add(xAnimsTabPage);
+            }
+
+            // Clear any existing items and columns.
+            xAnimsListView.Items.Clear();
+            xAnimsListView.Columns.Clear();
+
+            // Set up the ListView.
+            xAnimsListView.View = View.Details;
+            xAnimsListView.FullRowSelect = true;
+            xAnimsListView.GridLines = true;
+
+            // Add the required columns.
+            xAnimsListView.Columns.Add("Name", 250);
+            xAnimsListView.Columns.Add("Frames", 70);
+            xAnimsListView.Columns.Add("Framerate", 80);
+            xAnimsListView.Columns.Add("Duration", 80);
+            xAnimsListView.Columns.Add("Bones", 60);
+            xAnimsListView.Columns.Add("Loops", 50);
+            xAnimsListView.Columns.Add("Delta", 50);
+            xAnimsListView.Columns.Add("Start Offset", 100);
+            xAnimsListView.Columns.Add("End Offset", 100);
+            xAnimsListView.Columns.Add("Size", 80);
+
+            // Loop through each xanim.
+            foreach (var xanim in _xanims)
+            {
+                // Create a new ListViewItem with the Name as the main text.
+                ListViewItem lvi = new ListViewItem(xanim.Name);
+
+                // Add subitems.
+                lvi.SubItems.Add(xanim.NumFrames.ToString());
+                lvi.SubItems.Add(float.IsNaN(xanim.Framerate) ? "N/A" : $"{xanim.Framerate:F1}");
+                lvi.SubItems.Add(float.IsNaN(xanim.Duration) ? "N/A" : $"{xanim.Duration:F2}s");
+                lvi.SubItems.Add(xanim.TotalBoneCount.ToString());
+                lvi.SubItems.Add(xanim.IsLooping ? "Yes" : "No");
+                lvi.SubItems.Add(xanim.HasDelta ? "Yes" : "No");
+                lvi.SubItems.Add($"0x{xanim.StartOffset:X}");
+                lvi.SubItems.Add($"0x{xanim.EndOffset:X}");
+                int size = xanim.EndOffset - xanim.StartOffset;
+                lvi.SubItems.Add($"0x{size:X}");
+
+                // Store the xanim reference for potential selection handling
+                lvi.Tag = xanim;
+
+                // Add the ListViewItem to the ListView.
+                xAnimsListView.Items.Add(lvi);
+            }
+
+            // Auto-resize columns to fit header size.
+            xAnimsListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
+        }
+
+        /// <summary>
+        /// Exports the selected XAnim's raw binary data from the zone file.
+        /// </summary>
+        private void exportXAnimMenuItem_Click(object? sender, EventArgs e)
+        {
+            if (xAnimsListView.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select an XAnim to export.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var selectedItem = xAnimsListView.SelectedItems[0];
+            var xanim = selectedItem.Tag as XAnimParts;
+            if (xanim == null)
+            {
+                MessageBox.Show("Could not get XAnim data.", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Clean up name for filename
+            string safeName = xanim.Name ?? "xanim";
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                safeName = safeName.Replace(c, '_');
+            }
+
+            using (SaveFileDialog saveDialog = new SaveFileDialog())
+            {
+                saveDialog.Title = "Export XAnim Data";
+                saveDialog.Filter = "Binary Data (*.bin)|*.bin|XAnim Data (*.xanim)|*.xanim|All Files (*.*)|*.*";
+                saveDialog.FileName = $"{safeName}.bin";
+
+                if (saveDialog.ShowDialog() == DialogResult.OK)
+                {
+                    try
+                    {
+                        // Get the zone data
+                        byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
+                        int startOffset = xanim.StartOffset;
+                        int length = xanim.EndOffset - xanim.StartOffset;
+
+                        if (startOffset < 0 || startOffset + length > zoneData.Length)
+                        {
+                            MessageBox.Show("Invalid XAnim data offsets.", "Error",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            return;
+                        }
+
+                        byte[] xanimData = new byte[length];
+                        Array.Copy(zoneData, startOffset, xanimData, 0, length);
+
+                        File.WriteAllBytes(saveDialog.FileName, xanimData);
+
+                        MessageBox.Show($"XAnim '{xanim.Name}' exported successfully.\n\n" +
+                                       $"Size: {length} bytes (0x{length:X})\n" +
+                                       $"Frames: {xanim.NumFrames}\n" +
+                                       $"Framerate: {xanim.Framerate:F1} fps",
+                                       "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Failed to export XAnim: {ex.Message}", "Export Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        }
+
         private void PopulateCollision_Map_Asset_StringData()
         {
             int offset = Collision_Map_Operations.FindCollision_Map_DataOffsetViaFF(_openedFastFile.OpenedFastFileZone);
@@ -2171,7 +2313,7 @@ namespace Call_of_Duty_FastFile_Editor
 
             // Count total parsed assets
             int totalParsed = (_rawFileNodes?.Count ?? 0) + (_localizedEntries?.Count ?? 0) +
-                              (_menuLists?.Count ?? 0) + (_techSets?.Count ?? 0);
+                              (_menuLists?.Count ?? 0) + (_techSets?.Count ?? 0) + (_xanims?.Count ?? 0);
             int totalAssets = _zoneAssetRecords.Count;
 
             // Columns for the list view
@@ -2201,6 +2343,7 @@ namespace Call_of_Duty_FastFile_Editor
             int localizeIndex = 0;
             int menuIndex = 0;
             int techSetIndex = 0;
+            int xanimIndex = 0;
 
             // Iterate through ALL asset records from the asset pool
             for (int i = 0; i < _zoneAssetRecords.Count; i++)
@@ -2214,6 +2357,7 @@ namespace Call_of_Duty_FastFile_Editor
                 bool isLocalize = gameDefinition.IsLocalizeType(assetTypeValue);
                 bool isMenuFile = gameDefinition.IsMenuFileType(assetTypeValue);
                 bool isTechSet = gameDefinition.IsTechSetType(assetTypeValue);
+                bool isXAnim = gameDefinition.IsXAnimType(assetTypeValue);
 
                 var lvi = new ListViewItem((i + 1).ToString());
                 lvi.SubItems.Add(assetTypeName);
@@ -2273,6 +2417,18 @@ namespace Call_of_Duty_FastFile_Editor
                     size = $"0x{techSetSize:X}";
                     status = $"TechSet parsed ({techSet.ActiveTechniqueCount} techniques)";
                     techSetIndex++;
+                }
+                else if (isXAnim && _xanims != null && xanimIndex < _xanims.Count)
+                {
+                    var xanim = _xanims[xanimIndex];
+                    isParsed = true;
+                    name = xanim.Name ?? "-";
+                    dataStart = $"0x{xanim.StartOffset:X}";
+                    dataEnd = $"0x{xanim.EndOffset:X}";
+                    int xanimSize = xanim.EndOffset - xanim.StartOffset;
+                    size = $"0x{xanimSize:X}";
+                    status = $"XAnim parsed ({xanim.GetSummary()})";
+                    xanimIndex++;
                 }
 
                 lvi.SubItems.Add(dataStart);

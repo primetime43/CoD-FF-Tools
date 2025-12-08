@@ -18,6 +18,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override byte RawFileAssetType => CoD5Definition.RawFileAssetType;
         public override byte LocalizeAssetType => CoD5Definition.LocalizeAssetType;
         public override byte MenuFileAssetType => CoD5Definition.MenuFileAssetType;
+        public override byte XAnimAssetType => CoD5Definition.XAnimAssetType;
         public byte MaterialAssetType => CoD5Definition.MaterialAssetType;
         public byte TechSetAssetType => CoD5Definition.TechSetAssetType;
 
@@ -40,7 +41,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                    assetType == LocalizeAssetType ||
                    assetType == MenuFileAssetType ||
                    assetType == MaterialAssetType ||
-                   assetType == TechSetAssetType;
+                   assetType == TechSetAssetType ||
+                   assetType == XAnimAssetType;
         }
 
         public override bool IsMaterialType(int assetType) => assetType == MaterialAssetType;
