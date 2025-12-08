@@ -65,6 +65,11 @@ namespace Call_of_Duty_FastFile_Editor
         private List<XAnimParts> _xanims;
 
         /// <summary>
+        /// List of StringTable assets extracted from the zone file.
+        /// </summary>
+        private List<StringTable> _stringTables;
+
+        /// <summary>
         /// List of tags extracted from the zone file.
         /// </summary>
         private TagCollection? _tags;
@@ -157,6 +162,7 @@ namespace Call_of_Duty_FastFile_Editor
             _menuLists = _processResult.MenuLists ?? new List<MenuList>();
             _techSets = _processResult.TechSets ?? new List<TechSetAsset>();
             _xanims = _processResult.XAnims ?? new List<XAnimParts>();
+            _stringTables = _processResult.StringTables ?? new List<StringTable>();
 
             // Track unsupported assets and original counts for safe save detection
             _hasUnsupportedAssets = !ZoneFileBuilder.ContainsOnlySupportedAssets(zone, _openedFastFile);
@@ -207,6 +213,7 @@ namespace Call_of_Duty_FastFile_Editor
             PopulateMenuFiles();
             PopulateTechSets();
             PopulateXAnims();
+            PopulateStringTables();
             PopulateCollision_Map_Asset_StringData();
         }
 
@@ -1562,6 +1569,85 @@ namespace Call_of_Duty_FastFile_Editor
                         MessageBox.Show($"Failed to export XAnim: {ex.Message}", "Export Error",
                             MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Populates the String Tables tab with parsed StringTable assets.
+        /// </summary>
+        private void PopulateStringTables()
+        {
+            // Check if we have any string tables in our processed results.
+            if (_stringTables == null || _stringTables.Count <= 0)
+            {
+                mainTabControl.TabPages.Remove(stringTablesTabPage); // hide the tab page if there's no data to show
+                return;
+            }
+
+            // Ensure the tab is shown
+            if (!mainTabControl.TabPages.Contains(stringTablesTabPage))
+            {
+                mainTabControl.TabPages.Add(stringTablesTabPage);
+            }
+
+            // Clear any existing items and columns.
+            stringTablesListView.Items.Clear();
+            stringTablesListView.Columns.Clear();
+
+            // Set up the ListView.
+            stringTablesListView.View = View.Details;
+            stringTablesListView.FullRowSelect = true;
+            stringTablesListView.GridLines = true;
+
+            // Add the required columns.
+            stringTablesListView.Columns.Add("Table Name", 350);
+            stringTablesListView.Columns.Add("Rows", 70);
+            stringTablesListView.Columns.Add("Columns", 70);
+            stringTablesListView.Columns.Add("Cells", 80);
+            stringTablesListView.Columns.Add("Start Offset", 100);
+            stringTablesListView.Columns.Add("End Offset", 100);
+
+            // Loop through each string table.
+            foreach (var table in _stringTables)
+            {
+                // Create a new ListViewItem with the TableName as the main text.
+                ListViewItem lvi = new ListViewItem(table.TableName);
+
+                // Add subitems.
+                lvi.SubItems.Add(table.RowCount.ToString());
+                lvi.SubItems.Add(table.ColumnCount.ToString());
+                lvi.SubItems.Add((table.Cells?.Count ?? 0).ToString());
+                lvi.SubItems.Add($"0x{table.StartOfFileHeader:X}");
+                lvi.SubItems.Add($"0x{table.DataEndPosition:X}");
+
+                // Store the string table reference for double-click handling
+                lvi.Tag = table;
+
+                // Add the ListViewItem to the ListView.
+                stringTablesListView.Items.Add(lvi);
+            }
+
+            // Auto-resize columns to fit header size.
+            stringTablesListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
+        }
+
+        /// <summary>
+        /// Opens the StringTableViewerForm when a string table is double-clicked.
+        /// </summary>
+        private void stringTablesListView_DoubleClick(object? sender, EventArgs e)
+        {
+            if (stringTablesListView.SelectedItems.Count == 0)
+                return;
+
+            var selectedItem = stringTablesListView.SelectedItems[0];
+            var stringTable = selectedItem.Tag as StringTable;
+
+            if (stringTable != null)
+            {
+                using (var viewer = new StringTableViewerForm(stringTable))
+                {
+                    viewer.ShowDialog(this);
                 }
             }
         }

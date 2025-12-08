@@ -252,6 +252,33 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             // Don't stop - xanims are complex, just skip
                         }
                     }
+                    else if (gameDefinition.IsStringTableType(assetTypeValue))
+                    {
+                        // Parse stringtable using game-specific parser
+                        StringTable? stringTable = gameDefinition.ParseStringTable(zoneData, startingOffset);
+
+                        if (stringTable != null)
+                        {
+                            assetRecordMethod = $"StringTable parsed using {gameDefinition.ShortName} structure-based parser.";
+                            result.StringTables.Add(stringTable);
+
+                            // Update the asset record with stringtable info
+                            var assetRecord = zoneAssetRecords[i];
+                            assetRecord.AssetRecordEndOffset = stringTable.DataEndPosition;
+                            assetRecord.Name = stringTable.TableName;
+                            assetRecord.Content = $"{stringTable.RowCount}x{stringTable.ColumnCount} ({stringTable.Cells?.Count ?? 0} cells)";
+                            assetRecord.AdditionalData = assetRecordMethod;
+                            zoneAssetRecords[i] = assetRecord;
+
+                            indexOfLastAssetRecordParsed = i;
+                        }
+                        else
+                        {
+                            // StringTable parsing failed - continue to next asset
+                            Debug.WriteLine($"[AssetRecordProcessor] Failed to parse stringtable at index {i}, offset 0x{startingOffset:X}. Continuing.");
+                            // Don't stop - stringtables are complex, just skip
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -496,6 +523,43 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     }
 
                     Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {xanimsParsed} xanims");
+                }
+
+                // For stringtables, use pattern matching to find them
+                int expectedStringTableCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
+                    structureParsingStoppedAtIndex, gameDefinition.StringTableAssetType);
+                int alreadyParsedStringTables = result.StringTables.Count;
+                int remainingStringTables = expectedStringTableCount - alreadyParsedStringTables;
+
+                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedStringTableCount} stringtables, already parsed {alreadyParsedStringTables}, remaining {remainingStringTables}");
+
+                if (remainingStringTables > 0)
+                {
+                    // Use pattern matching to find stringtables
+                    int stringTableSearchOffset = searchStartOffset;
+                    int stringTablesParsed = 0;
+
+                    while (stringTablesParsed < remainingStringTables && stringTableSearchOffset < zoneData.Length)
+                    {
+                        // Use the existing pattern matching method from StringTable class
+                        var stringTable = StringTable.FindSingleCsvStringTableWithPattern(
+                            openedFastFile.OpenedFastFileZone, stringTableSearchOffset);
+
+                        if (stringTable == null)
+                        {
+                            Debug.WriteLine($"[AssetRecordProcessor] No more stringtables found after 0x{stringTableSearchOffset:X}");
+                            break;
+                        }
+
+                        result.StringTables.Add(stringTable);
+                        stringTablesParsed++;
+                        Debug.WriteLine($"[AssetRecordProcessor] Pattern matched stringtable #{stringTablesParsed}: '{stringTable.TableName}' at 0x{stringTable.StartOfFileHeader:X}");
+
+                        // Move past this stringtable to find the next one
+                        stringTableSearchOffset = stringTable.DataEndPosition + 1;
+                    }
+
+                    Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {stringTablesParsed} stringtables");
                 }
             }
 
@@ -791,6 +855,13 @@ namespace Call_of_Duty_FastFile_Editor.Services
         private static XAnimParts? FindNextXAnim(byte[] zoneData, int startOffset, int maxSearchBytes, IGameDefinition gameDefinition)
         {
             Debug.WriteLine($"[AssetRecordProcessor] Searching for XAnim from 0x{startOffset:X}, max {maxSearchBytes} bytes");
+
+            // Bounds check - ensure startOffset is valid
+            if (startOffset < 0 || startOffset >= zoneData.Length - 100)
+            {
+                Debug.WriteLine($"[AssetRecordProcessor] XAnim search startOffset 0x{startOffset:X} is out of bounds (zone size: 0x{zoneData.Length:X})");
+                return null;
+            }
 
             int endOffset = Math.Min(startOffset + maxSearchBytes, zoneData.Length - 100);
 

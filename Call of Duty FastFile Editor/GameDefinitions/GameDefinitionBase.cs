@@ -21,6 +21,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public abstract byte LocalizeAssetType { get; }
         public virtual byte MenuFileAssetType => 0; // Default 0 means not supported
         public abstract byte XAnimAssetType { get; }
+        public abstract byte StringTableAssetType { get; }
 
         public virtual bool IsRawFileType(int assetType) => assetType == RawFileAssetType;
         public virtual bool IsLocalizeType(int assetType) => assetType == LocalizeAssetType;
@@ -28,7 +29,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public virtual bool IsXAnimType(int assetType) => assetType == XAnimAssetType;
         public virtual bool IsMaterialType(int assetType) => false; // Override in game-specific definitions
         public virtual bool IsTechSetType(int assetType) => false; // Override in game-specific definitions
-        public virtual bool IsSupportedAssetType(int assetType) => IsRawFileType(assetType) || IsLocalizeType(assetType) || IsMenuFileType(assetType) || IsXAnimType(assetType);
+        public virtual bool IsStringTableType(int assetType) => assetType == StringTableAssetType;
+        public virtual bool IsSupportedAssetType(int assetType) => IsRawFileType(assetType) || IsLocalizeType(assetType) || IsMenuFileType(assetType) || IsXAnimType(assetType) || IsStringTableType(assetType);
         public abstract string GetAssetTypeName(int assetType);
 
         /// <summary>
@@ -400,24 +402,30 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 return null;
             }
 
+            // Reject names that look like non-animation assets (sound files, etc.)
+            if (name.StartsWith("sfx/", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("snd/", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("fx/", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("ui/", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("mp/", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".menu", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".gsc", StringComparison.OrdinalIgnoreCase) ||
+                name.EndsWith(".csc", StringComparison.OrdinalIgnoreCase))
+            {
+                if (debugOutput) Debug.WriteLine($"[{ShortName}] XAnim: Name '{name}' looks like a non-animation asset, skipping");
+                return null;
+            }
+
             Debug.WriteLine($"[{ShortName}] XAnim header at 0x{offset:X}: name='{name}', frames={numframes}, fps={framerate:F1}, bones={boneCount.Sum(b => (int)b)}");
 
-            // Calculate end offset (header + name + null terminator)
-            // The actual data follows but we're just parsing the header for now
-            int endOffset = nameOffset + name.Length + 1;
+            // Find the end of this XAnim by searching for the next asset header
+            // XAnims have complex sub-structures (bone names, notify data, delta parts, etc.)
+            // so we can't accurately calculate the size - instead search for the next 0xFFFFFFFF marker
+            int dataStartOffset = nameOffset + name.Length + 1;
+            int endOffset = FindNextAssetHeader(zoneData, dataStartOffset, offset);
 
-            // Skip past any inline data based on the counts
-            // This is a simplified calculation - actual size depends on data alignment
-            int estimatedDataSize =
-                dataByteCount +
-                (dataShortCount * 2) +
-                (dataIntCount * 4) +
-                randomDataByteCount +
-                (int)(randomDataShortCount * 2) +
-                (randomDataIntCount * 4);
-
-            // Add some buffer for alignment and additional structures
-            endOffset += estimatedDataSize;
+            Debug.WriteLine($"[{ShortName}] XAnim '{name}': next asset header found at 0x{endOffset:X}");
 
             return new XAnimParts
             {
@@ -441,6 +449,137 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 EndOffset = endOffset,
                 AdditionalData = $"{ShortName} structure-based parse; {numframes} frames at {framerate:F1} fps"
             };
+        }
+
+        /// <summary>
+        /// Parses a StringTable asset from zone data.
+        /// StringTable structure:
+        /// [FF FF FF FF] - name pointer (inline)
+        /// [4 bytes] - column count (BE)
+        /// [4 bytes] - row count (BE)
+        /// [FF FF FF FF] - values pointer (inline)
+        /// [null-terminated name]
+        /// [cell pointers and string data]
+        /// </summary>
+        public virtual StringTable? ParseStringTable(byte[] zoneData, int offset)
+        {
+            Debug.WriteLine($"[{ShortName}] ParseStringTable at offset 0x{offset:X}");
+
+            if (offset + 16 > zoneData.Length)
+            {
+                Debug.WriteLine($"[{ShortName}] Not enough data for StringTable header at 0x{offset:X}");
+                return null;
+            }
+
+            // Read the 16-byte header
+            uint namePointer = ReadUInt32BE(zoneData, offset);
+            int columnCount = (int)ReadUInt32BE(zoneData, offset + 4);
+            int rowCount = (int)ReadUInt32BE(zoneData, offset + 8);
+            uint valuesPointer = ReadUInt32BE(zoneData, offset + 12);
+
+            Debug.WriteLine($"[{ShortName}] StringTable Header: namePtr=0x{namePointer:X}, cols={columnCount}, rows={rowCount}, valuesPtr=0x{valuesPointer:X}");
+
+            // Name pointer must be inline (FF FF FF FF) for embedded data
+            if (namePointer != 0xFFFFFFFF)
+            {
+                Debug.WriteLine($"[{ShortName}] StringTable name pointer not inline (0x{namePointer:X}), skipping.");
+                return null;
+            }
+
+            // Validate row/column counts are reasonable
+            if (columnCount <= 0 || columnCount > 1000 || rowCount <= 0 || rowCount > 100000)
+            {
+                Debug.WriteLine($"[{ShortName}] StringTable invalid dimensions: {columnCount} x {rowCount}");
+                return null;
+            }
+
+            int cellCount = rowCount * columnCount;
+
+            // Table name follows the 16-byte header (null-terminated string)
+            int tableNameOffset = offset + 16;
+            string tableName = ReadNullTerminatedString(zoneData, tableNameOffset);
+
+            if (string.IsNullOrEmpty(tableName))
+            {
+                Debug.WriteLine($"[{ShortName}] StringTable empty table name at 0x{tableNameOffset:X}");
+                return null;
+            }
+
+            // Validate table name looks like a CSV path
+            if (!tableName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                Debug.WriteLine($"[{ShortName}] StringTable name doesn't end with .csv: '{tableName}'");
+                return null;
+            }
+
+            Debug.WriteLine($"[{ShortName}] StringTable name: '{tableName}'");
+
+            // Calculate where the header ends (after the name string + null terminator)
+            int headerLength = 16 + tableName.Length + 1;
+
+            // Values pointer should also be inline
+            if (valuesPointer != 0xFFFFFFFF)
+            {
+                Debug.WriteLine($"[{ShortName}] StringTable values pointer not inline (0x{valuesPointer:X})");
+                // Continue anyway - some tables may have external values
+            }
+
+            // Cell data block follows the header (each cell is a 4-byte pointer)
+            int cellDataBlockOffset = offset + headerLength;
+
+            // Ensure enough data for cell pointers
+            if (cellDataBlockOffset + (cellCount * 4) > zoneData.Length)
+            {
+                Debug.WriteLine($"[{ShortName}] Not enough data for cell pointers at 0x{cellDataBlockOffset:X}");
+                return null;
+            }
+
+            // String data follows the cell pointers
+            int stringBlockOffset = cellDataBlockOffset + (cellCount * 4);
+
+            // Read all cell strings
+            var cells = new List<(int Offset, string Text)>();
+            int currentStringOffset = stringBlockOffset;
+            int dataStartPos = stringBlockOffset;
+
+            for (int i = 0; i < cellCount && currentStringOffset < zoneData.Length; i++)
+            {
+                // Check for next asset marker (FF FF FF FF at 4-byte boundary after multiple cells)
+                if (i > 0 && currentStringOffset + 4 <= zoneData.Length)
+                {
+                    uint marker = ReadUInt32BE(zoneData, currentStringOffset);
+                    if (marker == 0xFFFFFFFF)
+                    {
+                        Debug.WriteLine($"[{ShortName}] StringTable hit next asset marker at 0x{currentStringOffset:X}");
+                        break;
+                    }
+                }
+
+                int cellOffset = currentStringOffset;
+                string cellValue = ReadNullTerminatedString(zoneData, currentStringOffset);
+                cells.Add((cellOffset, cellValue));
+                currentStringOffset += cellValue.Length + 1; // +1 for null terminator
+            }
+
+            Debug.WriteLine($"[{ShortName}] StringTable read {cells.Count} strings (expected {cellCount} cells)");
+
+            var stringTable = new StringTable
+            {
+                TableName = tableName,
+                ColumnCount = columnCount,
+                RowCount = rowCount,
+                ColumnCountOffset = offset + 4,
+                RowCountOffset = offset + 8,
+                TableNameOffset = tableNameOffset,
+                Cells = cells,
+                StartOfFileHeader = offset,
+                EndOfFileHeader = offset + headerLength,
+                DataStartPosition = dataStartPos,
+                DataEndPosition = currentStringOffset,
+                AdditionalData = $"{ShortName} structure-based parse"
+            };
+
+            return stringTable;
         }
 
         #region Helper Methods
@@ -483,6 +622,99 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 offset++;
             }
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Searches forward from the given position to find the next valid asset header.
+        /// Asset headers start with 0xFFFFFFFF (inline pointer marker).
+        /// Returns the offset of the next header, or the end of the data if not found.
+        /// </summary>
+        /// <param name="data">The zone data</param>
+        /// <param name="searchStart">Position to start searching from</param>
+        /// <param name="currentAssetStart">Start of current asset (to avoid finding ourselves)</param>
+        /// <returns>Offset of next asset header or end of data</returns>
+        protected static int FindNextAssetHeader(byte[] data, int searchStart, int currentAssetStart)
+        {
+            // Search up to 500KB from the search start for the next asset header
+            int maxSearch = Math.Min(searchStart + 500_000, data.Length - 64);
+
+            for (int pos = searchStart; pos < maxSearch; pos++)
+            {
+                // Look for 0xFFFFFFFF marker
+                if (data[pos] == 0xFF && data[pos + 1] == 0xFF &&
+                    data[pos + 2] == 0xFF && data[pos + 3] == 0xFF)
+                {
+                    // Validate this looks like a valid asset header, not just random FFs
+                    // Check that we're not finding a sequence of multiple FFs (like 8+ FFs)
+                    if (pos > 0 && data[pos - 1] == 0xFF)
+                        continue; // This is in the middle of an FF run, skip
+
+                    if (pos + 48 >= data.Length)
+                        continue;
+
+                    // Check for 8-byte FF marker (localize entry)
+                    uint nextValue = ReadUInt32BE(data, pos + 4);
+                    if (nextValue == 0xFFFFFFFF)
+                    {
+                        // Check if byte after the 8 FFs is printable (start of string)
+                        byte afterMarker = data[pos + 8];
+                        if (afterMarker >= 0x20 && afterMarker <= 0x7E)
+                        {
+                            return pos; // Valid localize or similar asset
+                        }
+                        continue;
+                    }
+
+                    // Check if this looks like a RawFile header:
+                    // [FF FF FF FF] [size 4 bytes] [FF FF FF FF] [name]
+                    if (nextValue < 10_000_000 && ReadUInt32BE(data, pos + 8) == 0xFFFFFFFF)
+                    {
+                        // Check if there's a printable char after the second marker (filename)
+                        byte nameStart = data[pos + 12];
+                        if (nameStart >= 0x20 && nameStart <= 0x7E)
+                        {
+                            return pos; // Valid rawfile header
+                        }
+                    }
+
+                    // Check if this looks like an XAnim header:
+                    // [FF FF FF FF] [dataByteCount 2B] [dataShortCount 2B] [dataIntCount 2B] ... [numFrames 2B at +0x0E] ... [framerate float at +0x2C]
+                    ushort potentialDataByteCount = ReadUInt16BE(data, pos + 4);
+                    ushort potentialDataShortCount = ReadUInt16BE(data, pos + 6);
+                    ushort potentialNumFrames = ReadUInt16BE(data, pos + 0x0E);
+                    float potentialFramerate = ReadFloatBE(data, pos + 0x2C);
+
+                    // XAnim validation: reasonable counts, valid frame count, valid framerate
+                    if (potentialDataByteCount < 50000 &&
+                        potentialDataShortCount < 50000 &&
+                        potentialNumFrames > 0 && potentialNumFrames < 10000 &&
+                        !float.IsNaN(potentialFramerate) && !float.IsInfinity(potentialFramerate) &&
+                        potentialFramerate >= 0.1f && potentialFramerate <= 120f)
+                    {
+                        return pos; // Valid XAnim header
+                    }
+
+                    // Check if this looks like a StringTable header:
+                    // [FF FF FF FF] [columnCount 4B] [rowCount 4B] [FF FF FF FF]
+                    int potentialColCount = (int)ReadUInt32BE(data, pos + 4);
+                    int potentialRowCount = (int)ReadUInt32BE(data, pos + 8);
+                    uint valuesPointer = ReadUInt32BE(data, pos + 12);
+                    if (potentialColCount > 0 && potentialColCount < 100 &&
+                        potentialRowCount > 0 && potentialRowCount < 10000 &&
+                        valuesPointer == 0xFFFFFFFF)
+                    {
+                        // Check for .csv in name
+                        int nameOffset = pos + 16;
+                        if (nameOffset + 10 < data.Length && data[nameOffset] >= 0x20 && data[nameOffset] <= 0x7E)
+                        {
+                            return pos; // Valid StringTable header
+                        }
+                    }
+                }
+            }
+
+            // If we didn't find a valid next header, return end of search range
+            return Math.Min(searchStart + 100_000, data.Length);
         }
 
         #endregion

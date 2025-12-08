@@ -16,6 +16,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override byte RawFileAssetType => CoD4Definition.RawFileAssetType;
         public override byte LocalizeAssetType => CoD4Definition.LocalizeAssetType;
         public override byte XAnimAssetType => CoD4Definition.XAnimAssetType;
+        public override byte StringTableAssetType => CoD4Definition.StringTableAssetType;
 
         public override string GetAssetTypeName(int assetType)
         {
@@ -30,7 +31,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         {
             return assetType == RawFileAssetType ||
                    assetType == LocalizeAssetType ||
-                   assetType == XAnimAssetType;
+                   assetType == XAnimAssetType ||
+                   assetType == StringTableAssetType;
         }
     }
 }

@@ -78,7 +78,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
             foreach (var kvp in assetCounts.OrderByDescending(x => x.Value))
             {
                 bool isSupported = kvp.Key == "rawfile" || kvp.Key == "localize" || kvp.Key == "menufile" ||
-                                   kvp.Key == "material" || kvp.Key == "techset" || kvp.Key == "xanim";
+                                   kvp.Key == "material" || kvp.Key == "techset" || kvp.Key == "xanim" ||
+                                   kvp.Key == "stringtable";
                 result.Add(new AssetTypeInfo
                 {
                     TypeName = kvp.Key,

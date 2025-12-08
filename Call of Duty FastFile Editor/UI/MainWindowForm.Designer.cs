@@ -91,6 +91,8 @@ namespace Call_of_Duty_FastFile_Editor
             xAnimsListView = new ListView();
             xAnimsContextMenu = new ContextMenuStrip(components);
             exportXAnimMenuItem = new ToolStripMenuItem();
+            stringTablesTabPage = new TabPage();
+            stringTablesListView = new ListView();
             zoneFileTabPage = new TabPage();
             zoneInfoDataGridView = new DataGridView();
             bindingSource1 = new BindingSource(components);
@@ -117,6 +119,7 @@ namespace Call_of_Duty_FastFile_Editor
             techSetsTabPage.SuspendLayout();
             xAnimsTabPage.SuspendLayout();
             xAnimsContextMenu.SuspendLayout();
+            stringTablesTabPage.SuspendLayout();
             zoneFileTabPage.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).BeginInit();
             ((System.ComponentModel.ISupportInitialize)bindingSource1).BeginInit();
@@ -500,6 +503,7 @@ namespace Call_of_Duty_FastFile_Editor
             mainTabControl.Controls.Add(menuFilesTabPage);
             mainTabControl.Controls.Add(techSetsTabPage);
             mainTabControl.Controls.Add(xAnimsTabPage);
+            mainTabControl.Controls.Add(stringTablesTabPage);
             mainTabControl.Controls.Add(tagsTabPage);
             mainTabControl.Controls.Add(assetPoolTabPage);
             mainTabControl.Controls.Add(zoneFileTabPage);
@@ -736,8 +740,33 @@ namespace Call_of_Duty_FastFile_Editor
             exportXAnimMenuItem.Text = "Export XAnim Data...";
             exportXAnimMenuItem.Click += exportXAnimMenuItem_Click;
             //
+            // stringTablesTabPage
+            //
+            stringTablesTabPage.Controls.Add(stringTablesListView);
+            stringTablesTabPage.Location = new Point(4, 24);
+            stringTablesTabPage.Name = "stringTablesTabPage";
+            stringTablesTabPage.Padding = new Padding(3);
+            stringTablesTabPage.Size = new Size(1442, 749);
+            stringTablesTabPage.TabIndex = 11;
+            stringTablesTabPage.Text = "String Tables";
+            stringTablesTabPage.UseVisualStyleBackColor = true;
+            //
+            // stringTablesListView
+            //
+            stringTablesListView.ContextMenuStrip = universalContextMenu;
+            stringTablesListView.Dock = DockStyle.Fill;
+            stringTablesListView.FullRowSelect = true;
+            stringTablesListView.Location = new Point(3, 3);
+            stringTablesListView.Name = "stringTablesListView";
+            stringTablesListView.Size = new Size(1436, 743);
+            stringTablesListView.TabIndex = 0;
+            stringTablesListView.UseCompatibleStateImageBehavior = false;
+            stringTablesListView.View = View.Details;
+            stringTablesListView.MouseDown += listView_MouseDownCopy;
+            stringTablesListView.DoubleClick += stringTablesListView_DoubleClick;
+            //
             // zoneFileTabPage
-            // 
+            //
             zoneFileTabPage.Controls.Add(zoneInfoDataGridView);
             zoneFileTabPage.Location = new Point(4, 24);
             zoneFileTabPage.Name = "zoneFileTabPage";
@@ -798,6 +827,7 @@ namespace Call_of_Duty_FastFile_Editor
             techSetsTabPage.ResumeLayout(false);
             xAnimsTabPage.ResumeLayout(false);
             xAnimsContextMenu.ResumeLayout(false);
+            stringTablesTabPage.ResumeLayout(false);
             zoneFileTabPage.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).EndInit();
             ((System.ComponentModel.ISupportInitialize)bindingSource1).EndInit();
@@ -862,6 +892,8 @@ namespace Call_of_Duty_FastFile_Editor
         private ListView xAnimsListView;
         private ContextMenuStrip xAnimsContextMenu;
         private ToolStripMenuItem exportXAnimMenuItem;
+        private TabPage stringTablesTabPage;
+        private ListView stringTablesListView;
         private TabPage localizeTabPage;
         private ListView localizeListView;
         private TabPage menuFilesTabPage;

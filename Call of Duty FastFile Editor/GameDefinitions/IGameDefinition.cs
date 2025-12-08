@@ -54,6 +54,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         byte XAnimAssetType { get; }
 
         /// <summary>
+        /// Asset type ID for stringtable assets.
+        /// </summary>
+        byte StringTableAssetType { get; }
+
+        /// <summary>
         /// Checks if the given asset type value is a rawfile.
         /// </summary>
         bool IsRawFileType(int assetType);
@@ -118,6 +123,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         bool IsTechSetType(int assetType);
 
         /// <summary>
+        /// Checks if the given asset type value is a stringtable.
+        /// </summary>
+        bool IsStringTableType(int assetType);
+
+        /// <summary>
         /// Parses a material asset from the zone data at the given offset.
         /// </summary>
         /// <param name="zoneData">The zone file data.</param>
@@ -140,5 +150,13 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         /// <param name="offset">Starting offset to parse from.</param>
         /// <returns>Parsed XAnimParts, or null if parsing failed.</returns>
         XAnimParts? ParseXAnim(byte[] zoneData, int offset);
+
+        /// <summary>
+        /// Parses a stringtable asset from the zone data at the given offset.
+        /// </summary>
+        /// <param name="zoneData">The zone file data.</param>
+        /// <param name="offset">Starting offset to parse from.</param>
+        /// <returns>Parsed StringTable, or null if parsing failed.</returns>
+        StringTable? ParseStringTable(byte[] zoneData, int offset);
     }
 }

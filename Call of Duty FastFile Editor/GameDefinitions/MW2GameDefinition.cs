@@ -19,6 +19,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override byte LocalizeAssetType => MW2Definition.LocalizeAssetType;
         public override byte MenuFileAssetType => 0x19; // menufile type for MW2
         public override byte XAnimAssetType => MW2Definition.XAnimAssetType;
+        public override byte StringTableAssetType => MW2Definition.StringTableAssetType;
 
         public override string GetAssetTypeName(int assetType)
         {
@@ -34,7 +35,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             return assetType == RawFileAssetType ||
                    assetType == LocalizeAssetType ||
                    assetType == MenuFileAssetType ||
-                   assetType == XAnimAssetType;
+                   assetType == XAnimAssetType ||
+                   assetType == StringTableAssetType;
         }
 
         /// <summary>
