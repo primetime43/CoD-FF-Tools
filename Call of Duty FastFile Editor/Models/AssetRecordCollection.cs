@@ -15,6 +15,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public List<MenuList> MenuLists { get; set; } = new List<MenuList>();
         public List<MaterialAsset> Materials { get; set; } = new List<MaterialAsset>();
         public List<TechSetAsset> TechSets { get; set; } = new List<TechSetAsset>();
+        public List<XAnimParts> XAnims { get; set; } = new List<XAnimParts>();
         public List<ZoneAssetRecord> UpdatedRecords { get; set; } = new List<ZoneAssetRecord>();
     }
 
