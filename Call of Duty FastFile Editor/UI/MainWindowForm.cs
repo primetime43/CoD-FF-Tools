@@ -2399,7 +2399,8 @@ namespace Call_of_Duty_FastFile_Editor
 
             // Count total parsed assets
             int totalParsed = (_rawFileNodes?.Count ?? 0) + (_localizedEntries?.Count ?? 0) +
-                              (_menuLists?.Count ?? 0) + (_techSets?.Count ?? 0) + (_xanims?.Count ?? 0);
+                              (_menuLists?.Count ?? 0) + (_techSets?.Count ?? 0) + (_xanims?.Count ?? 0) +
+                              (_stringTables?.Count ?? 0);
             int totalAssets = _zoneAssetRecords.Count;
 
             // Columns for the list view
@@ -2430,6 +2431,7 @@ namespace Call_of_Duty_FastFile_Editor
             int menuIndex = 0;
             int techSetIndex = 0;
             int xanimIndex = 0;
+            int stringTableIndex = 0;
 
             // Iterate through ALL asset records from the asset pool
             for (int i = 0; i < _zoneAssetRecords.Count; i++)
@@ -2444,6 +2446,7 @@ namespace Call_of_Duty_FastFile_Editor
                 bool isMenuFile = gameDefinition.IsMenuFileType(assetTypeValue);
                 bool isTechSet = gameDefinition.IsTechSetType(assetTypeValue);
                 bool isXAnim = gameDefinition.IsXAnimType(assetTypeValue);
+                bool isStringTable = gameDefinition.IsStringTableType(assetTypeValue);
 
                 var lvi = new ListViewItem((i + 1).ToString());
                 lvi.SubItems.Add(assetTypeName);
@@ -2515,6 +2518,18 @@ namespace Call_of_Duty_FastFile_Editor
                     size = $"0x{xanimSize:X}";
                     status = $"XAnim parsed ({xanim.GetSummary()})";
                     xanimIndex++;
+                }
+                else if (isStringTable && _stringTables != null && stringTableIndex < _stringTables.Count)
+                {
+                    var stringTable = _stringTables[stringTableIndex];
+                    isParsed = true;
+                    name = stringTable.TableName ?? "-";
+                    dataStart = $"0x{stringTable.StartOfFileHeader:X}";
+                    dataEnd = $"0x{stringTable.DataEndPosition:X}";
+                    int tableSize = stringTable.DataEndPosition - stringTable.StartOfFileHeader;
+                    size = $"0x{tableSize:X}";
+                    status = $"StringTable parsed ({stringTable.RowCount}x{stringTable.ColumnCount}, {stringTable.Cells?.Count ?? 0} cells)";
+                    stringTableIndex++;
                 }
 
                 lvi.SubItems.Add(dataStart);

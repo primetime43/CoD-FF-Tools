@@ -526,8 +526,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 }
 
                 // For stringtables, use pattern matching to find them
+                // Count from index 0 because StringTables may appear anywhere in the asset pool
                 int expectedStringTableCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
-                    structureParsingStoppedAtIndex, gameDefinition.StringTableAssetType);
+                    0, gameDefinition.StringTableAssetType);
                 int alreadyParsedStringTables = result.StringTables.Count;
                 int remainingStringTables = expectedStringTableCount - alreadyParsedStringTables;
 
@@ -535,6 +536,21 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 if (remainingStringTables > 0)
                 {
+                    // Get indices of unparsed stringtable asset records
+                    // Search from index 0 because StringTables may appear before the index where parsing stopped
+                    var stringTableIndices = new List<int>();
+                    for (int i = 0; i < zoneAssetRecords.Count; i++)
+                    {
+                        int assetType = GetAssetTypeValue(openedFastFile, zoneAssetRecords[i]);
+                        if (gameDefinition.IsStringTableType(assetType) &&
+                            string.IsNullOrEmpty(zoneAssetRecords[i].Name))
+                        {
+                            stringTableIndices.Add(i);
+                            Debug.WriteLine($"[AssetRecordProcessor] Found unparsed stringtable at index {i}");
+                        }
+                    }
+                    Debug.WriteLine($"[AssetRecordProcessor] Found {stringTableIndices.Count} unparsed stringtable records in asset pool");
+
                     // Use pattern matching to find stringtables
                     int stringTableSearchOffset = searchStartOffset;
                     int stringTablesParsed = 0;
@@ -552,6 +568,29 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         }
 
                         result.StringTables.Add(stringTable);
+
+                        // Update the corresponding asset record if we have one
+                        if (stringTablesParsed < stringTableIndices.Count)
+                        {
+                            int recordIndex = stringTableIndices[stringTablesParsed];
+                            Debug.WriteLine($"[AssetRecordProcessor] Updating asset record at index {recordIndex} with stringtable '{stringTable.TableName}'");
+                            var assetRecord = zoneAssetRecords[recordIndex];
+                            assetRecord.AssetRecordEndOffset = stringTable.DataEndPosition;
+                            assetRecord.Name = stringTable.TableName;
+                            assetRecord.Content = $"{stringTable.RowCount}x{stringTable.ColumnCount} ({stringTable.Cells?.Count ?? 0} cells)";
+                            assetRecord.AdditionalData = "StringTable parsed using pattern matching (fallback).";
+                            assetRecord.HeaderStartOffset = stringTable.StartOfFileHeader;
+                            assetRecord.HeaderEndOffset = stringTable.EndOfFileHeader;
+                            assetRecord.AssetDataStartPosition = stringTable.DataStartPosition;
+                            assetRecord.AssetDataEndOffset = stringTable.DataEndPosition;
+                            zoneAssetRecords[recordIndex] = assetRecord;
+                            Debug.WriteLine($"[AssetRecordProcessor] Asset record {recordIndex} updated: Name='{assetRecord.Name}', AdditionalData='{assetRecord.AdditionalData}'");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"[AssetRecordProcessor] No asset record to update for stringtable '{stringTable.TableName}' (stringTablesParsed={stringTablesParsed}, indices count={stringTableIndices.Count})");
+                        }
+
                         stringTablesParsed++;
                         Debug.WriteLine($"[AssetRecordProcessor] Pattern matched stringtable #{stringTablesParsed}: '{stringTable.TableName}' at 0x{stringTable.StartOfFileHeader:X}");
 
