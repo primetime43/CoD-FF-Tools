@@ -247,28 +247,10 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         /// </summary>
         public virtual XAnimParts? ParseXAnim(byte[] zoneData, int offset)
         {
-            Debug.WriteLine($"[{ShortName}] ParseXAnim at offset 0x{offset:X}");
-
-            // First try structure-based parsing at exact offset (with debug output)
-            var result = TryParseXAnimStructure(zoneData, offset, debugOutput: true);
-            if (result != null)
-            {
-                return result;
-            }
-
-            // If exact position failed, search forward for a valid XAnim header
-            for (int searchOffset = offset + 1; searchOffset < Math.Min(offset + 256, zoneData.Length - 88); searchOffset++)
-            {
-                result = TryParseXAnimStructure(zoneData, searchOffset, debugOutput: false);
-                if (result != null)
-                {
-                    Debug.WriteLine($"[{ShortName}] Found XAnim at adjusted offset 0x{searchOffset:X} (was 0x{offset:X})");
-                    return result;
-                }
-            }
-
-            Debug.WriteLine($"[{ShortName}] Failed to parse XAnim at 0x{offset:X}");
-            return null;
+            // Structure-based parsing at exact offset
+            // Note: FindNextXAnim already validates structure before calling this method,
+            // so we don't need to do expensive forward searching here
+            return TryParseXAnimStructure(zoneData, offset, debugOutput: false);
         }
 
         /// <summary>
@@ -284,8 +266,9 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             }
 
             // Read the name pointer (should be 0xFFFFFFFF for inline)
+            // Only accept 0xFFFFFFFF - accepting 0x00000000 causes false positives on zero-padded regions
             uint namePointer = ReadUInt32BE(zoneData, offset);
-            if (namePointer != 0xFFFFFFFF && namePointer != 0x00000000)
+            if (namePointer != 0xFFFFFFFF)
             {
                 if (debugOutput) Debug.WriteLine($"[{ShortName}] XAnim: Invalid name pointer 0x{namePointer:X8} at 0x{offset:X}");
                 return null;
@@ -375,9 +358,10 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 if (zoneData[searchStart] == 0xFF || zoneData[searchStart] == 0x00)
                     continue;
 
-                // Check if this looks like a valid name start (lowercase letter or 'p' for prefix)
+                // Check if this looks like a valid name start
+                // Accept: letters (a-z, A-Z), '@' (for menu anims), digits (for some names)
                 byte b = zoneData[searchStart];
-                if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z'))
+                if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '@' || b == '_' || (b >= '0' && b <= '9'))
                 {
                     string candidate = ReadNullTerminatedString(zoneData, searchStart);
                     if (!string.IsNullOrEmpty(candidate) && candidate.Length >= 3 && candidate.Length <= 128)

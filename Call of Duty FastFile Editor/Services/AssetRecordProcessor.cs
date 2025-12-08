@@ -501,25 +501,37 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 if (remainingXAnims > 0)
                 {
                     // Use pattern matching to find xanims
+                    // Search the entire zone since XAnims can be scattered with large gaps between them
                     int xanimSearchOffset = searchStartOffset;
                     int xanimsParsed = 0;
+                    int searchChunkSize = 500000; // Search in 500KB chunks
 
-                    while (xanimsParsed < remainingXAnims && xanimSearchOffset < zoneData.Length)
+                    while (xanimsParsed < remainingXAnims && xanimSearchOffset < zoneData.Length - 100)
                     {
-                        var xanim = FindNextXAnim(zoneData, xanimSearchOffset, 500000, gameDefinition);
+                        var xanim = FindNextXAnim(zoneData, xanimSearchOffset, searchChunkSize, gameDefinition);
 
-                        if (xanim == null)
+                        if (xanim != null)
                         {
-                            Debug.WriteLine($"[AssetRecordProcessor] No more xanims found after 0x{xanimSearchOffset:X}");
-                            break;
+                            result.XAnims.Add(xanim);
+                            xanimsParsed++;
+                            Debug.WriteLine($"[AssetRecordProcessor] Pattern matched xanim #{xanimsParsed}: '{xanim.Name}' at 0x{xanim.StartOffset:X}");
+
+                            // Move past this xanim to find the next one
+                            xanimSearchOffset = xanim.EndOffset;
                         }
-
-                        result.XAnims.Add(xanim);
-                        xanimsParsed++;
-                        Debug.WriteLine($"[AssetRecordProcessor] Pattern matched xanim #{xanimsParsed}: '{xanim.Name}' at 0x{xanim.StartOffset:X}");
-
-                        // Move past this xanim to find the next one
-                        xanimSearchOffset = xanim.EndOffset;
+                        else
+                        {
+                            // No XAnim found in this chunk - continue searching from end of chunk
+                            // XAnims may be scattered with gaps larger than the search chunk
+                            int nextSearchOffset = xanimSearchOffset + searchChunkSize;
+                            if (nextSearchOffset >= zoneData.Length - 100)
+                            {
+                                Debug.WriteLine($"[AssetRecordProcessor] Reached end of zone at 0x{xanimSearchOffset:X}, stopping xanim search");
+                                break;
+                            }
+                            Debug.WriteLine($"[AssetRecordProcessor] No xanim in chunk at 0x{xanimSearchOffset:X}, continuing from 0x{nextSearchOffset:X}");
+                            xanimSearchOffset = nextSearchOffset;
+                        }
                     }
 
                     Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {xanimsParsed} xanims");
@@ -888,8 +900,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
         }
 
         /// <summary>
-        /// Finds the next XAnim by pattern matching.
-        /// Searches for the XAnim header pattern: [FF FF FF FF] followed by valid animation data.
+        /// Finds the next XAnim by structure-based search first, then pattern matching as fallback.
+        /// Validates XAnim structure characteristics before attempting full parse to avoid slow false positives.
         /// </summary>
         private static XAnimParts? FindNextXAnim(byte[] zoneData, int startOffset, int maxSearchBytes, IGameDefinition gameDefinition)
         {
@@ -907,11 +919,51 @@ namespace Call_of_Duty_FastFile_Editor.Services
             for (int pos = startOffset; pos < endOffset; pos++)
             {
                 // Look for the pattern: [FF FF FF FF] - name pointer (inline)
-                uint namePtr = ReadUInt32BE(zoneData, pos);
-                if (namePtr != 0xFFFFFFFF)
+                if (zoneData[pos] != 0xFF || zoneData[pos + 1] != 0xFF ||
+                    zoneData[pos + 2] != 0xFF || zoneData[pos + 3] != 0xFF)
                     continue;
 
-                // Try to parse it using the game definition's parser
+                // Quick structural validation BEFORE calling ParseXAnim to avoid slow false positives
+                // XAnim structure (CoD4/WaW):
+                // 0x00: name pointer (FF FF FF FF) - already matched
+                // 0x0E: numframes (2 bytes BE)
+                // 0x2C: framerate (4 bytes float BE)
+
+                // Check we have enough data for the header
+                if (pos + 0x34 > zoneData.Length)
+                    continue;
+
+                // Quick validation: Check numframes at 0x0E (should be reasonable: 1-50000)
+                ushort numframes = (ushort)((zoneData[pos + 0x0E] << 8) | zoneData[pos + 0x0F]);
+                if (numframes == 0 || numframes > 50000)
+                    continue;
+
+                // Quick validation: Check framerate is a valid IEEE 754 float
+                // Valid framerates: 0.1 to 120 fps (game animations typically 15-60 fps)
+                // Note: Valid floats like 30.0 (0x41F00000) have bytes that look like ASCII,
+                // so we can't filter by byte values - only validate the actual float value
+                byte[] floatBytes = new byte[4];
+                floatBytes[0] = zoneData[pos + 0x2F];
+                floatBytes[1] = zoneData[pos + 0x2E];
+                floatBytes[2] = zoneData[pos + 0x2D];
+                floatBytes[3] = zoneData[pos + 0x2C];
+                float framerate = BitConverter.ToSingle(floatBytes, 0);
+
+                // Skip if framerate is invalid (NaN, infinity, or out of reasonable range)
+                // This filters out most text data which produces extreme float values
+                if (float.IsNaN(framerate) || float.IsInfinity(framerate) || framerate < 0.1f || framerate > 120f)
+                    continue;
+
+                // Additional validation: dataByteCount, dataShortCount, dataIntCount should be reasonable
+                ushort dataByteCount = (ushort)((zoneData[pos + 0x04] << 8) | zoneData[pos + 0x05]);
+                ushort dataShortCount = (ushort)((zoneData[pos + 0x06] << 8) | zoneData[pos + 0x07]);
+                ushort dataIntCount = (ushort)((zoneData[pos + 0x08] << 8) | zoneData[pos + 0x09]);
+
+                // These counts should be reasonable for animation data
+                if (dataByteCount > 50000 || dataShortCount > 50000 || dataIntCount > 50000)
+                    continue;
+
+                // Passed quick validation - now try full parse
                 var xanim = gameDefinition.ParseXAnim(zoneData, pos);
                 if (xanim != null)
                 {
