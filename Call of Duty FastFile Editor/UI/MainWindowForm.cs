@@ -2537,7 +2537,17 @@ namespace Call_of_Duty_FastFile_Editor
                 string dataStart = "-";
                 string dataEnd = "-";
                 string size = "-";
-                string status = "Not parsed (unsupported type)";
+                // Determine appropriate status message based on asset type
+                string status;
+                bool isSupportedType = isRawFile || isLocalize || isMenuFile || isTechSet || isXAnim || isStringTable || isWeapon;
+                if (isSupportedType)
+                {
+                    status = "External reference (data in another zone)";
+                }
+                else
+                {
+                    status = "Not parsed (unsupported type)";
+                }
 
                 if (isRawFile && _rawFileNodes != null && rawFileIndex < _rawFileNodes.Count)
                 {
