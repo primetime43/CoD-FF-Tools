@@ -25,8 +25,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public byte TechSetAssetType => CoD5Definition.TechSetAssetType;
 
         // Maximum bytes to search forward for alignment/padding
-        // WaW localize entries may have larger gaps between them
-        private const int MAX_ALIGNMENT_SEARCH = 512;
+        // Reduced from 512 to 64 for better performance - alignment issues are typically small
+        private const int MAX_ALIGNMENT_SEARCH = 64;
 
         public override string GetAssetTypeName(int assetType)
         {
@@ -70,9 +70,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         /// </summary>
         public override (LocalizedEntry? entry, int nextOffset) ParseLocalizedEntry(byte[] zoneData, int offset)
         {
-            Debug.WriteLine($"[COD5] ParseLocalizedEntry at offset 0x{offset:X}");
-
-            // First try exact position
+            // First try exact position (most common case)
             var result = TryParseLocalizeAtOffset(zoneData, offset);
             if (result.entry != null)
             {
@@ -80,11 +78,12 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             }
 
             // If exact position failed, search forward for a valid marker (handles alignment/padding)
+            // Skip the forward search loop if we already found a marker but it failed validation
+            // This prevents redundant searching when FindFirstLocalizeMarker already found this marker
             for (int searchOffset = offset + 1; searchOffset <= offset + MAX_ALIGNMENT_SEARCH && searchOffset + 8 < zoneData.Length; searchOffset++)
             {
                 if (IsValidLocalizeMarker(zoneData, searchOffset))
                 {
-                    Debug.WriteLine($"[COD5] Found localize marker at adjusted offset 0x{searchOffset:X} (was 0x{offset:X}, delta={searchOffset - offset})");
                     result = TryParseLocalizeAtOffset(zoneData, searchOffset);
                     if (result.entry != null)
                     {
@@ -93,7 +92,6 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 }
             }
 
-            Debug.WriteLine($"[COD5] Failed to parse localize at 0x{offset:X} (searched {MAX_ALIGNMENT_SEARCH} bytes forward)");
             return (null, offset);
         }
 
@@ -183,13 +181,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 keyStartOffset = currentOffset; // Key starts immediately after marker
                 key = ReadNullTerminatedString(zoneData, currentOffset);
                 currentOffset += key.Length + 1;
-                Debug.WriteLine($"[COD5] Key-only entry (empty value): {key}");
             }
 
             // Validate key is not empty and looks like a valid localize key
             if (string.IsNullOrEmpty(key) || !IsValidLocalizeKey(key))
             {
-                Debug.WriteLine($"[COD5] Invalid localize key at 0x{offset:X}: '{key}'");
                 return (null, currentOffset);
             }
 
@@ -202,30 +198,66 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 KeyStartOffset = keyStartOffset
             };
 
-            Debug.WriteLine($"[COD5] Parsed localize: key='{key}', valueLen={localizedValue.Length}, range=0x{offset:X}-0x{currentOffset:X}");
             return (entry, currentOffset);
         }
 
         /// <summary>
         /// Validates that a string looks like a valid localization key.
-        /// Keys are typically in SCREAMING_SNAKE_CASE but may vary by game.
+        /// Keys are typically in SCREAMING_SNAKE_CASE (e.g., RANK_BGEN_FULL_N).
+        /// Only ASCII letters, digits, and underscores are allowed.
         /// </summary>
         private static bool IsValidLocalizeKey(string key)
         {
-            if (string.IsNullOrEmpty(key) || key.Length < 2 || key.Length > 150)
+            if (string.IsNullOrEmpty(key) || key.Length < 3 || key.Length > 150)
                 return false;
 
-            // Must start with a letter
-            if (!char.IsLetter(key[0]))
+            // Must start with an uppercase ASCII letter (A-Z)
+            // Real localization keys are in SCREAMING_SNAKE_CASE
+            char first = key[0];
+            if (!(first >= 'A' && first <= 'Z'))
                 return false;
 
-            // Check all characters are valid (letters, digits, underscores)
-            // Allow both upper and lower case for flexibility across game versions
+            int uppercaseCount = 0;
+            int underscoreCount = 0;
+            int consecutiveSameChar = 1;
+            char prevChar = '\0';
+
             foreach (char c in key)
             {
-                if (!char.IsLetterOrDigit(c) && c != '_')
+                bool isUppercase = (c >= 'A' && c <= 'Z');
+                bool isDigit = (c >= '0' && c <= '9');
+                bool isUnderscore = (c == '_');
+
+                // Only allow uppercase letters, digits, and underscores
+                // This filters out lowercase-only garbage like "wwpw", "pw", etc.
+                if (!isUppercase && !isDigit && !isUnderscore)
                     return false;
+
+                if (isUppercase) uppercaseCount++;
+                if (isUnderscore) underscoreCount++;
+
+                // Check for excessive repeated characters (e.g., "WWWWW")
+                if (c == prevChar)
+                {
+                    consecutiveSameChar++;
+                    if (consecutiveSameChar > 3)
+                        return false; // More than 3 consecutive same characters is suspicious
+                }
+                else
+                {
+                    consecutiveSameChar = 1;
+                }
+                prevChar = c;
             }
+
+            // Must have at least one underscore (keys are SCREAMING_SNAKE_CASE)
+            // This filters out short garbage like "QG", "WGW"
+            if (underscoreCount == 0)
+                return false;
+
+            // Must have at least 2 uppercase letters
+            if (uppercaseCount < 2)
+                return false;
 
             return true;
         }

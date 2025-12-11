@@ -292,24 +292,61 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
         /// <summary>
         /// Validates that a string looks like a valid localization key.
-        /// Keys are typically in SCREAMING_SNAKE_CASE but may vary by game.
+        /// Keys are typically in SCREAMING_SNAKE_CASE (e.g., RANK_BGEN_FULL_N).
+        /// Only ASCII letters, digits, and underscores are allowed.
         /// </summary>
         private static bool IsValidLocalizeKey(string key)
         {
-            if (string.IsNullOrEmpty(key) || key.Length < 2 || key.Length > 150)
+            if (string.IsNullOrEmpty(key) || key.Length < 3 || key.Length > 150)
                 return false;
 
-            // Must start with a letter
-            if (!char.IsLetter(key[0]))
+            // Must start with an uppercase ASCII letter (A-Z)
+            // Real localization keys are in SCREAMING_SNAKE_CASE
+            char first = key[0];
+            if (!(first >= 'A' && first <= 'Z'))
                 return false;
 
-            // Check all characters are valid (letters, digits, underscores)
-            // Allow both upper and lower case for flexibility across game versions
+            int uppercaseCount = 0;
+            int underscoreCount = 0;
+            int consecutiveSameChar = 1;
+            char prevChar = '\0';
+
             foreach (char c in key)
             {
-                if (!char.IsLetterOrDigit(c) && c != '_')
+                bool isUppercase = (c >= 'A' && c <= 'Z');
+                bool isDigit = (c >= '0' && c <= '9');
+                bool isUnderscore = (c == '_');
+
+                // Only allow uppercase letters, digits, and underscores
+                // This filters out lowercase-only garbage like "wwpw", "pw", etc.
+                if (!isUppercase && !isDigit && !isUnderscore)
                     return false;
+
+                if (isUppercase) uppercaseCount++;
+                if (isUnderscore) underscoreCount++;
+
+                // Check for excessive repeated characters (e.g., "WWWWW")
+                if (c == prevChar)
+                {
+                    consecutiveSameChar++;
+                    if (consecutiveSameChar > 3)
+                        return false; // More than 3 consecutive same characters is suspicious
+                }
+                else
+                {
+                    consecutiveSameChar = 1;
+                }
+                prevChar = c;
             }
+
+            // Must have at least one underscore (keys are SCREAMING_SNAKE_CASE)
+            // This filters out short garbage like "QG", "WGW"
+            if (underscoreCount == 0)
+                return false;
+
+            // Must have at least 2 uppercase letters
+            if (uppercaseCount < 2)
+                return false;
 
             return true;
         }

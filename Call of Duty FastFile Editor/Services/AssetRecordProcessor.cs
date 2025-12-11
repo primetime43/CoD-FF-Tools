@@ -422,8 +422,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     int localizeSearchOffset = searchStartOffset;
                     int localizesParsed = 0;
                     int maxSearchEnd = zoneData.Length;
-
-                    Debug.WriteLine($"[AssetRecordProcessor] Searching for {remainingLocalizes} localize entries using pattern matching from 0x{localizeSearchOffset:X}");
+                    int consecutiveFailures = 0;
+                    const int maxConsecutiveFailures = 50; // Stop after 50 consecutive failed markers
 
                     while (localizesParsed < remainingLocalizes && localizeSearchOffset < maxSearchEnd)
                     {
@@ -431,10 +431,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         int markerOffset = FindFirstLocalizeMarker(zoneData, localizeSearchOffset, maxSearchEnd);
 
                         if (markerOffset < 0)
-                        {
-                            Debug.WriteLine($"[AssetRecordProcessor] No more localize markers found after 0x{localizeSearchOffset:X}");
                             break;
-                        }
 
                         // Try to parse the localize entry at this marker
                         var (entry, nextOffset) = gameDefinition.ParseLocalizedEntry(zoneData, markerOffset);
@@ -443,14 +440,16 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         {
                             result.LocalizedEntries.Add(entry);
                             localizesParsed++;
-                            Debug.WriteLine($"[AssetRecordProcessor] Parsed localize #{localizesParsed}: '{entry.Key}' at 0x{markerOffset:X}");
+                            consecutiveFailures = 0; // Reset on success
                             // Continue searching from after this entry
                             localizeSearchOffset = nextOffset;
                         }
                         else
                         {
                             // Marker found but parsing failed - skip past this marker and continue searching
-                            Debug.WriteLine($"[AssetRecordProcessor] Marker at 0x{markerOffset:X} failed to parse, continuing search");
+                            consecutiveFailures++;
+                            if (consecutiveFailures >= maxConsecutiveFailures)
+                                break;
                             localizeSearchOffset = markerOffset + 8;
                         }
                     }
@@ -539,8 +538,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 int alreadyParsedXAnims = result.XAnims.Count;
                 int remainingXAnims = expectedXAnimCount - alreadyParsedXAnims;
 
-                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedXAnimCount} xanims, already parsed {alreadyParsedXAnims}, remaining {remainingXAnims}");
-
                 if (remainingXAnims > 0)
                 {
                     // Get names of already parsed XAnims to avoid duplicates
@@ -555,8 +552,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     int xanimsParsed = 0;
                     int searchChunkSize = 2000000; // Search in 2MB chunks for faster scanning
 
-                    Debug.WriteLine($"[AssetRecordProcessor] Starting XAnim pattern matching from 0x{xanimSearchOffset:X}");
-
                     while (xanimsParsed < remainingXAnims && xanimSearchOffset < zoneData.Length - 100)
                     {
                         var xanim = FindNextXAnim(zoneData, xanimSearchOffset, searchChunkSize, gameDefinition);
@@ -566,7 +561,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             // Skip duplicates
                             if (existingXAnimNames.Contains(xanim.Name))
                             {
-                                Debug.WriteLine($"[AssetRecordProcessor] Skipping duplicate XAnim '{xanim.Name}'");
                                 xanimSearchOffset = xanim.EndOffset;
                                 continue;
                             }
@@ -574,7 +568,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             existingXAnimNames.Add(xanim.Name);
                             result.XAnims.Add(xanim);
                             xanimsParsed++;
-                            Debug.WriteLine($"[AssetRecordProcessor] Pattern matched xanim #{xanimsParsed}: '{xanim.Name}' at 0x{xanim.StartOffset:X}");
 
                             // Move past this xanim to find the next one
                             xanimSearchOffset = xanim.EndOffset;
@@ -585,11 +578,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             // XAnims may be scattered with gaps larger than the search chunk
                             int nextSearchOffset = xanimSearchOffset + searchChunkSize;
                             if (nextSearchOffset >= zoneData.Length - 100)
-                            {
-                                Debug.WriteLine($"[AssetRecordProcessor] Reached end of zone at 0x{xanimSearchOffset:X}, stopping xanim search");
                                 break;
-                            }
-                            Debug.WriteLine($"[AssetRecordProcessor] No xanim in chunk at 0x{xanimSearchOffset:X}, continuing from 0x{nextSearchOffset:X}");
                             xanimSearchOffset = nextSearchOffset;
                         }
                     }

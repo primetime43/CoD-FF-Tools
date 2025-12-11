@@ -403,15 +403,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 return null;
             }
 
-            Debug.WriteLine($"[{ShortName}] XAnim header at 0x{offset:X}: name='{name}', frames={numframes}, fps={framerate:F1}, bones={boneCount.Sum(b => (int)b)}");
-
             // Find the end of this XAnim by searching for the next asset header
             // XAnims have complex sub-structures (bone names, notify data, delta parts, etc.)
             // so we can't accurately calculate the size - instead search for the next 0xFFFFFFFF marker
             int dataStartOffset = nameOffset + name.Length + 1;
             int endOffset = FindNextAssetHeader(zoneData, dataStartOffset, offset);
-
-            Debug.WriteLine($"[{ShortName}] XAnim '{name}': next asset header found at 0x{endOffset:X}");
 
             return new XAnimParts
             {
