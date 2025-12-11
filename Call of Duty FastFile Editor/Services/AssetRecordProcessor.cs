@@ -240,10 +240,23 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         if (xanim == null && startingOffset > 0)
                         {
                             Debug.WriteLine($"[AssetRecordProcessor] XAnim parse failed at 0x{startingOffset:X}, searching forward for valid header...");
-                            xanim = FindNextXAnim(zoneData, startingOffset + 1, 500000, gameDefinition);
+                            // Search a larger range (2MB) since XAnims may be scattered with large gaps
+                            xanim = FindNextXAnim(zoneData, startingOffset + 1, 2000000, gameDefinition);
                             if (xanim != null)
                             {
                                 Debug.WriteLine($"[AssetRecordProcessor] Found XAnim '{xanim.Name}' by forward search at 0x{xanim.StartOffset:X}");
+                            }
+                            else
+                            {
+                                // Forward search failed - trigger pattern matching fallback for remaining XAnims
+                                Debug.WriteLine($"[AssetRecordProcessor] Forward search failed at 0x{startingOffset:X}, triggering pattern matching fallback for remaining XAnims");
+                                if (structureParsingStoppedAtIndex < 0)
+                                {
+                                    structureParsingStoppedAtIndex = i;
+                                    lastStructureParsedEndOffset = startingOffset;
+                                }
+                                // Skip remaining XAnims in the main loop - let pattern matching handle them
+                                continue;
                             }
                         }
 
@@ -520,8 +533,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 }
 
                 // For xanims, use pattern matching to find them
+                // Count from index 0 because XAnims may appear anywhere in the asset pool
                 int expectedXAnimCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
-                    structureParsingStoppedAtIndex, gameDefinition.XAnimAssetType);
+                    0, gameDefinition.XAnimAssetType);
                 int alreadyParsedXAnims = result.XAnims.Count;
                 int remainingXAnims = expectedXAnimCount - alreadyParsedXAnims;
 
@@ -529,11 +543,19 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 if (remainingXAnims > 0)
                 {
+                    // Get names of already parsed XAnims to avoid duplicates
+                    var existingXAnimNames = new HashSet<string>(
+                        result.XAnims.Select(x => x.Name),
+                        StringComparer.OrdinalIgnoreCase);
+
                     // Use pattern matching to find xanims
                     // Search the entire zone since XAnims can be scattered with large gaps between them
-                    int xanimSearchOffset = searchStartOffset;
+                    // Start from AssetPoolEndOffset to ensure we find all XAnims
+                    int xanimSearchOffset = openedFastFile.OpenedFastFileZone.AssetPoolEndOffset;
                     int xanimsParsed = 0;
-                    int searchChunkSize = 500000; // Search in 500KB chunks
+                    int searchChunkSize = 2000000; // Search in 2MB chunks for faster scanning
+
+                    Debug.WriteLine($"[AssetRecordProcessor] Starting XAnim pattern matching from 0x{xanimSearchOffset:X}");
 
                     while (xanimsParsed < remainingXAnims && xanimSearchOffset < zoneData.Length - 100)
                     {
@@ -541,6 +563,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (xanim != null)
                         {
+                            // Skip duplicates
+                            if (existingXAnimNames.Contains(xanim.Name))
+                            {
+                                Debug.WriteLine($"[AssetRecordProcessor] Skipping duplicate XAnim '{xanim.Name}'");
+                                xanimSearchOffset = xanim.EndOffset;
+                                continue;
+                            }
+
+                            existingXAnimNames.Add(xanim.Name);
                             result.XAnims.Add(xanim);
                             xanimsParsed++;
                             Debug.WriteLine($"[AssetRecordProcessor] Pattern matched xanim #{xanimsParsed}: '{xanim.Name}' at 0x{xanim.StartOffset:X}");
@@ -1097,13 +1128,70 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 var xanim = gameDefinition.ParseXAnim(zoneData, pos);
                 if (xanim != null)
                 {
-                    Debug.WriteLine($"[AssetRecordProcessor] Found XAnim '{xanim.Name}' at 0x{pos:X}");
-                    return xanim;
+                    // Validate the animation name looks valid before accepting
+                    if (IsValidXAnimName(xanim.Name))
+                    {
+                        Debug.WriteLine($"[AssetRecordProcessor] Found XAnim '{xanim.Name}' at 0x{pos:X}");
+                        return xanim;
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[AssetRecordProcessor] Rejected XAnim with invalid name '{xanim.Name}' at 0x{pos:X}");
+                    }
                 }
             }
 
             Debug.WriteLine($"[AssetRecordProcessor] No XAnim found in search range");
             return null;
+        }
+
+        /// <summary>
+        /// Validates that a string looks like a valid XAnim animation name.
+        /// Valid names are lowercase with underscores, digits allowed, typically 3-80 characters.
+        /// Examples: "viewmodel_default_idle", "mp_panzerschreck_fire", "zombie_run_v1"
+        /// </summary>
+        private static bool IsValidXAnimName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name.Length < 3 || name.Length > 100)
+                return false;
+
+            // Must start with a letter (animation names start with lowercase letters)
+            char first = name[0];
+            if (first < 'a' || first > 'z')
+                return false;
+
+            // Count valid characters - must be all lowercase letters, digits, or underscores
+            int validChars = 0;
+            int underscoreCount = 0;
+            foreach (char c in name)
+            {
+                if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+                {
+                    validChars++;
+                }
+                else if (c == '_')
+                {
+                    underscoreCount++;
+                    validChars++;
+                }
+                else
+                {
+                    // Invalid character found (uppercase, special chars, non-ASCII)
+                    return false;
+                }
+            }
+
+            // All characters must be valid
+            if (validChars != name.Length)
+                return false;
+
+            // Most valid animation names have at least one underscore
+            // Names like "idle" without underscores are rare but valid
+            // Names with too many underscores in a row are suspicious
+            if (name.Contains("__"))
+                return false;
+
+            return true;
         }
 
         /// <summary>
