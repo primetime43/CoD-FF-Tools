@@ -236,6 +236,17 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         // Parse xanim using game-specific parser
                         XAnimParts? xanim = gameDefinition.ParseXAnim(zoneData, startingOffset);
 
+                        // If parsing failed at the exact offset, search forward to find the next valid XAnim
+                        if (xanim == null && startingOffset > 0)
+                        {
+                            Debug.WriteLine($"[AssetRecordProcessor] XAnim parse failed at 0x{startingOffset:X}, searching forward for valid header...");
+                            xanim = FindNextXAnim(zoneData, startingOffset + 1, 500000, gameDefinition);
+                            if (xanim != null)
+                            {
+                                Debug.WriteLine($"[AssetRecordProcessor] Found XAnim '{xanim.Name}' by forward search at 0x{xanim.StartOffset:X}");
+                            }
+                        }
+
                         if (xanim != null)
                         {
                             assetRecordMethod = $"XAnim parsed using {gameDefinition.ShortName} structure-based parser.";

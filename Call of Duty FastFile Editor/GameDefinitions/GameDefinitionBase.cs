@@ -903,7 +903,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                         !float.IsNaN(potentialFramerate) && !float.IsInfinity(potentialFramerate) &&
                         potentialFramerate >= 0.1f && potentialFramerate <= 120f)
                     {
-                        return pos; // Valid XAnim header
+                        return pos; // Potential XAnim header - caller will validate further
                     }
 
                     // Check if this looks like a StringTable header:
