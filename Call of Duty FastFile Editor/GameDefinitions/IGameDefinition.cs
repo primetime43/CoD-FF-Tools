@@ -158,5 +158,23 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         /// <param name="offset">Starting offset to parse from.</param>
         /// <returns>Parsed StringTable, or null if parsing failed.</returns>
         StringTable? ParseStringTable(byte[] zoneData, int offset);
+
+        /// <summary>
+        /// Asset type ID for weapon assets.
+        /// </summary>
+        byte WeaponAssetType { get; }
+
+        /// <summary>
+        /// Checks if the given asset type value is a weapon.
+        /// </summary>
+        bool IsWeaponType(int assetType);
+
+        /// <summary>
+        /// Parses a weapon asset from the zone data at the given offset.
+        /// </summary>
+        /// <param name="zoneData">The zone file data.</param>
+        /// <param name="offset">Starting offset to parse from.</param>
+        /// <returns>Parsed WeaponAsset, or null if parsing failed.</returns>
+        WeaponAsset? ParseWeapon(byte[] zoneData, int offset);
     }
 }

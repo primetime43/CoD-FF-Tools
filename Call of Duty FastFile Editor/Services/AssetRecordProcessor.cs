@@ -73,14 +73,20 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                     if (!isSupported)
                     {
-                        // Stop structure-based processing - we can't determine the size of unsupported assets
-                        Debug.WriteLine($"[AssetRecordProcessor] Stopping structure-based parsing at index {i}: unsupported asset type '{assetTypeName}'. Will use pattern matching for remaining rawfiles.");
-                        structureParsingStoppedAtIndex = i;
-                        if (i > 0 && zoneAssetRecords[i - 1].AssetRecordEndOffset > 0)
+                        // For unsupported asset types, we can't parse them directly
+                        // Record the first unsupported asset index so pattern matching fallback will run
+                        if (structureParsingStoppedAtIndex < 0)
                         {
-                            lastStructureParsedEndOffset = zoneAssetRecords[i - 1].AssetRecordEndOffset;
+                            structureParsingStoppedAtIndex = i;
+                            // Use the last SUCCESSFULLY parsed asset's end offset
+                            if (indexOfLastAssetRecordParsed >= 0 && zoneAssetRecords[indexOfLastAssetRecordParsed].AssetRecordEndOffset > 0)
+                            {
+                                lastStructureParsedEndOffset = zoneAssetRecords[indexOfLastAssetRecordParsed].AssetRecordEndOffset;
+                            }
+                            Debug.WriteLine($"[AssetRecordProcessor] First unsupported asset type '{assetTypeName}' at index {i}. Last parsed asset end: 0x{lastStructureParsedEndOffset:X}. Will use pattern matching for remaining assets.");
                         }
-                        goto PatternMatchingFallback;
+                        // Continue to skip all unsupported assets
+                        continue;
                     }
 
                     // For all records except the first, update previousRecordEndOffset.
@@ -278,6 +284,18 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             Debug.WriteLine($"[AssetRecordProcessor] Failed to parse stringtable at index {i}, offset 0x{startingOffset:X}. Continuing.");
                             // Don't stop - stringtables are complex, just skip
                         }
+                    }
+                    else if (gameDefinition.IsWeaponType(assetTypeValue))
+                    {
+                        // Weapons are handled in the pattern matching fallback section
+                        // because they typically appear after unsupported asset types
+                        // and we can't calculate their exact offset from the asset pool
+                        Debug.WriteLine($"[AssetRecordProcessor] Weapon at index {i} will be handled by pattern matching fallback");
+                        if (structureParsingStoppedAtIndex < 0)
+                        {
+                            structureParsingStoppedAtIndex = i;
+                        }
+                        continue;
                     }
                 }
                 catch (Exception ex)
@@ -611,6 +629,105 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     }
 
                     Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {stringTablesParsed} stringtables");
+                }
+
+                // For weapons, use pattern matching to find them
+                int expectedWeaponCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
+                    0, gameDefinition.WeaponAssetType); // Count from index 0 since weapons may appear early
+                int alreadyParsedWeapons = result.Weapons.Count;
+                int remainingWeapons = expectedWeaponCount - alreadyParsedWeapons;
+
+                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedWeaponCount} weapons, already parsed {alreadyParsedWeapons}, remaining {remainingWeapons}");
+
+                if (remainingWeapons > 0)
+                {
+                    // Get indices of unparsed weapon asset records
+                    var weaponIndices = new List<int>();
+                    for (int i = 0; i < zoneAssetRecords.Count; i++)
+                    {
+                        int assetType = GetAssetTypeValue(openedFastFile, zoneAssetRecords[i]);
+                        if (gameDefinition.IsWeaponType(assetType) &&
+                            string.IsNullOrEmpty(zoneAssetRecords[i].Name))
+                        {
+                            weaponIndices.Add(i);
+                            Debug.WriteLine($"[AssetRecordProcessor] Found unparsed weapon at index {i}");
+                        }
+                    }
+                    Debug.WriteLine($"[AssetRecordProcessor] Found {weaponIndices.Count} unparsed weapon records in asset pool");
+
+                    // Use pattern matching to find weapons
+                    // Search the entire zone in large chunks
+                    int weaponSearchOffset = searchStartOffset;
+                    int weaponsParsed = 0;
+                    int searchChunkSize = 1000000; // Search in 1MB chunks
+                    var foundWeaponNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    Debug.WriteLine($"[AssetRecordProcessor] Starting weapon search from 0x{weaponSearchOffset:X}, looking for {remainingWeapons} weapons");
+
+                    while (weaponsParsed < remainingWeapons && weaponSearchOffset < zoneData.Length - 100)
+                    {
+                        var weapon = FindNextWeapon(zoneData, weaponSearchOffset, searchChunkSize, gameDefinition);
+
+                        if (weapon != null)
+                        {
+                            // Skip duplicates
+                            if (foundWeaponNames.Contains(weapon.InternalName))
+                            {
+                                Debug.WriteLine($"[AssetRecordProcessor] Skipping duplicate weapon '{weapon.InternalName}'");
+                                weaponSearchOffset = weapon.EndOffset;
+                                continue;
+                            }
+
+                            foundWeaponNames.Add(weapon.InternalName);
+                            result.Weapons.Add(weapon);
+
+                            // Update the corresponding asset record if we have one
+                            if (weaponsParsed < weaponIndices.Count)
+                            {
+                                int recordIndex = weaponIndices[weaponsParsed];
+                                Debug.WriteLine($"[AssetRecordProcessor] Updating asset record at index {recordIndex} with weapon '{weapon.InternalName}'");
+                                var assetRecord = zoneAssetRecords[recordIndex];
+                                assetRecord.AssetRecordEndOffset = weapon.EndOffset;
+                                assetRecord.Name = weapon.InternalName;
+                                assetRecord.Content = weapon.GetSummary();
+                                assetRecord.AdditionalData = "Weapon parsed using pattern matching (fallback).";
+                                assetRecord.HeaderStartOffset = weapon.StartOffset;
+                                assetRecord.HeaderEndOffset = weapon.StartOffset + weapon.HeaderSize;
+                                assetRecord.AssetDataStartPosition = weapon.StartOffset;
+                                assetRecord.AssetDataEndOffset = weapon.EndOffset;
+                                zoneAssetRecords[recordIndex] = assetRecord;
+                            }
+
+                            weaponsParsed++;
+                            Debug.WriteLine($"[AssetRecordProcessor] Pattern matched weapon #{weaponsParsed}: '{weapon.InternalName}' at 0x{weapon.StartOffset:X}, EndOffset=0x{weapon.EndOffset:X}");
+
+                            // Move past this weapon's HEADER to find the next one
+                            // WeaponDef header is 0x9AC bytes, then inline strings follow
+                            // Don't jump to EndOffset as that can skip over many weapons
+                            // Instead, continue searching from right after the header + estimated inline data
+                            int nextSearchStart = weapon.StartOffset + weapon.HeaderSize + 128; // Skip header + estimated inline strings
+                            Debug.WriteLine($"[AssetRecordProcessor] Next weapon search from 0x{nextSearchStart:X} (not EndOffset 0x{weapon.EndOffset:X})");
+                            weaponSearchOffset = nextSearchStart;
+                        }
+                        else
+                        {
+                            // No weapon found in this chunk - continue searching from where we left off
+                            // Use overlap to avoid missing weapons at chunk boundaries
+                            int nextSearchOffset = weaponSearchOffset + searchChunkSize - 0x1000; // 4KB overlap
+                            if (nextSearchOffset <= weaponSearchOffset)
+                                nextSearchOffset = weaponSearchOffset + searchChunkSize;
+
+                            if (nextSearchOffset >= zoneData.Length - 100)
+                            {
+                                Debug.WriteLine($"[AssetRecordProcessor] Reached end of zone at 0x{weaponSearchOffset:X}, stopping weapon search");
+                                break;
+                            }
+                            Debug.WriteLine($"[AssetRecordProcessor] No weapon in chunk at 0x{weaponSearchOffset:X}, continuing from 0x{nextSearchOffset:X}");
+                            weaponSearchOffset = nextSearchOffset;
+                        }
+                    }
+
+                    Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {weaponsParsed} weapons");
                 }
             }
 
@@ -973,6 +1090,113 @@ namespace Call_of_Duty_FastFile_Editor.Services
             }
 
             Debug.WriteLine($"[AssetRecordProcessor] No XAnim found in search range");
+            return null;
+        }
+
+        /// <summary>
+        /// Finds the next Weapon by searching for weapon internal names (strings ending with _mp or _sp).
+        /// When a potential weapon name is found, validates it by checking for the WeaponDef structure header
+        /// at approximately 0x9AC bytes before the name.
+        /// WeaponDef header is 0x9AC bytes (2476 bytes) for WaW.
+        /// </summary>
+        private static WeaponAsset? FindNextWeapon(byte[] zoneData, int startOffset, int maxSearchBytes, IGameDefinition gameDefinition)
+        {
+            Debug.WriteLine($"[AssetRecordProcessor] Searching for Weapon from 0x{startOffset:X}, max {maxSearchBytes} bytes, zoneData.Length=0x{zoneData.Length:X}");
+
+            // Weapon header is 0x9AC bytes (2476 bytes)
+            const int WEAPON_HEADER_SIZE = 0x9AC;
+
+            // Bounds check
+            if (startOffset < 0 || startOffset >= zoneData.Length - 10)
+            {
+                Debug.WriteLine($"[AssetRecordProcessor] Weapon search startOffset 0x{startOffset:X} is out of bounds (zoneData.Length=0x{zoneData.Length:X})");
+                return null;
+            }
+
+            int endOffset = Math.Min(startOffset + maxSearchBytes, zoneData.Length - 10);
+            Debug.WriteLine($"[AssetRecordProcessor] Weapon search endOffset=0x{endOffset:X}");
+
+            // STRING-FIRST APPROACH: Search for weapon name strings ending with _mp or _sp
+            // Then validate by checking for the WeaponDef header 0x9AC bytes before
+            for (int pos = startOffset; pos < endOffset; pos++)
+            {
+                // Only match START of strings - byte before must be 0x00 (null terminator) or 0xFF (padding)
+                if (pos > 0)
+                {
+                    byte prevByte = zoneData[pos - 1];
+                    if (prevByte != 0x00 && prevByte != 0xFF)
+                        continue;
+                }
+
+                // Must start with a lowercase letter (weapon internal names start lowercase)
+                byte firstChar = zoneData[pos];
+                if (firstChar < 'a' || firstChar > 'z')
+                    continue;
+
+                // Read the potential weapon name string
+                string candidate = ReadNullTerminatedStringAt(zoneData, pos);
+
+                // Basic validation - weapon names are typically 5-40 characters
+                if (candidate.Length < 5 || candidate.Length > 50)
+                    continue;
+
+                // Must only contain valid weapon name characters
+                if (!candidate.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-'))
+                    continue;
+
+                string lower = candidate.ToLowerInvariant();
+
+                // Must end with _mp or _sp (weapon naming convention)
+                if (!lower.EndsWith("_mp") && !lower.EndsWith("_sp"))
+                    continue;
+
+                // Calculate where the header should be (0x9AC bytes before the string, minus padding)
+                // Search backwards from the string to find the header
+                int searchStart = Math.Max(0, pos - WEAPON_HEADER_SIZE - 64);
+                int searchEnd = Math.Max(0, pos - WEAPON_HEADER_SIZE + 64);
+
+                for (int headerPos = searchEnd; headerPos >= searchStart; headerPos--)
+                {
+                    // Check for 0xFFFFFFFF at position 0 (szInternalName pointer)
+                    uint ptr1 = ReadUInt32BE(zoneData, headerPos);
+                    if (ptr1 != 0xFFFFFFFF && ptr1 != 0xFFFFFFFE)
+                        continue;
+
+                    // Verify the inline data at headerPos + 0x9AC matches our string position
+                    int expectedDataOffset = headerPos + WEAPON_HEADER_SIZE;
+
+                    // Skip padding to find where string should start
+                    int dataOffset = expectedDataOffset;
+                    int maxPadding = 64;
+                    int padCount = 0;
+                    while (dataOffset < zoneData.Length - 1 && padCount < maxPadding &&
+                           (zoneData[dataOffset] == 0x00 || zoneData[dataOffset] == 0xFF))
+                    {
+                        dataOffset++;
+                        padCount++;
+                    }
+
+                    // Check if this header points to our candidate string
+                    if (dataOffset != pos)
+                        continue;
+
+                    Debug.WriteLine($"[AssetRecordProcessor] Found weapon string '{candidate}' at 0x{pos:X}, header at 0x{headerPos:X}");
+
+                    // Try to parse the weapon at this header position
+                    var weapon = gameDefinition.ParseWeapon(zoneData, headerPos);
+                    if (weapon != null)
+                    {
+                        Debug.WriteLine($"[AssetRecordProcessor] Successfully parsed weapon '{weapon.InternalName}' at header 0x{headerPos:X}");
+                        return weapon;
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[AssetRecordProcessor] Failed to parse weapon at header 0x{headerPos:X}");
+                    }
+                }
+            }
+
+            Debug.WriteLine($"[AssetRecordProcessor] No Weapon found in search range");
             return null;
         }
 

@@ -65,6 +65,11 @@ namespace Call_of_Duty_FastFile_Editor
         private List<XAnimParts> _xanims;
 
         /// <summary>
+        /// List of Weapon assets extracted from the zone file.
+        /// </summary>
+        private List<WeaponAsset> _weapons;
+
+        /// <summary>
         /// List of StringTable assets extracted from the zone file.
         /// </summary>
         private List<StringTable> _stringTables;
@@ -162,6 +167,7 @@ namespace Call_of_Duty_FastFile_Editor
             _menuLists = _processResult.MenuLists ?? new List<MenuList>();
             _techSets = _processResult.TechSets ?? new List<TechSetAsset>();
             _xanims = _processResult.XAnims ?? new List<XAnimParts>();
+            _weapons = _processResult.Weapons ?? new List<WeaponAsset>();
             _stringTables = _processResult.StringTables ?? new List<StringTable>();
 
             // Track unsupported assets and original counts for safe save detection
@@ -213,6 +219,7 @@ namespace Call_of_Duty_FastFile_Editor
             PopulateMenuFiles();
             PopulateTechSets();
             PopulateXAnims();
+            PopulateWeapons();
             PopulateStringTables();
             PopulateCollision_Map_Asset_StringData();
         }
@@ -1503,6 +1510,76 @@ namespace Call_of_Duty_FastFile_Editor
             xAnimsListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
         }
 
+        private void PopulateWeapons()
+        {
+            // Check if we have any weapons in our processed results.
+            if (_weapons == null || _weapons.Count <= 0)
+            {
+                mainTabControl.TabPages.Remove(weaponsTabPage); // hide the tab page if there's no data to show
+                return;
+            }
+
+            // Ensure the tab is shown
+            if (!mainTabControl.TabPages.Contains(weaponsTabPage))
+            {
+                mainTabControl.TabPages.Add(weaponsTabPage);
+            }
+
+            // Clear any existing items and columns.
+            weaponsListView.Items.Clear();
+            weaponsListView.Columns.Clear();
+
+            // Set up the ListView.
+            weaponsListView.View = View.Details;
+            weaponsListView.FullRowSelect = true;
+            weaponsListView.GridLines = true;
+
+            // Add the required columns.
+            weaponsListView.Columns.Add("Internal Name", 180);
+            weaponsListView.Columns.Add("Display Name", 150);
+            weaponsListView.Columns.Add("Type", 60);
+            weaponsListView.Columns.Add("Class", 70);
+            weaponsListView.Columns.Add("Fire Type", 80);
+            weaponsListView.Columns.Add("Penetrate", 70);
+            weaponsListView.Columns.Add("Impact", 80);
+            weaponsListView.Columns.Add("Inventory", 70);
+            weaponsListView.Columns.Add("Damage", 55);
+            weaponsListView.Columns.Add("Clip Size", 60);
+            weaponsListView.Columns.Add("Max Ammo", 65);
+            weaponsListView.Columns.Add("Start Offset", 85);
+            weaponsListView.Columns.Add("End Offset", 85);
+
+            // Loop through each weapon.
+            foreach (var weapon in _weapons)
+            {
+                // Create a new ListViewItem with the Name as the main text.
+                ListViewItem lvi = new ListViewItem(weapon.InternalName);
+
+                // Add subitems - use "N/A" for unparsed numeric fields (-1)
+                lvi.SubItems.Add(weapon.DisplayName);
+                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.WeapType.ToString() : "N/A");
+                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.WeapClass.ToString() : "N/A");
+                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.FireType.ToString() : "N/A");
+                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.PenetrateType.ToString() : "N/A");
+                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.ImpactType.ToString() : "N/A");
+                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.InventoryType.ToString() : "N/A");
+                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.Damage.ToString() : "N/A");
+                lvi.SubItems.Add(weapon.ClipSize >= 0 ? weapon.ClipSize.ToString() : "N/A");
+                lvi.SubItems.Add(weapon.MaxAmmo >= 0 ? weapon.MaxAmmo.ToString() : "N/A");
+                lvi.SubItems.Add($"0x{weapon.StartOffset:X}");
+                lvi.SubItems.Add($"0x{weapon.EndOffset:X}");
+
+                // Store the weapon reference for potential selection handling
+                lvi.Tag = weapon;
+
+                // Add the ListViewItem to the ListView.
+                weaponsListView.Items.Add(lvi);
+            }
+
+            // Auto-resize columns to fit header size.
+            weaponsListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
+        }
+
         /// <summary>
         /// Exports the selected XAnim's raw binary data from the zone file.
         /// </summary>
@@ -2432,6 +2509,7 @@ namespace Call_of_Duty_FastFile_Editor
             int techSetIndex = 0;
             int xanimIndex = 0;
             int stringTableIndex = 0;
+            int weaponIndex = 0;
 
             // Iterate through ALL asset records from the asset pool
             for (int i = 0; i < _zoneAssetRecords.Count; i++)
@@ -2447,6 +2525,7 @@ namespace Call_of_Duty_FastFile_Editor
                 bool isTechSet = gameDefinition.IsTechSetType(assetTypeValue);
                 bool isXAnim = gameDefinition.IsXAnimType(assetTypeValue);
                 bool isStringTable = gameDefinition.IsStringTableType(assetTypeValue);
+                bool isWeapon = gameDefinition.IsWeaponType(assetTypeValue);
 
                 var lvi = new ListViewItem((i + 1).ToString());
                 lvi.SubItems.Add(assetTypeName);
@@ -2530,6 +2609,18 @@ namespace Call_of_Duty_FastFile_Editor
                     size = $"0x{tableSize:X}";
                     status = $"StringTable parsed ({stringTable.RowCount}x{stringTable.ColumnCount}, {stringTable.Cells?.Count ?? 0} cells)";
                     stringTableIndex++;
+                }
+                else if (isWeapon && _weapons != null && weaponIndex < _weapons.Count)
+                {
+                    var weapon = _weapons[weaponIndex];
+                    isParsed = true;
+                    name = weapon.InternalName ?? "-";
+                    dataStart = $"0x{weapon.StartOffset:X}";
+                    dataEnd = $"0x{weapon.EndOffset:X}";
+                    int weaponSize = weapon.EndOffset - weapon.StartOffset;
+                    size = $"0x{weaponSize:X}";
+                    status = $"Weapon parsed ({weapon.DisplayName})";
+                    weaponIndex++;
                 }
 
                 lvi.SubItems.Add(dataStart);
