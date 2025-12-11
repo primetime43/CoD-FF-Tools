@@ -742,10 +742,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 
             // Validate the parsed values are in reasonable ranges
             // If values are way out of range, the alignment might still be wrong
-            bool valuesValid = weapClassVal >= 0 && weapClassVal <= 20 &&
-                               fireTypeVal >= 0 && fireTypeVal <= 20 &&
-                               penetrateTypeVal >= 0 && penetrateTypeVal <= 20 &&
-                               impactTypeVal >= 0 && impactTypeVal <= 20 &&
+            // Using enum max values: weapClass<=10, fireType<=4, penetrate<=3, impact<=8
+            bool valuesValid = weapClassVal >= 0 && weapClassVal <= 11 &&
+                               fireTypeVal >= 0 && fireTypeVal <= 5 &&
+                               penetrateTypeVal >= 0 && penetrateTypeVal <= 4 &&
+                               impactTypeVal >= 0 && impactTypeVal <= 9 &&
                                damageVal >= 0 && damageVal <= 500 &&
                                clipSizeVal >= 0 && clipSizeVal <= 500;
 
@@ -764,11 +765,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             }
 
             // Convert to enums, clamping to valid ranges
-            WeaponClass weapClass = (WeaponClass)Math.Min(weapClassVal, 10);
-            WeaponFireType fireType = (WeaponFireType)Math.Min(fireTypeVal, 7);
-            PenetrateType penetrateType = (PenetrateType)Math.Min(penetrateTypeVal, 6);
-            ImpactType impactType = (ImpactType)Math.Min(impactTypeVal, 6);
-            WeaponInventoryType inventoryType = (WeaponInventoryType)Math.Min(inventoryTypeVal, 3);
+            WeaponClass weapClass = (WeaponClass)Math.Min(weapClassVal, 10);  // Max is Item (10)
+            WeaponFireType fireType = (WeaponFireType)Math.Min(fireTypeVal, 4);  // Max is Burst4 (4)
+            PenetrateType penetrateType = (PenetrateType)Math.Min(penetrateTypeVal, 3);  // Max is Large (3)
+            ImpactType impactType = (ImpactType)Math.Min(impactTypeVal, 8);  // Max is Projectile_Dud (8)
+            WeaponInventoryType inventoryType = (WeaponInventoryType)Math.Min(inventoryTypeVal, 3);  // Max is AltMode (3)
 
             return new WeaponAsset
             {

@@ -161,7 +161,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
         Gas = 4,
         Bomb = 5,
         Mine = 6,
-        Melee = 7
+        Num = 7
     }
 
     /// <summary>
@@ -170,16 +170,17 @@ namespace Call_of_Duty_FastFile_Editor.Models
     public enum WeaponClass
     {
         Rifle = 0,
-        SMG = 1,
-        MG = 2,
+        MG = 1,
+        SMG = 2,
         Spread = 3,      // Shotgun
         Pistol = 4,
         Grenade = 5,
         RocketLauncher = 6,
         Turret = 7,
-        ThrowingKnife = 8,
-        NonPlayer = 9,
-        Item = 10
+        NonPlayer = 8,
+        Gas = 9,
+        Item = 10,
+        Num = 11
     }
 
     /// <summary>
@@ -192,13 +193,11 @@ namespace Call_of_Duty_FastFile_Editor.Models
         Burst2 = 2,
         Burst3 = 3,
         Burst4 = 4,
-        DoubleBarrel = 5,
-        BoltAction = 6,
-        PumpAction = 7
+        Num = 5
     }
 
     /// <summary>
-    /// Penetration type enumeration (penetrateType_t).
+    /// Penetration type enumeration (PenetrateType).
     /// Determines how much the weapon can shoot through surfaces.
     /// </summary>
     public enum PenetrateType
@@ -207,16 +206,11 @@ namespace Call_of_Duty_FastFile_Editor.Models
         Small = 1,
         Medium = 2,
         Large = 3,
-        /// <summary>Heavy penetration (LMGs, sniper rifles)</summary>
-        Heavy = 4,
-        /// <summary>Maximum penetration (anti-material)</summary>
-        Max = 5,
-        /// <summary>Rifle-class penetration</summary>
-        Rifle = 6
+        Count = 4
     }
 
     /// <summary>
-    /// Impact type enumeration (impactType_t).
+    /// Impact type enumeration (ImpactType).
     /// Determines the visual/audio effect when bullets hit surfaces.
     /// </summary>
     public enum ImpactType
@@ -224,10 +218,13 @@ namespace Call_of_Duty_FastFile_Editor.Models
         None = 0,
         Bullet_Small = 1,
         Bullet_Large = 2,
-        Shotgun = 3,
-        Grenade = 4,
-        Rocket = 5,
-        Projectile = 6
+        Bullet_AP = 3,
+        Shotgun = 4,
+        Grenade_Bounce = 5,
+        Grenade_Explode = 6,
+        Rifle_Explode = 7,
+        Projectile_Dud = 8,
+        Count = 9
     }
 
     /// <summary>
@@ -239,6 +236,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
         Primary = 0,
         Offhand = 1,
         Item = 2,
-        AltMode = 3
+        AltMode = 3,
+        Count = 4
     }
 }

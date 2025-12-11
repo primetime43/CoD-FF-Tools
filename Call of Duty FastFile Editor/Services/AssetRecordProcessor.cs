@@ -657,7 +657,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                     // Use pattern matching to find weapons
                     // Search the entire zone in large chunks
-                    int weaponSearchOffset = searchStartOffset;
+                    // Start from AssetPoolEndOffset to ensure we find all weapons, not searchStartOffset
+                    // which may skip weapons if other assets were parsed after them
+                    int weaponSearchOffset = openedFastFile.OpenedFastFileZone.AssetPoolEndOffset;
                     int weaponsParsed = 0;
                     int searchChunkSize = 1000000; // Search in 1MB chunks
                     var foundWeaponNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1147,6 +1149,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 string lower = candidate.ToLowerInvariant();
 
                 // Must end with _mp or _sp (weapon naming convention)
+                // This is the only reliable text-based filter - actual validation happens via structure
                 if (!lower.EndsWith("_mp") && !lower.EndsWith("_sp"))
                     continue;
 
