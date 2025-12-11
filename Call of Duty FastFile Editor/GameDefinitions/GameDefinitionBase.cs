@@ -22,6 +22,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public virtual byte MenuFileAssetType => 0; // Default 0 means not supported
         public abstract byte XAnimAssetType { get; }
         public abstract byte StringTableAssetType { get; }
+        public virtual byte WeaponAssetType => 0; // Default 0 means not supported
 
         public virtual bool IsRawFileType(int assetType) => assetType == RawFileAssetType;
         public virtual bool IsLocalizeType(int assetType) => assetType == LocalizeAssetType;
@@ -30,7 +31,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public virtual bool IsMaterialType(int assetType) => false; // Override in game-specific definitions
         public virtual bool IsTechSetType(int assetType) => false; // Override in game-specific definitions
         public virtual bool IsStringTableType(int assetType) => assetType == StringTableAssetType;
-        public virtual bool IsSupportedAssetType(int assetType) => IsRawFileType(assetType) || IsLocalizeType(assetType) || IsMenuFileType(assetType) || IsXAnimType(assetType) || IsStringTableType(assetType);
+        public virtual bool IsWeaponType(int assetType) => WeaponAssetType != 0 && assetType == WeaponAssetType;
+        public virtual bool IsSupportedAssetType(int assetType) => IsRawFileType(assetType) || IsLocalizeType(assetType) || IsMenuFileType(assetType) || IsXAnimType(assetType) || IsStringTableType(assetType) || IsWeaponType(assetType);
         public abstract string GetAssetTypeName(int assetType);
 
         /// <summary>
@@ -564,6 +566,232 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             };
 
             return stringTable;
+        }
+
+        /// <summary>
+        /// Default weapon parsing for WaW/CoD5.
+        ///
+        /// WeaponDef structure (0x9AC bytes header on Xbox 360/PS3):
+        /// 0x000: const char *szInternalName (FF FF FF FF = inline)
+        /// 0x004: const char *szDisplayName (FF FF FF FF = inline)
+        /// 0x008: const char *szOverlayName
+        /// 0x00C: XModel *gunXModel[16] (64 bytes)
+        /// ... many more pointer and data fields ...
+        /// [inline string data follows header for any pointers marked 0xFFFFFFFF]
+        ///
+        /// For WaW, all inline data (strings, models, etc.) follows after the header.
+        /// The data is laid out in order of the inline pointers.
+        /// </summary>
+        public virtual WeaponAsset? ParseWeapon(byte[] zoneData, int offset)
+        {
+            Debug.WriteLine($"[{ShortName}] ParseWeapon at offset 0x{offset:X}");
+
+            // WaW weapon header is 0x9AC bytes (2476 bytes)
+            const int WEAPON_HEADER_SIZE = 0x9AC;
+
+            // Need at least the header size plus some room for inline data
+            if (offset + WEAPON_HEADER_SIZE + 32 > zoneData.Length)
+            {
+                Debug.WriteLine($"[{ShortName}] Not enough bytes for weapon header at 0x{offset:X}");
+                return null;
+            }
+
+            // Detect alignment: Check first 8 bytes for the pattern
+            // Pattern 1: FF FF FF FF FF FF FF FF (8 FFs) - header is aligned at offset
+            // Pattern 2: FF FF FF FF FF FF 80 00 (6 FFs then data) - header is at offset+2
+            int alignmentAdjust = 0;
+            if (offset + 8 <= zoneData.Length)
+            {
+                // Count consecutive FFs from the start
+                int ffCount = 0;
+                for (int i = 0; i < 8 && zoneData[offset + i] == 0xFF; i++)
+                {
+                    ffCount++;
+                }
+
+                // If we have exactly 6 FFs (not 8), the actual data starts 2 bytes later
+                if (ffCount == 6)
+                {
+                    alignmentAdjust = 2;
+                    Debug.WriteLine($"[{ShortName}] Detected 6-byte FF pattern, adjusting offset by +2");
+                }
+            }
+
+            int adjustedOffset = offset + alignmentAdjust;
+
+            // Read szInternalName pointer at offset 0x00
+            uint internalNamePtr = ReadUInt32BE(zoneData, offset);
+            // Read szDisplayName pointer at offset 0x04
+            uint displayNamePtr = ReadUInt32BE(zoneData, offset + 4);
+
+            Debug.WriteLine($"[{ShortName}] Weapon at 0x{offset:X} (adjusted: 0x{adjustedOffset:X}): internalNamePtr=0x{internalNamePtr:X8}, displayNamePtr=0x{displayNamePtr:X8}");
+
+            string internalName = "";
+            string displayName = "";
+
+            // After the 0x9AC header, inline data follows
+            // In zone files, 0xFFFFFFFF (-1) indicates the data is inline after the structure
+            // 0xFFFFFFFE (-2) also indicates inline data
+            // The inline data is laid out in order of appearance in the structure
+            int dataOffset = offset + WEAPON_HEADER_SIZE;
+
+            // Check if internalName pointer indicates inline data (0xFFFFFFFF or 0xFFFFFFFE)
+            bool internalNameInline = (internalNamePtr == 0xFFFFFFFF || internalNamePtr == 0xFFFFFFFE);
+            bool displayNameInline = (displayNamePtr == 0xFFFFFFFF || displayNamePtr == 0xFFFFFFFE);
+
+            if (internalNameInline)
+            {
+                // Skip padding bytes (0x00 and 0xFF) to find the start of string data
+                int maxPadding = 64; // Don't skip too far
+                int padCount = 0;
+                while (dataOffset < zoneData.Length - 1 && padCount < maxPadding &&
+                       (zoneData[dataOffset] == 0x00 || zoneData[dataOffset] == 0xFF))
+                {
+                    dataOffset++;
+                    padCount++;
+                }
+
+                if (dataOffset < zoneData.Length - 1)
+                {
+                    internalName = ReadNullTerminatedString(zoneData, dataOffset);
+                    Debug.WriteLine($"[{ShortName}] Weapon: Found inline internal name '{internalName}' at 0x{dataOffset:X}");
+                    if (!string.IsNullOrEmpty(internalName))
+                    {
+                        dataOffset += internalName.Length + 1; // Move past the string + null terminator
+                    }
+                }
+            }
+
+            // If displayName pointer indicates inline data, the name follows the internal name
+            if (displayNameInline)
+            {
+                // Skip padding bytes between strings
+                int maxPadding = 64;
+                int padCount = 0;
+                while (dataOffset < zoneData.Length - 1 && padCount < maxPadding &&
+                       (zoneData[dataOffset] == 0x00 || zoneData[dataOffset] == 0xFF))
+                {
+                    dataOffset++;
+                    padCount++;
+                }
+
+                if (dataOffset < zoneData.Length - 1)
+                {
+                    string candidate = ReadNullTerminatedString(zoneData, dataOffset);
+                    // Display names typically start with @ for localization, WEAPON_ prefix,
+                    // or are otherwise descriptive names
+                    // Skip pure numeric IDs
+                    if (!string.IsNullOrEmpty(candidate) && !candidate.All(char.IsDigit))
+                    {
+                        displayName = candidate;
+                        Debug.WriteLine($"[{ShortName}] Weapon: Found inline display name '{displayName}' at 0x{dataOffset:X}");
+                        dataOffset += displayName.Length + 1;
+                    }
+                }
+            }
+
+            // Validate we found at least the internal name
+            if (string.IsNullOrEmpty(internalName))
+            {
+                Debug.WriteLine($"[{ShortName}] Weapon: No internal name found at 0x{offset:X}");
+                return null;
+            }
+
+            // Validate the name looks like a weapon name:
+            // - Only valid characters (letters, digits, underscore, dash)
+            // - Should start with a letter (weapon names like "ak47_mp", "m1carbine_mp")
+            if (!internalName.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-'))
+            {
+                Debug.WriteLine($"[{ShortName}] Weapon: Invalid internal name '{internalName}' at 0x{offset:X}");
+                return null;
+            }
+
+            // Additional validation: weapon names should start with a letter
+            if (internalName.Length > 0 && !char.IsLetter(internalName[0]))
+            {
+                Debug.WriteLine($"[{ShortName}] Weapon: Name doesn't start with letter '{internalName}' at 0x{offset:X}");
+                return null;
+            }
+
+            // Find end of weapon data - search for next asset header
+            int endOffset = FindNextAssetHeader(zoneData, dataOffset, offset);
+
+            Debug.WriteLine($"[{ShortName}] Weapon '{internalName}' parsed at 0x{offset:X}, display='{displayName}'");
+
+            // Parse numeric fields using verified offsets (adjusted for alignment)
+            // Offsets verified from hex analysis of WaW PS3 zone files:
+            // 0x140: penetrateType (0=None, 1=Small, 2=Medium, 3=Large, 4=Heavy, 6=Rifle)
+            // 0x148: impactType (0=None, 1=Bullet_Small, 2=Bullet_Large, 3=Shotgun)
+            // 0x14C: fireType (0=FullAuto, 1=SingleShot, 2=Burst2, 3=Burst3, etc.)
+            // 0x150: weapClass (0=Rifle, 1=SMG, 2=MG, 3=Spread, 4=Pistol, etc.)
+            // 0x158: inventoryType (0=Primary, 1=Offhand)
+            // 0x3EC: damage
+            // 0x404: maxAmmo
+            // 0x408: clipSize
+
+            int penetrateTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x140);
+            int impactTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x148);
+            int fireTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x14C);
+            int weapClassVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x150);
+            int inventoryTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x158);
+            int damageVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x3EC);
+            int maxAmmoVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x404);
+            int clipSizeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x408);
+
+            Debug.WriteLine($"[{ShortName}] Weapon '{internalName}': weapClass={weapClassVal}, fireType={fireTypeVal}, penetrate={penetrateTypeVal}, impact={impactTypeVal}, damage={damageVal}, clip={clipSizeVal}");
+
+            // Validate the parsed values are in reasonable ranges
+            // If values are way out of range, the alignment might still be wrong
+            // Using enum max values: weapClass<=10, fireType<=4, penetrate<=3, impact<=8
+            bool valuesValid = weapClassVal >= 0 && weapClassVal <= 11 &&
+                               fireTypeVal >= 0 && fireTypeVal <= 5 &&
+                               penetrateTypeVal >= 0 && penetrateTypeVal <= 4 &&
+                               impactTypeVal >= 0 && impactTypeVal <= 9 &&
+                               damageVal >= 0 && damageVal <= 500 &&
+                               clipSizeVal >= 0 && clipSizeVal <= 500;
+
+            if (!valuesValid)
+            {
+                Debug.WriteLine($"[{ShortName}] Warning: Weapon '{internalName}' has out-of-range values, alignment may be incorrect");
+                // Reset to defaults if values are clearly wrong
+                weapClassVal = 0;
+                fireTypeVal = 0;
+                penetrateTypeVal = 0;
+                impactTypeVal = 0;
+                inventoryTypeVal = 0;
+                damageVal = -1;
+                clipSizeVal = -1;
+                maxAmmoVal = -1;
+            }
+
+            // Convert to enums, clamping to valid ranges
+            WeaponClass weapClass = (WeaponClass)Math.Min(weapClassVal, 10);  // Max is Item (10)
+            WeaponFireType fireType = (WeaponFireType)Math.Min(fireTypeVal, 4);  // Max is Burst4 (4)
+            PenetrateType penetrateType = (PenetrateType)Math.Min(penetrateTypeVal, 3);  // Max is Large (3)
+            ImpactType impactType = (ImpactType)Math.Min(impactTypeVal, 8);  // Max is Projectile_Dud (8)
+            WeaponInventoryType inventoryType = (WeaponInventoryType)Math.Min(inventoryTypeVal, 3);  // Max is AltMode (3)
+
+            return new WeaponAsset
+            {
+                InternalName = internalName,
+                DisplayName = displayName,
+                WeapType = WeaponType.Bullet,  // Default - weapType offset not yet verified
+                WeapClass = weapClass,
+                FireType = fireType,
+                PenetrateType = penetrateType,
+                ImpactType = impactType,
+                InventoryType = inventoryType,
+                Damage = damageVal,
+                MinDamage = -1,  // Offset not yet verified
+                MeleeDamage = -1,  // Offset not yet verified
+                ClipSize = clipSizeVal,
+                MaxAmmo = maxAmmoVal,
+                FireTime = -1,  // Offset not yet verified
+                StartOffset = offset,
+                EndOffset = endOffset,
+                HeaderSize = WEAPON_HEADER_SIZE,
+                AdditionalData = $"{ShortName} - parsed with alignment adjust={alignmentAdjust}"
+            };
         }
 
         #region Helper Methods

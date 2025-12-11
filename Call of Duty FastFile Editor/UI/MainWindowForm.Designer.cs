@@ -91,6 +91,8 @@ namespace Call_of_Duty_FastFile_Editor
             xAnimsListView = new ListView();
             xAnimsContextMenu = new ContextMenuStrip(components);
             exportXAnimMenuItem = new ToolStripMenuItem();
+            weaponsTabPage = new TabPage();
+            weaponsListView = new ListView();
             stringTablesTabPage = new TabPage();
             stringTablesListView = new ListView();
             zoneFileTabPage = new TabPage();
@@ -119,6 +121,7 @@ namespace Call_of_Duty_FastFile_Editor
             techSetsTabPage.SuspendLayout();
             xAnimsTabPage.SuspendLayout();
             xAnimsContextMenu.SuspendLayout();
+            weaponsTabPage.SuspendLayout();
             stringTablesTabPage.SuspendLayout();
             zoneFileTabPage.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).BeginInit();
@@ -503,6 +506,7 @@ namespace Call_of_Duty_FastFile_Editor
             mainTabControl.Controls.Add(menuFilesTabPage);
             mainTabControl.Controls.Add(techSetsTabPage);
             mainTabControl.Controls.Add(xAnimsTabPage);
+            mainTabControl.Controls.Add(weaponsTabPage);
             mainTabControl.Controls.Add(stringTablesTabPage);
             mainTabControl.Controls.Add(tagsTabPage);
             mainTabControl.Controls.Add(assetPoolTabPage);
@@ -740,6 +744,29 @@ namespace Call_of_Duty_FastFile_Editor
             exportXAnimMenuItem.Text = "Export XAnim Data...";
             exportXAnimMenuItem.Click += exportXAnimMenuItem_Click;
             //
+            // weaponsTabPage
+            //
+            weaponsTabPage.Controls.Add(weaponsListView);
+            weaponsTabPage.Location = new Point(4, 24);
+            weaponsTabPage.Name = "weaponsTabPage";
+            weaponsTabPage.Padding = new Padding(3);
+            weaponsTabPage.Size = new Size(1442, 749);
+            weaponsTabPage.TabIndex = 12;
+            weaponsTabPage.Text = "Weapons";
+            weaponsTabPage.UseVisualStyleBackColor = true;
+            //
+            // weaponsListView
+            //
+            weaponsListView.Dock = DockStyle.Fill;
+            weaponsListView.FullRowSelect = true;
+            weaponsListView.Location = new Point(3, 3);
+            weaponsListView.Name = "weaponsListView";
+            weaponsListView.Size = new Size(1436, 743);
+            weaponsListView.TabIndex = 0;
+            weaponsListView.UseCompatibleStateImageBehavior = false;
+            weaponsListView.View = View.Details;
+            weaponsListView.MouseDown += listView_MouseDownCopy;
+            //
             // stringTablesTabPage
             //
             stringTablesTabPage.Controls.Add(stringTablesListView);
@@ -827,6 +854,7 @@ namespace Call_of_Duty_FastFile_Editor
             techSetsTabPage.ResumeLayout(false);
             xAnimsTabPage.ResumeLayout(false);
             xAnimsContextMenu.ResumeLayout(false);
+            weaponsTabPage.ResumeLayout(false);
             stringTablesTabPage.ResumeLayout(false);
             zoneFileTabPage.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).EndInit();
@@ -892,6 +920,8 @@ namespace Call_of_Duty_FastFile_Editor
         private ListView xAnimsListView;
         private ContextMenuStrip xAnimsContextMenu;
         private ToolStripMenuItem exportXAnimMenuItem;
+        private TabPage weaponsTabPage;
+        private ListView weaponsListView;
         private TabPage stringTablesTabPage;
         private ListView stringTablesListView;
         private TabPage localizeTabPage;
