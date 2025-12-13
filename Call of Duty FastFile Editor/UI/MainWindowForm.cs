@@ -1734,88 +1734,259 @@ namespace Call_of_Duty_FastFile_Editor
             }
         }
 
+        /// <summary>
+        /// Stores the parsed map entity data for the collision map viewer.
+        /// </summary>
+        private MapEntsData _mapEntsData;
+        private TreeView _collisionEntityTreeView;
+        private ListView _collisionPropertyListView;
+        private TextBox _collisionSearchTextBox;
+        private Label _collisionStatusLabel;
+
         private void PopulateCollision_Map_Asset_StringData()
         {
-            int offset = Collision_Map_Operations.FindCollision_Map_DataOffsetViaFF(_openedFastFile.OpenedFastFileZone);
-            if (offset == -1)
+            // Parse map entity data using the new ClipMapParser
+            _mapEntsData = ClipMapParser.ParseMapEnts(_openedFastFile.OpenedFastFileZone);
+
+            if (_mapEntsData == null || _mapEntsData.Entities.Count == 0)
             {
-                //MessageBox.Show("No map header found near large FF blocks.");
-                mainTabControl.TabPages.Remove(collision_Map_AssetTabPage); // hide the tab page if there's no data to show
+                // Hide the tab page if there's no data to show
+                mainTabControl.TabPages.Remove(collision_Map_AssetTabPage);
                 return;
             }
 
-            // Parse entities from that offset
-            List<MapEntity> mapTest = Collision_Map_Operations.ParseMapEntsAtOffset(_openedFastFile.OpenedFastFileZone, offset);
+            // Update tab text to show entity count
+            collision_Map_AssetTabPage.Text = $"Collision Map Data ({_mapEntsData.Entities.Count} entities)";
 
-            if (mapTest.Count == 0)
+            // Clear existing controls and build the UI
+            collision_Map_AssetTabPage.Controls.Clear();
+            BuildCollisionMapUI();
+            PopulateCollisionEntityTree();
+            UpdateCollisionStatus();
+        }
+
+        private void BuildCollisionMapUI()
+        {
+            // Create toolbar panel
+            var toolbarPanel = new Panel { Dock = DockStyle.Top, Height = 30 };
+
+            var exportEntitiesBtn = new Button { Text = "Export Entities", Location = new Point(5, 3), AutoSize = true };
+            exportEntitiesBtn.Click += CollisionExportEntities_Click;
+
+            var exportRawBtn = new Button { Text = "Export Raw", Location = new Point(110, 3), AutoSize = true };
+            exportRawBtn.Click += CollisionExportRaw_Click;
+
+            var expandAllBtn = new Button { Text = "Expand All", Location = new Point(200, 3), AutoSize = true };
+            expandAllBtn.Click += (s, e) => _collisionEntityTreeView?.ExpandAll();
+
+            var collapseAllBtn = new Button { Text = "Collapse All", Location = new Point(285, 3), AutoSize = true };
+            collapseAllBtn.Click += (s, e) => _collisionEntityTreeView?.CollapseAll();
+
+            var searchLabel = new Label { Text = "Search:", Location = new Point(380, 7), AutoSize = true };
+            _collisionSearchTextBox = new TextBox { Location = new Point(430, 4), Width = 200 };
+            _collisionSearchTextBox.TextChanged += CollisionSearchTextBox_TextChanged;
+
+            toolbarPanel.Controls.AddRange(new Control[] { exportEntitiesBtn, exportRawBtn, expandAllBtn, collapseAllBtn, searchLabel, _collisionSearchTextBox });
+
+            // Create status label
+            _collisionStatusLabel = new Label { Dock = DockStyle.Bottom, Height = 22, TextAlign = ContentAlignment.MiddleLeft, BorderStyle = BorderStyle.Fixed3D };
+
+            // Entity tree view
+            _collisionEntityTreeView = new TreeView
             {
-                MessageBox.Show("Found an offset, but parsing yielded no entities.", "Empty",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
+                Dock = DockStyle.Fill,
+                HideSelection = false,
+                ShowNodeToolTips = true
+            };
+            _collisionEntityTreeView.AfterSelect += CollisionEntityTreeView_AfterSelect;
+
+            // Property list view
+            _collisionPropertyListView = new ListView
+            {
+                Dock = DockStyle.Fill,
+                View = View.Details,
+                FullRowSelect = true,
+                GridLines = true
+            };
+            _collisionPropertyListView.Columns.Add("Property", 150);
+            _collisionPropertyListView.Columns.Add("Value", -2); // -2 = auto-fill remaining width
+
+            // Create split container
+            var splitContainer = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Vertical,
+                SplitterWidth = 4,
+                FixedPanel = FixedPanel.Panel1,
+                Panel1MinSize = 50,
+                Panel2MinSize = 50
+            };
+
+            splitContainer.Panel1.Controls.Add(_collisionEntityTreeView);
+            splitContainer.Panel2.Controls.Add(_collisionPropertyListView);
+
+            // Add controls to tab in correct order
+            collision_Map_AssetTabPage.Controls.Add(splitContainer);
+            collision_Map_AssetTabPage.Controls.Add(_collisionStatusLabel);
+            collision_Map_AssetTabPage.Controls.Add(toolbarPanel);
+
+            // Set splitter distance after adding to form (use try-catch in case width isn't set yet)
+            try
+            {
+                int desiredWidth = 280;
+                if (splitContainer.Width > desiredWidth + splitContainer.Panel2MinSize)
+                    splitContainer.SplitterDistance = desiredWidth;
+            }
+            catch { /* Ignore if splitter can't be set yet */ }
+        }
+
+        private void PopulateCollisionEntityTree(string searchFilter = null)
+        {
+            if (_collisionEntityTreeView == null || _mapEntsData == null) return;
+
+            _collisionEntityTreeView.BeginUpdate();
+            _collisionEntityTreeView.Nodes.Clear();
+
+            IEnumerable<MapEntity> entities = _mapEntsData.Entities;
+
+            // Apply search filter if provided
+            if (!string.IsNullOrWhiteSpace(searchFilter))
+            {
+                string filter = searchFilter.ToLowerInvariant();
+                entities = entities.Where(e =>
+                    e.ClassName.ToLowerInvariant().Contains(filter) ||
+                    e.Properties.Any(p => p.Key.ToLowerInvariant().Contains(filter) || p.Value.ToLowerInvariant().Contains(filter)));
             }
 
-            // Sort by "classname"
-            mapTest.Sort((entA, entB) =>
+            // Add header info node
+            var headerNode = new TreeNode($"Map Ents: {_mapEntsData.DataSize:N0} bytes @ 0x{_mapEntsData.SizeOffset:X}")
             {
-                entA.Properties.TryGetValue("classname", out string aClass);
-                entB.Properties.TryGetValue("classname", out string bClass);
-                aClass ??= "";
-                bClass ??= "";
-                return string.Compare(aClass, bClass, StringComparison.OrdinalIgnoreCase);
-            });
+                NodeFont = new Font(_collisionEntityTreeView.Font, FontStyle.Bold)
+            };
+            headerNode.Nodes.Add($"Data Offset: 0x{_mapEntsData.DataStartOffset:X}");
+            headerNode.Nodes.Add($"Total Entities: {_mapEntsData.Entities.Count}");
+            _collisionEntityTreeView.Nodes.Add(headerNode);
 
-            // Clear the TreeView
-            treeViewMapEnt.Nodes.Clear();
+            // Group entities by classname
+            var groupedEntities = entities.GroupBy(e => e.ClassName).OrderBy(g => g.Key);
 
-            // Attempt to get both the map size and its offset
-            var sizeInfo = Collision_Map_Operations.GetMapDataSizeAndOffset(_openedFastFile.OpenedFastFileZone, mapTest);
-            if (sizeInfo.HasValue)
+            foreach (var group in groupedEntities)
             {
-                // Destructure the tuple
-                (int mapSize, int offsetOfSize) = sizeInfo.Value;
+                var groupNode = new TreeNode($"{group.Key} ({group.Count()})") { Tag = group.Key };
 
-                // Create a top-level node for the map size
-                TreeNode sizeNode = new TreeNode($"Map Data Size = {mapSize} bytes (dec)");
-                treeViewMapEnt.Nodes.Add(sizeNode);
-
-                // Create another node for where that size is stored (in hex)
-                string sizeOffsetHex = offsetOfSize.ToString("X");
-                TreeNode sizeOffsetNode = new TreeNode($"Map Size AssetPoolRecordOffset = 0x{sizeOffsetHex}");
-                treeViewMapEnt.Nodes.Add(sizeOffsetNode);
-            }
-            else
-            {
-                // If we can't find the size, optionally show a node or just skip
-                treeViewMapEnt.Nodes.Add("Could not detect map size.");
-            }
-
-            // Now add each entity
-            for (int i = 0; i < mapTest.Count; i++)
-            {
-                MapEntity entity = mapTest[i];
-
-                // Parent label from "classname" or fallback
-                string parentLabel = entity.Properties.TryGetValue("classname", out string classNameVal)
-                    ? classNameVal
-                    : $"Entity {i}";
-
-                TreeNode parentNode = new TreeNode(parentLabel);
-
-                // Show offset in hex
-                string offsetHex = entity.SourceOffset.ToString("X");
-                parentNode.Nodes.Add($"AssetPoolRecordOffset = 0x{offsetHex}");
-
-                // Then the key-value pairs
-                foreach (var kvp in entity.Properties)
+                foreach (var entity in group)
                 {
-                    if (!kvp.Key.Equals("classname", StringComparison.OrdinalIgnoreCase))
+                    var entityNode = new TreeNode(entity.DisplayName)
                     {
-                        parentNode.Nodes.Add($"{kvp.Key} = {kvp.Value}");
-                    }
+                        Tag = entity,
+                        ToolTipText = $"Offset: 0x{entity.SourceOffset:X}"
+                    };
+                    groupNode.Nodes.Add(entityNode);
                 }
 
-                treeViewMapEnt.Nodes.Add(parentNode);
+                _collisionEntityTreeView.Nodes.Add(groupNode);
             }
+
+            headerNode.Expand();
+            _collisionEntityTreeView.EndUpdate();
+        }
+
+        private void CollisionEntityTreeView_AfterSelect(object sender, TreeViewEventArgs e)
+        {
+            if (_collisionPropertyListView == null) return;
+
+            _collisionPropertyListView.Items.Clear();
+
+            if (e.Node?.Tag is MapEntity entity)
+            {
+                // Add offset info
+                _collisionPropertyListView.Items.Add(new ListViewItem(new[] { "(Offset)", $"0x{entity.SourceOffset:X}" }) { ForeColor = Color.Gray });
+
+                // Add properties sorted by key
+                foreach (var prop in entity.Properties.OrderBy(p => p.Key))
+                {
+                    var item = new ListViewItem(new[] { prop.Key, prop.Value });
+                    if (prop.Key.Equals("classname", StringComparison.OrdinalIgnoreCase))
+                        item.ForeColor = Color.Blue;
+                    _collisionPropertyListView.Items.Add(item);
+                }
+            }
+        }
+
+        private void CollisionSearchTextBox_TextChanged(object sender, EventArgs e)
+        {
+            PopulateCollisionEntityTree(_collisionSearchTextBox?.Text);
+            UpdateCollisionStatus();
+        }
+
+        private void CollisionExportEntities_Click(object sender, EventArgs e)
+        {
+            if (_mapEntsData == null) return;
+
+            using var dialog = new SaveFileDialog
+            {
+                Filter = "Entity Files (*.ent)|*.ent|Text Files (*.txt)|*.txt|All Files (*.*)|*.*",
+                DefaultExt = "ent",
+                FileName = "mapents"
+            };
+
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    using var writer = new StreamWriter(dialog.FileName);
+                    foreach (var entity in _mapEntsData.Entities)
+                    {
+                        writer.WriteLine("{");
+                        foreach (var prop in entity.Properties)
+                            writer.WriteLine($"\"{prop.Key}\" \"{prop.Value}\"");
+                        writer.WriteLine("}");
+                    }
+                    MessageBox.Show($"Exported {_mapEntsData.Entities.Count} entities.", "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Export failed: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void CollisionExportRaw_Click(object sender, EventArgs e)
+        {
+            if (_mapEntsData == null) return;
+
+            using var dialog = new SaveFileDialog
+            {
+                Filter = "Text Files (*.txt)|*.txt|All Files (*.*)|*.*",
+                DefaultExt = "txt",
+                FileName = "mapents_raw"
+            };
+
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    File.WriteAllText(dialog.FileName, _mapEntsData.RawText);
+                    MessageBox.Show("Raw map ents exported successfully.", "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Export failed: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void UpdateCollisionStatus()
+        {
+            if (_collisionStatusLabel == null || _mapEntsData == null) return;
+
+            int displayedCount = _collisionEntityTreeView?.Nodes.Cast<TreeNode>()
+                .Skip(1) // Skip header node
+                .Sum(n => n.Nodes.Count) ?? 0;
+
+            int entityTypes = _mapEntsData.Entities.GroupBy(e => e.ClassName).Count();
+
+            _collisionStatusLabel.Text = $"Total: {_mapEntsData.Entities.Count} entities | Types: {entityTypes} | Showing: {displayedCount} | Size: {_mapEntsData.DataSize:N0} bytes";
         }
 
         private void listView_MouseDownCopy(object sender, MouseEventArgs e)
