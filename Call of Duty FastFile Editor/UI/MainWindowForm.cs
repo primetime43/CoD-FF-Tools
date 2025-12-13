@@ -3492,5 +3492,264 @@ namespace Call_of_Duty_FastFile_Editor
                 MessageBox.Show($"An unexpected error occurred: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
+
+        private void compressZoneToFFToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            using var openFileDialog = new OpenFileDialog
+            {
+                Title = "Select Zone File to Compress",
+                Filter = "Zone Files (*.zone)|*.zone|All Files (*.*)|*.*",
+                FilterIndex = 1
+            };
+
+            if (openFileDialog.ShowDialog() != DialogResult.OK)
+                return;
+
+            string zonePath = openFileDialog.FileName;
+            byte[] zoneData;
+
+            try
+            {
+                zoneData = File.ReadAllBytes(zonePath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to read zone file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Detect game version from zone header
+            // Zone header has MemAlloc1 at offset 0x08 (4 bytes, big-endian)
+            // WaW: 0x000010B0, CoD4: 0x00000F70, MW2: 0x000003B4
+            FastFileLib.GameVersion? detectedVersion = null;
+
+            if (zoneData.Length >= 12)
+            {
+                uint memAlloc1 = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
+
+                if (memAlloc1 == 0x000010B0)
+                    detectedVersion = FastFileLib.GameVersion.WaW;
+                else if (memAlloc1 == 0x00000F70)
+                    detectedVersion = FastFileLib.GameVersion.CoD4;
+                else if (memAlloc1 == 0x000003B4)
+                    detectedVersion = FastFileLib.GameVersion.MW2;
+            }
+
+            // Ask user to confirm or select game version
+            string[] versionOptions = { "Call of Duty: World at War (WaW)", "Call of Duty 4: Modern Warfare (CoD4)", "Call of Duty: Modern Warfare 2 (MW2)" };
+            int defaultIndex = detectedVersion switch
+            {
+                FastFileLib.GameVersion.WaW => 0,
+                FastFileLib.GameVersion.CoD4 => 1,
+                FastFileLib.GameVersion.MW2 => 2,
+                _ => 0
+            };
+
+            string detectedText = detectedVersion.HasValue ? $"Detected: {detectedVersion.Value}" : "Could not auto-detect version";
+
+            using var versionForm = new Form
+            {
+                Text = "Select Game Version",
+                Size = new Size(350, 180),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false
+            };
+
+            var label = new Label { Text = $"Select the game version for this zone file:\n({detectedText})", Location = new Point(10, 10), Size = new Size(320, 40) };
+            var comboBox = new ComboBox { Location = new Point(10, 55), Size = new Size(310, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            comboBox.Items.AddRange(versionOptions);
+            comboBox.SelectedIndex = defaultIndex;
+
+            var okButton = new Button { Text = "Compress", Location = new Point(160, 95), Size = new Size(80, 30), DialogResult = DialogResult.OK };
+            var cancelButton = new Button { Text = "Cancel", Location = new Point(250, 95), Size = new Size(70, 30), DialogResult = DialogResult.Cancel };
+
+            versionForm.Controls.AddRange(new Control[] { label, comboBox, okButton, cancelButton });
+            versionForm.AcceptButton = okButton;
+            versionForm.CancelButton = cancelButton;
+
+            if (versionForm.ShowDialog() != DialogResult.OK)
+                return;
+
+            FastFileLib.GameVersion selectedVersion = comboBox.SelectedIndex switch
+            {
+                0 => FastFileLib.GameVersion.WaW,
+                1 => FastFileLib.GameVersion.CoD4,
+                2 => FastFileLib.GameVersion.MW2,
+                _ => FastFileLib.GameVersion.WaW
+            };
+
+            // Ask where to save the FastFile
+            string defaultFileName = Path.GetFileNameWithoutExtension(zonePath) + ".ff";
+            using var saveFileDialog = new SaveFileDialog
+            {
+                Title = "Save FastFile As",
+                Filter = "FastFile (*.ff)|*.ff|All Files (*.*)|*.*",
+                FilterIndex = 1,
+                FileName = defaultFileName,
+                InitialDirectory = Path.GetDirectoryName(zonePath)
+            };
+
+            if (saveFileDialog.ShowDialog() != DialogResult.OK)
+                return;
+
+            string ffPath = saveFileDialog.FileName;
+
+            try
+            {
+                var compiler = new FastFileLib.Compiler(selectedVersion);
+                compiler.CompileToFile(zoneData, ffPath, saveZone: false);
+
+                MessageBox.Show($"Successfully compressed zone to FastFile:\n{ffPath}", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to compress zone file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void openZoneFileToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (_openedFastFile != null)
+            {
+                SaveCloseFastFileAndCleanUp();
+            }
+
+            using var openFileDialog = new OpenFileDialog
+            {
+                Title = "Select a Zone File",
+                Filter = "Zone Files (*.zone)|*.zone|All Files (*.*)|*.*",
+                FilterIndex = 1
+            };
+
+            if (openFileDialog.ShowDialog() != DialogResult.OK)
+                return;
+
+            string zonePath = openFileDialog.FileName;
+
+            // Detect game version from zone file
+            GameType? detectedType = FastFile.DetectGameTypeFromZone(zonePath);
+
+            // Ask user to confirm or select game version
+            string[] versionOptions = { "Call of Duty: World at War (WaW/COD5)", "Call of Duty 4: Modern Warfare (CoD4)", "Call of Duty: Modern Warfare 2 (MW2)" };
+            int defaultIndex = detectedType switch
+            {
+                GameType.CoD5 => 0,
+                GameType.CoD4 => 1,
+                GameType.MW2 => 2,
+                _ => 0
+            };
+
+            string detectedText = detectedType.HasValue ? $"Detected: {detectedType.Value}" : "Could not auto-detect version";
+
+            using var versionForm = new Form
+            {
+                Text = "Select Game Version",
+                Size = new Size(350, 180),
+                StartPosition = FormStartPosition.CenterParent,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false
+            };
+
+            var label = new Label { Text = $"Select the game version for this zone file:\n({detectedText})", Location = new Point(10, 10), Size = new Size(320, 40) };
+            var comboBox = new ComboBox { Location = new Point(10, 55), Size = new Size(310, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            comboBox.Items.AddRange(versionOptions);
+            comboBox.SelectedIndex = defaultIndex;
+
+            var okButton = new Button { Text = "Open", Location = new Point(175, 95), Size = new Size(70, 30), DialogResult = DialogResult.OK };
+            var cancelButton = new Button { Text = "Cancel", Location = new Point(255, 95), Size = new Size(70, 30), DialogResult = DialogResult.Cancel };
+
+            versionForm.Controls.AddRange(new Control[] { label, comboBox, okButton, cancelButton });
+            versionForm.AcceptButton = okButton;
+            versionForm.CancelButton = cancelButton;
+
+            if (versionForm.ShowDialog() != DialogResult.OK)
+                return;
+
+            GameType selectedGameType = comboBox.SelectedIndex switch
+            {
+                0 => GameType.CoD5,
+                1 => GameType.CoD4,
+                2 => GameType.MW2,
+                _ => GameType.CoD5
+            };
+
+            try
+            {
+                // Create FastFile from zone file
+                _openedFastFile = FastFile.FromZoneFile(zonePath, selectedGameType);
+                UIManager.UpdateLoadedFileNameStatusStrip(loadedFileNameStatusLabel, _openedFastFile);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load zone file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (_openedFastFile.IsValid)
+            {
+                try
+                {
+                    // Assign the correct handler for the opened file
+                    _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
+
+                    // Show the opened zone path in the program's title text
+                    this.SetProgramTitle(_openedFastFile.ZoneFilePath + " (Zone File)");
+
+                    // Load & parse the zone directly (no decompression needed)
+                    _openedFastFile.LoadZone();
+
+                    // Get tag count for the dialog
+                    int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
+
+                    // Show asset selection dialog
+                    bool loadRawFiles = true;
+                    bool loadLocalizedEntries = true;
+                    bool loadTags = true;
+
+                    using (var assetDialog = new AssetSelectionDialog(
+                        _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
+                        _openedFastFile,
+                        tagCount))
+                    {
+                        if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
+                        {
+                            SaveCloseFastFileAndCleanUp();
+                            return;
+                        }
+                        loadRawFiles = assetDialog.LoadRawFiles;
+                        loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
+                        loadTags = assetDialog.LoadTags;
+                    }
+
+                    // Parse asset records from the zone
+                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                try
+                {
+                    // Load all the parsed data from the zone file to the UI
+                    LoadZoneDataToUI();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+            }
+            else
+            {
+                MessageBox.Show("Invalid Zone File!\n\nThe zone file could not be validated.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return;
+            }
+            EnableUI_Elements();
+        }
     }
 }

@@ -30,6 +30,7 @@ namespace Call_of_Duty_FastFile_Editor
             menuStripTopToolbar = new MenuStrip();
             fileToolStripMenuItem = new ToolStripMenuItem();
             openFastFileToolStripMenuItem = new ToolStripMenuItem();
+            openZoneFileToolStripMenuItem = new ToolStripMenuItem();
             COD5ToolStripMenuItem = new ToolStripMenuItem();
             cOD4ToolStripMenuItem = new ToolStripMenuItem();
             mW2ToolStripMenuItem = new ToolStripMenuItem();
@@ -55,6 +56,7 @@ namespace Call_of_Duty_FastFile_Editor
             importLocalizeFromTxtMenuItem = new ToolStripMenuItem();
             toolStripMenuItem2 = new ToolStripMenuItem();
             toolStripSeparator2 = new ToolStripSeparator();
+            compressZoneToFFToolStripMenuItem = new ToolStripMenuItem();
             keepZoneFileToolStripMenuItem = new ToolStripMenuItem();
             helpToolStripMenuItem = new ToolStripMenuItem();
             aboutToolStripMenuItem = new ToolStripMenuItem();
@@ -191,7 +193,7 @@ namespace Call_of_Duty_FastFile_Editor
             // 
             // fileToolStripMenuItem
             // 
-            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openFastFileToolStripMenuItem, saveFastFileToolStripMenuItem, saveFastFileAsToolStripMenuItem, toolStripMenuItem1, exitToolStripMenuItem });
+            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openFastFileToolStripMenuItem, openZoneFileToolStripMenuItem, saveFastFileToolStripMenuItem, saveFastFileAsToolStripMenuItem, toolStripMenuItem1, exitToolStripMenuItem });
             fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             fileToolStripMenuItem.Size = new Size(44, 24);
             fileToolStripMenuItem.Text = "File";
@@ -202,7 +204,15 @@ namespace Call_of_Duty_FastFile_Editor
             openFastFileToolStripMenuItem.Name = "openFastFileToolStripMenuItem";
             openFastFileToolStripMenuItem.Size = new Size(286, 24);
             openFastFileToolStripMenuItem.Text = "Open Fast File";
-            // 
+            //
+            // openZoneFileToolStripMenuItem
+            //
+            openZoneFileToolStripMenuItem.Name = "openZoneFileToolStripMenuItem";
+            openZoneFileToolStripMenuItem.Size = new Size(286, 24);
+            openZoneFileToolStripMenuItem.Text = "Open Zone File...";
+            openZoneFileToolStripMenuItem.ToolTipText = "Open a decompressed zone file directly";
+            openZoneFileToolStripMenuItem.Click += openZoneFileToolStripMenuItem_Click;
+            //
             // COD5ToolStripMenuItem
             // 
             COD5ToolStripMenuItem.Name = "COD5ToolStripMenuItem";
@@ -303,7 +313,7 @@ namespace Call_of_Duty_FastFile_Editor
             // 
             // toolsToolStripMenuItem
             // 
-            toolsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { rawFileToolsMenuItem, injectFileToolStripMenuItem, extractAllRawFilesToolStripMenuItem, localizeToolsMenuItem, toolStripMenuItem2, toolStripSeparator2, keepZoneFileToolStripMenuItem });
+            toolsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { rawFileToolsMenuItem, injectFileToolStripMenuItem, extractAllRawFilesToolStripMenuItem, localizeToolsMenuItem, toolStripMenuItem2, toolStripSeparator2, compressZoneToFFToolStripMenuItem, keepZoneFileToolStripMenuItem });
             toolsToolStripMenuItem.Name = "toolsToolStripMenuItem";
             toolsToolStripMenuItem.Size = new Size(56, 24);
             toolsToolStripMenuItem.Text = "Tools";
@@ -386,6 +396,14 @@ namespace Call_of_Duty_FastFile_Editor
             //
             toolStripSeparator2.Name = "toolStripSeparator2";
             toolStripSeparator2.Size = new Size(207, 6);
+            //
+            // compressZoneToFFToolStripMenuItem
+            //
+            compressZoneToFFToolStripMenuItem.Name = "compressZoneToFFToolStripMenuItem";
+            compressZoneToFFToolStripMenuItem.Size = new Size(210, 24);
+            compressZoneToFFToolStripMenuItem.Text = "Compress Zone to FastFile...";
+            compressZoneToFFToolStripMenuItem.ToolTipText = "Compress an uncompressed .zone file to a .ff FastFile";
+            compressZoneToFFToolStripMenuItem.Click += compressZoneToFFToolStripMenuItem_Click;
             //
             // keepZoneFileToolStripMenuItem
             //
@@ -942,6 +960,8 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem reloadRawFilesPatternMatchingToolStripMenuItem;
         private ToolStripMenuItem reportIssuesToolStripMenuItem;
         private ToolStripSeparator toolStripSeparator2;
+        private ToolStripMenuItem compressZoneToFFToolStripMenuItem;
+        private ToolStripMenuItem openZoneFileToolStripMenuItem;
         private ToolStripMenuItem keepZoneFileToolStripMenuItem;
     }
 }

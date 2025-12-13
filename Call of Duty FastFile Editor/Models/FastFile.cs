@@ -5,12 +5,24 @@ using Call_of_Duty_FastFile_Editor.GameDefinitions;
 
 namespace Call_of_Duty_FastFile_Editor.Models
 {
+    public enum GameType
+    {
+        CoD4,
+        CoD5,
+        MW2
+    }
+
     public class FastFile
     {
         public string FfFilePath { get; }
         public string ZoneFilePath { get; }
         public ZoneFile OpenedFastFileZone { get; private set; }
         public FastFileHeader OpenedFastFileHeader { get; }
+
+        /// <summary>
+        /// Indicates if this FastFile was loaded from a zone file directly (no original .ff exists).
+        /// </summary>
+        public bool IsFromZoneFile { get; }
 
         public string FastFileName => Path.GetFileName(FfFilePath);
         public string FastFileMagic => OpenedFastFileHeader.FastFileMagic;
@@ -26,6 +38,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
             FfFilePath = filePath
                 ?? throw new ArgumentException("File path cannot be null.", nameof(filePath));
             ZoneFilePath = Path.ChangeExtension(filePath, ".zone");
+            IsFromZoneFile = false;
 
             if (!File.Exists(filePath))
                 throw new FileNotFoundException($"FastFile not found: {filePath}", filePath);
@@ -34,6 +47,71 @@ namespace Call_of_Duty_FastFile_Editor.Models
             OpenedFastFileZone = new ZoneFile(ZoneFilePath, this);
 
             OpenedFastFileHeader = new FastFileHeader(filePath);
+        }
+
+        /// <summary>
+        /// Private constructor for creating a FastFile from a zone file directly.
+        /// </summary>
+        private FastFile(string zonePath, GameType gameType, bool isFromZone)
+        {
+            ZoneFilePath = zonePath
+                ?? throw new ArgumentException("Zone path cannot be null.", nameof(zonePath));
+            FfFilePath = Path.ChangeExtension(zonePath, ".ff");
+            IsFromZoneFile = isFromZone;
+
+            if (!File.Exists(zonePath))
+                throw new FileNotFoundException($"Zone file not found: {zonePath}", zonePath);
+
+            // Create a virtual header based on game type
+            OpenedFastFileHeader = new FastFileHeader(gameType);
+
+            // Create zone file reference
+            OpenedFastFileZone = new ZoneFile(ZoneFilePath, this);
+        }
+
+        /// <summary>
+        /// Creates a FastFile instance from a zone file directly.
+        /// Use this when you have a decompressed zone and want to load/edit it.
+        /// </summary>
+        /// <param name="zonePath">Path to the .zone file</param>
+        /// <param name="gameType">The game type (CoD4, CoD5/WaW, MW2)</param>
+        /// <returns>A FastFile instance ready for zone loading</returns>
+        public static FastFile FromZoneFile(string zonePath, GameType gameType)
+        {
+            return new FastFile(zonePath, gameType, isFromZone: true);
+        }
+
+        /// <summary>
+        /// Detects the game type from a zone file by reading the MemAlloc1 value at offset 0x08.
+        /// </summary>
+        /// <param name="zonePath">Path to the zone file</param>
+        /// <returns>Detected game type, or null if detection failed</returns>
+        public static GameType? DetectGameTypeFromZone(string zonePath)
+        {
+            try
+            {
+                byte[] header = new byte[12];
+                using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
+                {
+                    if (fs.Read(header, 0, 12) < 12)
+                        return null;
+                }
+
+                // MemAlloc1 is at offset 0x08, big-endian
+                uint memAlloc1 = (uint)((header[8] << 24) | (header[9] << 16) | (header[10] << 8) | header[11]);
+
+                return memAlloc1 switch
+                {
+                    0x000010B0 => GameType.CoD5,  // WaW
+                    0x00000F70 => GameType.CoD4,  // CoD4
+                    0x000003B4 => GameType.MW2,   // MW2
+                    _ => null
+                };
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -68,6 +146,33 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 FileLength = (int)new FileInfo(filePath).Length;
 
                 ValidateHeader();
+            }
+
+            /// <summary>
+            /// Creates a virtual FastFile header based on game type.
+            /// Used when loading from a zone file directly.
+            /// </summary>
+            public FastFileHeader(GameType gameType)
+            {
+                FastFileMagic = FastFileHeaderConstants.UnSignedFF;
+                FileLength = 0; // Unknown when loading from zone
+                IsValid = true;
+
+                switch (gameType)
+                {
+                    case GameType.CoD4:
+                        GameVersion = CoD4Definition.VersionValue;
+                        IsCod4File = true;
+                        break;
+                    case GameType.CoD5:
+                        GameVersion = CoD5Definition.VersionValue;
+                        IsCod5File = true;
+                        break;
+                    case GameType.MW2:
+                        GameVersion = MW2Definition.VersionValue;
+                        IsMW2File = true;
+                        break;
+                }
             }
 
             /// <summary>
