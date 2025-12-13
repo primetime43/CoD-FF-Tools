@@ -161,10 +161,15 @@ namespace Call_of_Duty_FastFile_Editor
             _processResult = AssetRecordProcessor.ProcessAssetRecords(_openedFastFile, _zoneAssetRecords, forcePatternMatching);
 
             // store the typed lists based on user selection
-            _rawFileNodes = loadRawFiles ? _processResult.RawFileNodes : new List<RawFileNode>();
+            _menuLists = _processResult.MenuLists ?? new List<MenuList>();
+
+            // Filter out rawfiles that are actually MenuList names (they have same .txt name but are menu data)
+            var menuListNames = new HashSet<string>(_menuLists.Select(m => m.Name), StringComparer.OrdinalIgnoreCase);
+            _rawFileNodes = loadRawFiles
+                ? _processResult.RawFileNodes.Where(r => !menuListNames.Contains(r.FileName)).ToList()
+                : new List<RawFileNode>();
             RawFileNode.CurrentZone = zone;
             _localizedEntries = loadLocalizedEntries ? _processResult.LocalizedEntries : new List<LocalizedEntry>();
-            _menuLists = _processResult.MenuLists ?? new List<MenuList>();
             _techSets = _processResult.TechSets ?? new List<TechSetAsset>();
             _xanims = _processResult.XAnims ?? new List<XAnimParts>();
             _weapons = _processResult.Weapons ?? new List<WeaponAsset>();
