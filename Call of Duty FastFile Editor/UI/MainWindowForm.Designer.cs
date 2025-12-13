@@ -817,6 +817,7 @@ namespace Call_of_Duty_FastFile_Editor
             stringTablesListView.View = View.Details;
             stringTablesListView.MouseDown += listView_MouseDownCopy;
             stringTablesListView.DoubleClick += stringTablesListView_DoubleClick;
+            filesTreeToolTip.SetToolTip(stringTablesListView, "Double-click a string table to view its contents.");
             //
             // zoneFileTabPage
             //
