@@ -27,6 +27,7 @@ namespace Call_of_Duty_FastFile_Editor
             exportContentOnlyMenuItem = new ToolStripMenuItem();
             renameFileToolStripMenuItem = new ToolStripMenuItem();
             increaseFileSizeToolStripMenuItem = new ToolStripMenuItem();
+            deleteRawFileToolStripMenuItem = new ToolStripMenuItem();
             menuStripTopToolbar = new MenuStrip();
             fileToolStripMenuItem = new ToolStripMenuItem();
             openFastFileToolStripMenuItem = new ToolStripMenuItem();
@@ -147,9 +148,9 @@ namespace Call_of_Duty_FastFile_Editor
             // 
             // contextMenuStripRawFiles
             // 
-            contextMenuStripRawFiles.Items.AddRange(new ToolStripItem[] { exportFileMenuItem, exportContentOnlyMenuItem, renameFileToolStripMenuItem, increaseFileSizeToolStripMenuItem });
+            contextMenuStripRawFiles.Items.AddRange(new ToolStripItem[] { exportFileMenuItem, exportContentOnlyMenuItem, renameFileToolStripMenuItem, increaseFileSizeToolStripMenuItem, deleteRawFileToolStripMenuItem });
             contextMenuStripRawFiles.Name = "contextMenuStrip1";
-            contextMenuStripRawFiles.Size = new Size(200, 92);
+            contextMenuStripRawFiles.Size = new Size(200, 114);
             // 
             // exportFileMenuItem
             // 
@@ -175,12 +176,19 @@ namespace Call_of_Duty_FastFile_Editor
             renameFileToolStripMenuItem.Click += renameFileToolStripMenuItem_Click;
             // 
             // increaseFileSizeToolStripMenuItem
-            // 
+            //
             increaseFileSizeToolStripMenuItem.Name = "increaseFileSizeToolStripMenuItem";
             increaseFileSizeToolStripMenuItem.Size = new Size(161, 22);
             increaseFileSizeToolStripMenuItem.Text = "Increase File Size";
             increaseFileSizeToolStripMenuItem.Click += increaseFileSizeToolStripMenuItem_Click;
-            // 
+            //
+            // deleteRawFileToolStripMenuItem
+            //
+            deleteRawFileToolStripMenuItem.Name = "deleteRawFileToolStripMenuItem";
+            deleteRawFileToolStripMenuItem.Size = new Size(161, 22);
+            deleteRawFileToolStripMenuItem.Text = "Delete Raw File";
+            deleteRawFileToolStripMenuItem.Click += deleteRawFileToolStripMenuItem_Click;
+            //
             // menuStripTopToolbar
             // 
             menuStripTopToolbar.Font = new Font("Segoe UI", 11.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
@@ -951,6 +959,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ListView menuFilesListView;
         private ToolStripMenuItem extractAllRawFilesToolStripMenuItem;
         private ToolStripMenuItem increaseFileSizeToolStripMenuItem;
+        private ToolStripMenuItem deleteRawFileToolStripMenuItem;
         private ToolStripMenuItem aboutToolStripMenuItem;
         private ToolStripMenuItem CheckForUpdatesToolStripMenuItem;
         private ToolStripMenuItem toolStripMenuItem2;

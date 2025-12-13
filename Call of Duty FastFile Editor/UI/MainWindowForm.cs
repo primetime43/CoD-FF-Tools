@@ -3609,6 +3609,82 @@ namespace Call_of_Duty_FastFile_Editor
             }
         }
 
+        private void deleteRawFileToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (_openedFastFile == null || _rawFileNodes == null)
+            {
+                MessageBox.Show("No file is currently open.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (filesTreeView.SelectedNode == null)
+            {
+                MessageBox.Show("Please select a raw file to delete.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Get the selected raw file
+            string selectedFileName = filesTreeView.SelectedNode.Text;
+            var rawFileToDelete = _rawFileNodes.FirstOrDefault(r => r.FileName == selectedFileName);
+
+            if (rawFileToDelete == null)
+            {
+                MessageBox.Show($"Could not find raw file: {selectedFileName}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Confirm deletion
+            var result = MessageBox.Show(
+                $"Are you sure you want to delete '{selectedFileName}'?\n\nThis action will rebuild the zone file and cannot be undone.",
+                "Confirm Delete",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (result != DialogResult.Yes)
+                return;
+
+            try
+            {
+                // Remove the raw file from the list
+                _rawFileNodes.Remove(rawFileToDelete);
+
+                // Rebuild the zone with remaining raw files and localized entries
+                byte[]? newZoneData = ZoneFileBuilder.BuildFreshZone(
+                    _rawFileNodes,
+                    _localizedEntries,
+                    _openedFastFile,
+                    Path.GetFileNameWithoutExtension(_openedFastFile.ZoneFilePath));
+
+                if (newZoneData == null)
+                {
+                    // Restore the deleted file if rebuild failed
+                    _rawFileNodes.Add(rawFileToDelete);
+                    MessageBox.Show("Failed to rebuild zone after deletion.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                // Write the new zone data to disk
+                File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
+
+                // Remove from TreeView
+                filesTreeView.Nodes.Remove(filesTreeView.SelectedNode);
+
+                // Update status
+                MessageBox.Show($"Successfully deleted '{selectedFileName}'.\n\nThe zone file has been rebuilt.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                // Reload to ensure everything is in sync
+                ReloadAllRawFileNodesAndUI();
+            }
+            catch (Exception ex)
+            {
+                // Restore the deleted file on error
+                if (!_rawFileNodes.Contains(rawFileToDelete))
+                    _rawFileNodes.Add(rawFileToDelete);
+
+                MessageBox.Show($"Failed to delete raw file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void openZoneFileToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (_openedFastFile != null)
