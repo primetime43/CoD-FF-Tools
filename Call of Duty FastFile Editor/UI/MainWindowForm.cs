@@ -2569,7 +2569,7 @@ namespace Call_of_Duty_FastFile_Editor
                     dataEnd = $"0x{entry.EndOfFileHeader:X}";
                     int entrySize = entry.EndOfFileHeader - entry.StartOfFileHeader;
                     size = $"0x{entrySize:X}";
-                    status = "Localized asset parsed";
+                    status = !string.IsNullOrEmpty(entry.AdditionalData) ? entry.AdditionalData : "Parsed";
                     localizeIndex++;
                 }
                 else if (isMenuFile && _menuLists != null && menuIndex < _menuLists.Count)
@@ -2581,7 +2581,8 @@ namespace Call_of_Duty_FastFile_Editor
                     dataEnd = $"0x{menu.DataEndOffset:X}";
                     int menuSize = menu.DataEndOffset - menu.DataStartOffset;
                     size = $"0x{menuSize:X}";
-                    status = $"MenuList parsed ({menu.MenuCount} menus)";
+                    string parseMethod = !string.IsNullOrEmpty(menu.AdditionalData) ? menu.AdditionalData : "Parsed";
+                    status = $"{parseMethod} ({menu.MenuCount} menus)";
                     menuIndex++;
                 }
                 else if (isTechSet && _techSets != null && techSetIndex < _techSets.Count)
@@ -2593,7 +2594,8 @@ namespace Call_of_Duty_FastFile_Editor
                     dataEnd = $"0x{techSet.EndOffset:X}";
                     int techSetSize = techSet.EndOffset - techSet.StartOffset;
                     size = $"0x{techSetSize:X}";
-                    status = $"TechSet parsed ({techSet.ActiveTechniqueCount} techniques)";
+                    string parseMethod = !string.IsNullOrEmpty(techSet.AdditionalData) ? techSet.AdditionalData : "Parsed";
+                    status = $"{parseMethod} ({techSet.ActiveTechniqueCount} techniques)";
                     techSetIndex++;
                 }
                 else if (isXAnim && _xanims != null && xanimIndex < _xanims.Count)
@@ -2605,7 +2607,8 @@ namespace Call_of_Duty_FastFile_Editor
                     dataEnd = $"0x{xanim.EndOffset:X}";
                     int xanimSize = xanim.EndOffset - xanim.StartOffset;
                     size = $"0x{xanimSize:X}";
-                    status = $"XAnim parsed ({xanim.GetSummary()})";
+                    string parseMethod = !string.IsNullOrEmpty(xanim.AdditionalData) ? xanim.AdditionalData : "Parsed";
+                    status = $"{parseMethod} ({xanim.GetSummary()})";
                     xanimIndex++;
                 }
                 else if (isStringTable && _stringTables != null && stringTableIndex < _stringTables.Count)
@@ -2617,7 +2620,8 @@ namespace Call_of_Duty_FastFile_Editor
                     dataEnd = $"0x{stringTable.DataEndPosition:X}";
                     int tableSize = stringTable.DataEndPosition - stringTable.StartOfFileHeader;
                     size = $"0x{tableSize:X}";
-                    status = $"StringTable parsed ({stringTable.RowCount}x{stringTable.ColumnCount}, {stringTable.Cells?.Count ?? 0} cells)";
+                    string parseMethod = !string.IsNullOrEmpty(stringTable.AdditionalData) ? stringTable.AdditionalData : "Parsed";
+                    status = $"{parseMethod} ({stringTable.RowCount}x{stringTable.ColumnCount}, {stringTable.Cells?.Count ?? 0} cells)";
                     stringTableIndex++;
                 }
                 else if (isWeapon && _weapons != null && weaponIndex < _weapons.Count)
@@ -2629,7 +2633,8 @@ namespace Call_of_Duty_FastFile_Editor
                     dataEnd = $"0x{weapon.EndOffset:X}";
                     int weaponSize = weapon.EndOffset - weapon.StartOffset;
                     size = $"0x{weaponSize:X}";
-                    status = $"Weapon parsed ({weapon.DisplayName})";
+                    string parseMethod = !string.IsNullOrEmpty(weapon.AdditionalData) ? weapon.AdditionalData : "Parsed";
+                    status = $"{parseMethod} ({weapon.DisplayName})";
                     weaponIndex++;
                 }
 

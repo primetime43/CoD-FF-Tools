@@ -47,6 +47,11 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// </summary>
         public int KeyStartOffset { get; set; }
 
+        /// <summary>
+        /// Additional data about how this entry was parsed (e.g., "Structure-based" or "Pattern matching").
+        /// </summary>
+        public string AdditionalData { get; set; } = string.Empty;
+
         public void UpdateAssetRecord(ref ZoneAssetRecord assetRecord)
         {
             assetRecord.AssetDataStartPosition = this.StartOfFileHeader;

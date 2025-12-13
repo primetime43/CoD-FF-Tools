@@ -106,7 +106,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (node != null)
                         {
-                            assetRecordMethod = $"Raw file parsed using {gameDefinition.ShortName} structure-based parser.";
+                            assetRecordMethod = $"Structure-based ({gameDefinition.ShortName})";
+                            node.AdditionalData = assetRecordMethod;
                             result.RawFileNodes.Add(node);
                             UpdateAssetRecord(zoneAssetRecords, i, node, assetRecordMethod);
                             indexOfLastAssetRecordParsed = i;
@@ -126,7 +127,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (entry != null)
                         {
-                            assetRecordMethod = $"Localized asset parsed using {gameDefinition.ShortName} structure-based parser.";
+                            assetRecordMethod = $"Structure-based ({gameDefinition.ShortName})";
+                            entry.AdditionalData = assetRecordMethod;
                             result.LocalizedEntries.Add(entry);
 
                             // Update the asset record with localize info
@@ -155,7 +157,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (menuList != null)
                         {
-                            assetRecordMethod = $"MenuList parsed using {gameDefinition.ShortName} structure-based parser.";
+                            assetRecordMethod = $"Structure-based ({gameDefinition.ShortName})";
+                            menuList.AdditionalData = assetRecordMethod;
                             result.MenuLists.Add(menuList);
 
                             // Update the asset record with menufile info
@@ -184,7 +187,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (material != null)
                         {
-                            assetRecordMethod = $"Material parsed using {gameDefinition.ShortName} structure-based parser.";
+                            assetRecordMethod = $"Structure-based ({gameDefinition.ShortName})";
+                            material.AdditionalData = assetRecordMethod;
                             result.Materials.Add(material);
 
                             // Update the asset record with material info
@@ -211,7 +215,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (techSet != null)
                         {
-                            assetRecordMethod = $"TechSet parsed using {gameDefinition.ShortName} structure-based parser.";
+                            assetRecordMethod = $"Structure-based ({gameDefinition.ShortName})";
+                            techSet.AdditionalData = assetRecordMethod;
                             result.TechSets.Add(techSet);
 
                             // Update the asset record with techset info
@@ -262,7 +267,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (xanim != null)
                         {
-                            assetRecordMethod = $"XAnim parsed using {gameDefinition.ShortName} structure-based parser.";
+                            assetRecordMethod = $"Structure-based ({gameDefinition.ShortName})";
+                            xanim.AdditionalData = assetRecordMethod;
                             result.XAnims.Add(xanim);
 
                             // Update the asset record with xanim info
@@ -289,7 +295,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (stringTable != null)
                         {
-                            assetRecordMethod = $"StringTable parsed using {gameDefinition.ShortName} structure-based parser.";
+                            assetRecordMethod = $"Structure-based ({gameDefinition.ShortName})";
+                            stringTable.AdditionalData = assetRecordMethod;
                             result.StringTables.Add(stringTable);
 
                             // Update the asset record with stringtable info
@@ -368,7 +375,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         node = gameDefinition.ParseRawFile(zoneData, currentOffset);
                         if (node != null)
                         {
-                            parseMethod = $"Raw file parsed using {gameDefinition.ShortName} structure-based parser (fallback sequential).";
+                            parseMethod = $"Structure-based sequential ({gameDefinition.ShortName})";
                         }
                     }
 
@@ -378,7 +385,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         node = RawFileParser.ExtractSingleRawFileNodeWithPattern(zoneData, currentOffset, gameDefinition);
                         if (node != null)
                         {
-                            parseMethod = "Raw file parsed using pattern matching (fallback).";
+                            parseMethod = "Pattern matching";
                         }
                     }
 
@@ -438,6 +445,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                         if (entry != null && nextOffset > markerOffset)
                         {
+                            entry.AdditionalData = "Pattern matching";
                             result.LocalizedEntries.Add(entry);
                             localizesParsed++;
                             consecutiveFailures = 0; // Reset on success
@@ -481,6 +489,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             break;
                         }
 
+                        techSet.AdditionalData = "Pattern matching";
                         result.TechSets.Add(techSet);
                         techSetsParsed++;
                         Debug.WriteLine($"[AssetRecordProcessor] Pattern matched techset #{techSetsParsed}: '{techSet.Name}' at 0x{techSet.StartOffset:X}");
@@ -520,6 +529,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             break;
                         }
 
+                        menuList.AdditionalData = "Pattern matching";
                         result.MenuLists.Add(menuList);
                         menuFilesParsed++;
                         Debug.WriteLine($"[AssetRecordProcessor] Pattern matched menufile #{menuFilesParsed}: '{menuList.Name}' at 0x{menuList.StartOfFileHeader:X}");
@@ -566,6 +576,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             }
 
                             existingXAnimNames.Add(xanim.Name);
+                            xanim.AdditionalData = "Pattern matching";
                             result.XAnims.Add(xanim);
                             xanimsParsed++;
 
@@ -628,6 +639,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             break;
                         }
 
+                        stringTable.AdditionalData = "Pattern matching";
                         result.StringTables.Add(stringTable);
 
                         // Update the corresponding asset record if we have one
@@ -639,7 +651,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             assetRecord.AssetRecordEndOffset = stringTable.DataEndPosition;
                             assetRecord.Name = stringTable.TableName;
                             assetRecord.Content = $"{stringTable.RowCount}x{stringTable.ColumnCount} ({stringTable.Cells?.Count ?? 0} cells)";
-                            assetRecord.AdditionalData = "StringTable parsed using pattern matching (fallback).";
+                            assetRecord.AdditionalData = "Pattern matching";
                             assetRecord.HeaderStartOffset = stringTable.StartOfFileHeader;
                             assetRecord.HeaderEndOffset = stringTable.EndOfFileHeader;
                             assetRecord.AssetDataStartPosition = stringTable.DataStartPosition;
@@ -712,6 +724,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                             }
 
                             foundWeaponNames.Add(weapon.InternalName);
+                            weapon.AdditionalData = "Pattern matching";
                             result.Weapons.Add(weapon);
 
                             // Update the corresponding asset record if we have one
@@ -723,7 +736,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                                 assetRecord.AssetRecordEndOffset = weapon.EndOffset;
                                 assetRecord.Name = weapon.InternalName;
                                 assetRecord.Content = weapon.GetSummary();
-                                assetRecord.AdditionalData = "Weapon parsed using pattern matching (fallback).";
+                                assetRecord.AdditionalData = "Pattern matching";
                                 assetRecord.HeaderStartOffset = weapon.StartOffset;
                                 assetRecord.HeaderEndOffset = weapon.StartOffset + weapon.HeaderSize;
                                 assetRecord.AssetDataStartPosition = weapon.StartOffset;

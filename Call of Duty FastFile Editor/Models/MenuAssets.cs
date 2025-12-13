@@ -356,6 +356,11 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public bool HasUnsavedChanges { get; set; }
 
         /// <summary>
+        /// Additional data about how this entry was parsed (e.g., "Structure-based" or "Pattern matching").
+        /// </summary>
+        public string AdditionalData { get; set; } = string.Empty;
+
+        /// <summary>
         /// Static property to hold the currently loaded zone.
         /// </summary>
         public static ZoneFile CurrentZone { get; set; }
