@@ -117,6 +117,12 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private MenuDef? _selectedMenuDef;
 
+        /// <summary>
+        /// Loading panel shown during file parsing.
+        /// </summary>
+        private Panel _loadingPanel;
+        private Label _loadingLabel;
+
         public MainWindowForm(IRawFileService rawFileService)
         {
             InitializeComponent();
@@ -132,6 +138,61 @@ namespace Call_of_Duty_FastFile_Editor
 
             // Hide tabs initially - no file loaded
             mainTabControl.Visible = false;
+
+            // Create loading panel
+            CreateLoadingPanel();
+        }
+
+        /// <summary>
+        /// Creates the loading indicator panel.
+        /// </summary>
+        private void CreateLoadingPanel()
+        {
+            _loadingPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(240, 240, 240),
+                Visible = false
+            };
+
+            _loadingLabel = new Label
+            {
+                Text = "Loading...",
+                Font = new Font("Segoe UI", 16, FontStyle.Regular),
+                ForeColor = Color.FromArgb(64, 64, 64),
+                AutoSize = true
+            };
+
+            // Center the label in the panel
+            _loadingPanel.Controls.Add(_loadingLabel);
+            _loadingPanel.Resize += (s, e) =>
+            {
+                _loadingLabel.Location = new Point(
+                    (_loadingPanel.Width - _loadingLabel.Width) / 2,
+                    (_loadingPanel.Height - _loadingLabel.Height) / 2
+                );
+            };
+
+            this.Controls.Add(_loadingPanel);
+            _loadingPanel.BringToFront();
+        }
+
+        /// <summary>
+        /// Shows the loading indicator with an optional message.
+        /// </summary>
+        private void ShowLoading(string message = "Loading...")
+        {
+            _loadingLabel.Text = message;
+            _loadingPanel.Visible = true;
+            Application.DoEvents(); // Force UI update
+        }
+
+        /// <summary>
+        /// Hides the loading indicator.
+        /// </summary>
+        private void HideLoading()
+        {
+            _loadingPanel.Visible = false;
         }
 
         #region Right Click Context Menu initialization
@@ -3350,24 +3411,36 @@ namespace Call_of_Duty_FastFile_Editor
                         loadTags = assetDialog.LoadTags;
                     }
 
+                    // Show loading indicator while parsing assets
+                    ShowLoading("Parsing zone assets...");
+
                     // Here is where the asset records actual data is parsed throughout the zone
                     LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
                 }
                 catch (Exception ex)
                 {
+                    HideLoading();
                     MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
                 try
                 {
+                    // Update loading message
+                    ShowLoading("Loading data to UI...");
+
                     // Load all the parsed data from the zone file to the UI
                     LoadZoneDataToUI();
                 }
                 catch (Exception ex)
                 {
+                    HideLoading();
                     MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
+                }
+                finally
+                {
+                    HideLoading();
                 }
             }
             else
@@ -3449,24 +3522,36 @@ namespace Call_of_Duty_FastFile_Editor
                         loadTags = assetDialog.LoadTags;
                     }
 
+                    // Show loading indicator while parsing assets
+                    ShowLoading("Parsing zone assets...");
+
                     // Here is where the asset records actual data is parsed throughout the zone
                     LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
                 }
                 catch (Exception ex)
                 {
+                    HideLoading();
                     MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
                 try
                 {
+                    // Update loading message
+                    ShowLoading("Loading data to UI...");
+
                     // Load all the parsed data from the zone file to the UI
                     LoadZoneDataToUI();
                 }
                 catch (Exception ex)
                 {
+                    HideLoading();
                     MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
+                }
+                finally
+                {
+                    HideLoading();
                 }
             }
             else
@@ -3548,24 +3633,36 @@ namespace Call_of_Duty_FastFile_Editor
                         loadTags = assetDialog.LoadTags;
                     }
 
+                    // Show loading indicator while parsing assets
+                    ShowLoading("Parsing zone assets...");
+
                     // Here is where the asset records actual data is parsed throughout the zone
                     LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
                 }
                 catch (Exception ex)
                 {
+                    HideLoading();
                     MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
                 try
                 {
+                    // Update loading message
+                    ShowLoading("Loading data to UI...");
+
                     // Load all the parsed data from the zone file to the UI
                     LoadZoneDataToUI();
                 }
                 catch (Exception ex)
                 {
+                    HideLoading();
                     MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
+                }
+                finally
+                {
+                    HideLoading();
                 }
             }
             else
@@ -3930,13 +4027,21 @@ namespace Call_of_Duty_FastFile_Editor
 
                 try
                 {
+                    // Update loading message
+                    ShowLoading("Loading data to UI...");
+
                     // Load all the parsed data from the zone file to the UI
                     LoadZoneDataToUI();
                 }
                 catch (Exception ex)
                 {
+                    HideLoading();
                     MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
+                }
+                finally
+                {
+                    HideLoading();
                 }
             }
             else
