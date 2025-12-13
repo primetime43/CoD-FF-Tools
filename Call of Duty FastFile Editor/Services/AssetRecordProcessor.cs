@@ -328,6 +328,18 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         }
                         continue;
                     }
+                    else if (gameDefinition.IsImageType(assetTypeValue))
+                    {
+                        // Images are handled in the pattern matching fallback section
+                        // because they typically appear after unsupported asset types
+                        // and we can't calculate their exact offset from the asset pool
+                        Debug.WriteLine($"[AssetRecordProcessor] Image at index {i} will be handled by pattern matching fallback");
+                        if (structureParsingStoppedAtIndex < 0)
+                        {
+                            structureParsingStoppedAtIndex = i;
+                        }
+                        continue;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -774,6 +786,99 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     }
 
                     Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {weaponsParsed} weapons");
+                }
+
+                // For images, use pattern matching to find them
+                int expectedImageCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
+                    0, gameDefinition.ImageAssetType);
+                int alreadyParsedImages = result.Images.Count;
+                int remainingImages = expectedImageCount - alreadyParsedImages;
+
+                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedImageCount} images, already parsed {alreadyParsedImages}, remaining {remainingImages}");
+
+                if (remainingImages > 0)
+                {
+                    // Get indices of unparsed image asset records
+                    var imageIndices = new List<int>();
+                    for (int i = 0; i < zoneAssetRecords.Count; i++)
+                    {
+                        int assetType = GetAssetTypeValue(openedFastFile, zoneAssetRecords[i]);
+                        if (gameDefinition.IsImageType(assetType) &&
+                            string.IsNullOrEmpty(zoneAssetRecords[i].Name))
+                        {
+                            imageIndices.Add(i);
+                            Debug.WriteLine($"[AssetRecordProcessor] Found unparsed image at index {i}");
+                        }
+                    }
+                    Debug.WriteLine($"[AssetRecordProcessor] Found {imageIndices.Count} unparsed image records in asset pool");
+
+                    // Use pattern matching to find images
+                    int imageSearchOffset = openedFastFile.OpenedFastFileZone.AssetPoolEndOffset;
+                    int imagesParsed = 0;
+                    int searchChunkSize = 1000000; // Search in 1MB chunks
+                    var foundImageNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    Debug.WriteLine($"[AssetRecordProcessor] Starting image search from 0x{imageSearchOffset:X}, looking for {remainingImages} images");
+
+                    while (imagesParsed < remainingImages && imageSearchOffset < zoneData.Length - 100)
+                    {
+                        var image = ImageParser.FindAndParseImage(zoneData, imageSearchOffset, searchChunkSize);
+
+                        if (image != null)
+                        {
+                            // Skip duplicates
+                            if (foundImageNames.Contains(image.Name))
+                            {
+                                Debug.WriteLine($"[AssetRecordProcessor] Skipping duplicate image '{image.Name}'");
+                                imageSearchOffset = image.EndOffset;
+                                continue;
+                            }
+
+                            foundImageNames.Add(image.Name);
+                            image.AdditionalData = "Pattern matching";
+                            result.Images.Add(image);
+
+                            // Update the corresponding asset record if we have one
+                            if (imagesParsed < imageIndices.Count)
+                            {
+                                int recordIndex = imageIndices[imagesParsed];
+                                Debug.WriteLine($"[AssetRecordProcessor] Updating asset record at index {recordIndex} with image '{image.Name}'");
+                                var assetRecord = zoneAssetRecords[recordIndex];
+                                assetRecord.AssetRecordEndOffset = image.EndOffset;
+                                assetRecord.Name = image.Name;
+                                assetRecord.Content = $"{image.Resolution}, {image.FormattedSize}";
+                                assetRecord.AdditionalData = "Pattern matching";
+                                assetRecord.HeaderStartOffset = image.StartOffset;
+                                assetRecord.HeaderEndOffset = image.EndOffset;
+                                assetRecord.AssetDataStartPosition = image.StartOffset;
+                                assetRecord.AssetDataEndOffset = image.EndOffset;
+                                zoneAssetRecords[recordIndex] = assetRecord;
+                            }
+
+                            imagesParsed++;
+                            Debug.WriteLine($"[AssetRecordProcessor] Pattern matched image #{imagesParsed}: '{image.Name}' ({image.Resolution}) at 0x{image.StartOffset:X}");
+
+                            // Move past this image to find the next one
+                            imageSearchOffset = image.EndOffset;
+                        }
+                        else
+                        {
+                            // No image found in this chunk - continue searching
+                            int nextSearchOffset = imageSearchOffset + searchChunkSize - 0x100; // 256 byte overlap
+                            if (nextSearchOffset <= imageSearchOffset)
+                                nextSearchOffset = imageSearchOffset + searchChunkSize;
+
+                            if (nextSearchOffset >= zoneData.Length - 100)
+                            {
+                                Debug.WriteLine($"[AssetRecordProcessor] Reached end of zone at 0x{imageSearchOffset:X}, stopping image search");
+                                break;
+                            }
+                            Debug.WriteLine($"[AssetRecordProcessor] No image in chunk at 0x{imageSearchOffset:X}, continuing from 0x{nextSearchOffset:X}");
+                            imageSearchOffset = nextSearchOffset;
+                        }
+                    }
+
+                    Debug.WriteLine($"[AssetRecordProcessor] Pattern matching found {imagesParsed} images");
                 }
             }
 

@@ -70,6 +70,11 @@ namespace Call_of_Duty_FastFile_Editor
         private List<WeaponAsset> _weapons;
 
         /// <summary>
+        /// List of Image assets extracted from the zone file.
+        /// </summary>
+        private List<ImageAsset> _images;
+
+        /// <summary>
         /// List of StringTable assets extracted from the zone file.
         /// </summary>
         private List<StringTable> _stringTables;
@@ -173,6 +178,7 @@ namespace Call_of_Duty_FastFile_Editor
             _techSets = _processResult.TechSets ?? new List<TechSetAsset>();
             _xanims = _processResult.XAnims ?? new List<XAnimParts>();
             _weapons = _processResult.Weapons ?? new List<WeaponAsset>();
+            _images = _processResult.Images ?? new List<ImageAsset>();
             _stringTables = _processResult.StringTables ?? new List<StringTable>();
 
             // Track unsupported assets and original counts for safe save detection
@@ -225,6 +231,7 @@ namespace Call_of_Duty_FastFile_Editor
             PopulateTechSets();
             PopulateXAnims();
             PopulateWeapons();
+            PopulateImages();
             PopulateStringTables();
             PopulateCollision_Map_Asset_StringData();
         }
@@ -1585,6 +1592,84 @@ namespace Call_of_Duty_FastFile_Editor
             weaponsListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
         }
 
+        private void PopulateImages()
+        {
+            // Check if we have any images in our processed results.
+            if (_images == null || _images.Count <= 0)
+            {
+                mainTabControl.TabPages.Remove(imagesTabPage); // hide the tab page if there's no data to show
+                return;
+            }
+
+            // Ensure the tab is shown
+            if (!mainTabControl.TabPages.Contains(imagesTabPage))
+            {
+                mainTabControl.TabPages.Add(imagesTabPage);
+            }
+
+            // Clear any existing items and columns.
+            imagesListView.Items.Clear();
+            imagesListView.Columns.Clear();
+
+            // Set up the ListView.
+            imagesListView.View = View.Details;
+            imagesListView.FullRowSelect = true;
+            imagesListView.GridLines = true;
+
+            // Add the required columns.
+            imagesListView.Columns.Add("Name", 280);
+            imagesListView.Columns.Add("Resolution", 80);
+            imagesListView.Columns.Add("Depth", 50);
+            imagesListView.Columns.Add("Size", 80);
+            imagesListView.Columns.Add("Map Type", 70);
+            imagesListView.Columns.Add("Category", 60);
+            imagesListView.Columns.Add("Streaming", 70);
+            imagesListView.Columns.Add("Start Offset", 85);
+            imagesListView.Columns.Add("End Offset", 85);
+
+            // Loop through each image.
+            foreach (var image in _images)
+            {
+                // Create a new ListViewItem with the Name as the main text.
+                ListViewItem lvi = new ListViewItem(image.Name);
+
+                // Add subitems
+                lvi.SubItems.Add(image.Resolution);
+                lvi.SubItems.Add(image.Depth.ToString());
+                lvi.SubItems.Add(image.FormattedSize);
+                lvi.SubItems.Add(image.MapType.ToString());
+                lvi.SubItems.Add(image.Category.ToString());
+                lvi.SubItems.Add(image.IsStreaming ? "Yes" : "No");
+                lvi.SubItems.Add($"0x{image.StartOffset:X}");
+                lvi.SubItems.Add($"0x{image.EndOffset:X}");
+
+                // Store the image reference for potential selection handling
+                lvi.Tag = image;
+
+                // Add the ListViewItem to the ListView.
+                imagesListView.Items.Add(lvi);
+            }
+
+            // Auto-resize columns to fit header size.
+            imagesListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
+        }
+
+        /// <summary>
+        /// Shows a preview of the selected image when double-clicked.
+        /// </summary>
+        private void imagesListView_DoubleClick(object? sender, EventArgs e)
+        {
+            if (imagesListView.SelectedItems.Count == 0)
+                return;
+
+            var selectedItem = imagesListView.SelectedItems[0];
+            if (selectedItem.Tag is ImageAsset image)
+            {
+                using var previewForm = new ImagePreviewForm(image);
+                previewForm.ShowDialog(this);
+            }
+        }
+
         /// <summary>
         /// Exports the selected XAnim's raw binary data from the zone file.
         /// </summary>
@@ -2686,6 +2771,7 @@ namespace Call_of_Duty_FastFile_Editor
             int xanimIndex = 0;
             int stringTableIndex = 0;
             int weaponIndex = 0;
+            int imageIndex = 0;
 
             // Iterate through ALL asset records from the asset pool
             for (int i = 0; i < _zoneAssetRecords.Count; i++)
@@ -2702,6 +2788,7 @@ namespace Call_of_Duty_FastFile_Editor
                 bool isXAnim = gameDefinition.IsXAnimType(assetTypeValue);
                 bool isStringTable = gameDefinition.IsStringTableType(assetTypeValue);
                 bool isWeapon = gameDefinition.IsWeaponType(assetTypeValue);
+                bool isImage = gameDefinition.IsImageType(assetTypeValue);
 
                 var lvi = new ListViewItem((i + 1).ToString());
                 lvi.SubItems.Add(assetTypeName);
@@ -2715,7 +2802,7 @@ namespace Call_of_Duty_FastFile_Editor
                 string size = "-";
                 // Determine appropriate status message based on asset type
                 string status;
-                bool isSupportedType = isRawFile || isLocalize || isMenuFile || isTechSet || isXAnim || isStringTable || isWeapon;
+                bool isSupportedType = isRawFile || isLocalize || isMenuFile || isTechSet || isXAnim || isStringTable || isWeapon || isImage;
                 if (isSupportedType)
                 {
                     status = "External reference (data in another zone)";
@@ -2812,6 +2899,19 @@ namespace Call_of_Duty_FastFile_Editor
                     string parseMethod = !string.IsNullOrEmpty(weapon.AdditionalData) ? weapon.AdditionalData : "Parsed";
                     status = $"{parseMethod} ({weapon.DisplayName})";
                     weaponIndex++;
+                }
+                else if (isImage && _images != null && imageIndex < _images.Count)
+                {
+                    var image = _images[imageIndex];
+                    isParsed = true;
+                    name = image.Name ?? "-";
+                    dataStart = $"0x{image.StartOffset:X}";
+                    dataEnd = $"0x{image.EndOffset:X}";
+                    int imageSize = image.EndOffset - image.StartOffset;
+                    size = $"0x{imageSize:X}";
+                    string parseMethod = !string.IsNullOrEmpty(image.AdditionalData) ? image.AdditionalData : "Parsed";
+                    status = $"{parseMethod} ({image.Resolution}, {image.FormattedSize})";
+                    imageIndex++;
                 }
 
                 lvi.SubItems.Add(dataStart);

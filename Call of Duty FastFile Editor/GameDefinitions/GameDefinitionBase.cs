@@ -23,6 +23,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public abstract byte XAnimAssetType { get; }
         public abstract byte StringTableAssetType { get; }
         public virtual byte WeaponAssetType => 0; // Default 0 means not supported
+        public virtual byte ImageAssetType => 0; // Default 0 means not supported
 
         public virtual bool IsRawFileType(int assetType) => assetType == RawFileAssetType;
         public virtual bool IsLocalizeType(int assetType) => assetType == LocalizeAssetType;
@@ -32,7 +33,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public virtual bool IsTechSetType(int assetType) => false; // Override in game-specific definitions
         public virtual bool IsStringTableType(int assetType) => assetType == StringTableAssetType;
         public virtual bool IsWeaponType(int assetType) => WeaponAssetType != 0 && assetType == WeaponAssetType;
-        public virtual bool IsSupportedAssetType(int assetType) => IsRawFileType(assetType) || IsLocalizeType(assetType) || IsMenuFileType(assetType) || IsXAnimType(assetType) || IsStringTableType(assetType) || IsWeaponType(assetType);
+        public virtual bool IsImageType(int assetType) => ImageAssetType != 0 && assetType == ImageAssetType;
+        public virtual bool IsSupportedAssetType(int assetType) => IsRawFileType(assetType) || IsLocalizeType(assetType) || IsMenuFileType(assetType) || IsXAnimType(assetType) || IsStringTableType(assetType) || IsWeaponType(assetType) || IsImageType(assetType);
         public abstract string GetAssetTypeName(int assetType);
 
         /// <summary>
@@ -805,6 +807,15 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 HeaderSize = WEAPON_HEADER_SIZE,
                 AdditionalData = $"{ShortName} - parsed with alignment adjust={alignmentAdjust}"
             };
+        }
+
+        /// <summary>
+        /// Default image parsing using ImageParser.
+        /// </summary>
+        public virtual ImageAsset? ParseImage(byte[] zoneData, int offset)
+        {
+            Debug.WriteLine($"[{ShortName}] ParseImage at offset 0x{offset:X}");
+            return ImageParser.ParseImage(zoneData, offset, isBigEndian: true);
         }
 
         #region Helper Methods

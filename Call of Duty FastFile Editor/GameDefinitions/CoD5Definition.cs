@@ -26,6 +26,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public const byte TechSetAssetType = 0x09;     // 9
         public const byte XAnimAssetType = 0x04;       // 4
         public const byte WeaponAssetType = 0x1A;      // 26
+        public const byte ImageAssetType = 0x0A;       // 10
     }
 
     /// <summary>

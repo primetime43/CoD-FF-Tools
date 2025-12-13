@@ -176,5 +176,23 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         /// <param name="offset">Starting offset to parse from.</param>
         /// <returns>Parsed WeaponAsset, or null if parsing failed.</returns>
         WeaponAsset? ParseWeapon(byte[] zoneData, int offset);
+
+        /// <summary>
+        /// Asset type ID for image assets.
+        /// </summary>
+        byte ImageAssetType { get; }
+
+        /// <summary>
+        /// Checks if the given asset type value is an image.
+        /// </summary>
+        bool IsImageType(int assetType);
+
+        /// <summary>
+        /// Parses an image asset from the zone data at the given offset.
+        /// </summary>
+        /// <param name="zoneData">The zone file data.</param>
+        /// <param name="offset">Starting offset to parse from.</param>
+        /// <returns>Parsed ImageAsset, or null if parsing failed.</returns>
+        ImageAsset? ParseImage(byte[] zoneData, int offset);
     }
 }

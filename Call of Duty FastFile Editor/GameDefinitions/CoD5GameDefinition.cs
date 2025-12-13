@@ -21,6 +21,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override byte XAnimAssetType => CoD5Definition.XAnimAssetType;
         public override byte StringTableAssetType => CoD5Definition.StringTableAssetType;
         public override byte WeaponAssetType => CoD5Definition.WeaponAssetType;
+        public override byte ImageAssetType => CoD5Definition.ImageAssetType;
         public byte MaterialAssetType => CoD5Definition.MaterialAssetType;
         public byte TechSetAssetType => CoD5Definition.TechSetAssetType;
 
@@ -46,7 +47,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                    assetType == TechSetAssetType ||
                    assetType == XAnimAssetType ||
                    assetType == StringTableAssetType ||
-                   assetType == WeaponAssetType;
+                   assetType == WeaponAssetType ||
+                   assetType == ImageAssetType;
         }
 
         public override bool IsMaterialType(int assetType) => assetType == MaterialAssetType;

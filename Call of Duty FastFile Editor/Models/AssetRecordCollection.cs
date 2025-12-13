@@ -17,6 +17,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public List<TechSetAsset> TechSets { get; set; } = new List<TechSetAsset>();
         public List<XAnimParts> XAnims { get; set; } = new List<XAnimParts>();
         public List<WeaponAsset> Weapons { get; set; } = new List<WeaponAsset>();
+        public List<ImageAsset> Images { get; set; } = new List<ImageAsset>();
         public List<ZoneAssetRecord> UpdatedRecords { get; set; } = new List<ZoneAssetRecord>();
     }
 

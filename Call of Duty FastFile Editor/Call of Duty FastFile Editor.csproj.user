@@ -4,6 +4,9 @@
     <Compile Update="UI\AssetSelectionDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="UI\ImagePreviewForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="UI\RawFileSearcherForm.cs">
       <SubType>Form</SubType>
     </Compile>

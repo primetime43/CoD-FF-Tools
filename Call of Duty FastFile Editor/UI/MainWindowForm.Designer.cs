@@ -96,6 +96,8 @@ namespace Call_of_Duty_FastFile_Editor
             exportXAnimMenuItem = new ToolStripMenuItem();
             weaponsTabPage = new TabPage();
             weaponsListView = new ListView();
+            imagesTabPage = new TabPage();
+            imagesListView = new ListView();
             stringTablesTabPage = new TabPage();
             stringTablesListView = new ListView();
             zoneFileTabPage = new TabPage();
@@ -125,6 +127,7 @@ namespace Call_of_Duty_FastFile_Editor
             xAnimsTabPage.SuspendLayout();
             xAnimsContextMenu.SuspendLayout();
             weaponsTabPage.SuspendLayout();
+            imagesTabPage.SuspendLayout();
             stringTablesTabPage.SuspendLayout();
             zoneFileTabPage.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).BeginInit();
@@ -533,6 +536,7 @@ namespace Call_of_Duty_FastFile_Editor
             mainTabControl.Controls.Add(techSetsTabPage);
             mainTabControl.Controls.Add(xAnimsTabPage);
             mainTabControl.Controls.Add(weaponsTabPage);
+            mainTabControl.Controls.Add(imagesTabPage);
             mainTabControl.Controls.Add(stringTablesTabPage);
             mainTabControl.Controls.Add(tagsTabPage);
             mainTabControl.Controls.Add(assetPoolTabPage);
@@ -793,6 +797,30 @@ namespace Call_of_Duty_FastFile_Editor
             weaponsListView.View = View.Details;
             weaponsListView.MouseDown += listView_MouseDownCopy;
             //
+            // imagesTabPage
+            //
+            imagesTabPage.Controls.Add(imagesListView);
+            imagesTabPage.Location = new Point(4, 24);
+            imagesTabPage.Name = "imagesTabPage";
+            imagesTabPage.Padding = new Padding(3);
+            imagesTabPage.Size = new Size(1442, 749);
+            imagesTabPage.TabIndex = 13;
+            imagesTabPage.Text = "Images";
+            imagesTabPage.UseVisualStyleBackColor = true;
+            //
+            // imagesListView
+            //
+            imagesListView.Dock = DockStyle.Fill;
+            imagesListView.FullRowSelect = true;
+            imagesListView.Location = new Point(3, 3);
+            imagesListView.Name = "imagesListView";
+            imagesListView.Size = new Size(1436, 743);
+            imagesListView.TabIndex = 0;
+            imagesListView.UseCompatibleStateImageBehavior = false;
+            imagesListView.View = View.Details;
+            imagesListView.MouseDown += listView_MouseDownCopy;
+            imagesListView.DoubleClick += imagesListView_DoubleClick;
+            //
             // stringTablesTabPage
             //
             stringTablesTabPage.Controls.Add(stringTablesListView);
@@ -882,6 +910,7 @@ namespace Call_of_Duty_FastFile_Editor
             xAnimsTabPage.ResumeLayout(false);
             xAnimsContextMenu.ResumeLayout(false);
             weaponsTabPage.ResumeLayout(false);
+            imagesTabPage.ResumeLayout(false);
             stringTablesTabPage.ResumeLayout(false);
             zoneFileTabPage.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).EndInit();
@@ -949,6 +978,8 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem exportXAnimMenuItem;
         private TabPage weaponsTabPage;
         private ListView weaponsListView;
+        private TabPage imagesTabPage;
+        private ListView imagesListView;
         private TabPage stringTablesTabPage;
         private ListView stringTablesListView;
         private TabPage localizeTabPage;
