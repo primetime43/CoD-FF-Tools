@@ -129,6 +129,9 @@ namespace Call_of_Duty_FastFile_Editor
             copyToolStripMenuItem.Click += copyToolStripMenuItem_Click;
             universalContextMenu.Opening += universalContextMenu_Opening;
             this.FormClosing += MainWindowForm_FormClosing;
+
+            // Hide tabs initially - no file loaded
+            mainTabControl.Visible = false;
         }
 
         #region Right Click Context Menu initialization
@@ -241,6 +244,9 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private void EnableUI_Elements()
         {
+            // Show the tab control now that a file is loaded
+            mainTabControl.Visible = true;
+
             // Enable relevant menu items
             renameRawFileToolStripMenuItem.Enabled = true;
             saveFastFileToolStripMenuItem.Enabled = true;
@@ -3023,6 +3029,10 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private void ResetAllViews()
         {
+            // Hide the tab control when no file is loaded
+            mainTabControl.Visible = false;
+
+            // Clear all list views and tree views
             filesTreeView.Nodes.Clear();
             assetPoolListView.Items.Clear();
             assetPoolListView.Columns.Clear();
@@ -3032,23 +3042,32 @@ namespace Call_of_Duty_FastFile_Editor
             localizeListView.Columns.Clear();
             techSetsListView.Items.Clear();
             techSetsListView.Columns.Clear();
+            xAnimsListView.Items.Clear();
+            xAnimsListView.Columns.Clear();
+            weaponsListView.Items.Clear();
+            weaponsListView.Columns.Clear();
+            imagesListView.Items.Clear();
+            imagesListView.Columns.Clear();
+            stringTablesListView.Items.Clear();
+            stringTablesListView.Columns.Clear();
             treeViewMapEnt.Nodes.Clear();
-            foreach (var lv in new[] { tagsListView, assetPoolListView, localizeListView, techSetsListView })
-            {
-                lv.Items.Clear();
-                lv.Columns.Clear();
-            }
 
-            // Clear menu files UI and hide the tab
+            // Clear menu files UI
             menuFilesTreeView.Nodes.Clear();
             menuFilesTextEditor.ResetText();
             _selectedMenuList = null;
             _selectedMenuDef = null;
             _menuLists?.Clear();
-            if (mainTabControl.TabPages.Contains(menuFilesTabPage))
-            {
-                mainTabControl.TabPages.Remove(menuFilesTabPage);
-            }
+
+            // Clear data collections
+            _rawFileNodes?.Clear();
+            _localizedEntries?.Clear();
+            _techSets?.Clear();
+            _xanims?.Clear();
+            _weapons?.Clear();
+            _images?.Clear();
+            _stringTables?.Clear();
+            _tags = null;
 
             zoneInfoDataGridView.DataSource = null;
             textEditorControlEx1.ResetText();
