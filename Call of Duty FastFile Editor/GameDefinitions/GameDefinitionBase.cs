@@ -66,6 +66,15 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 return null;
             }
 
+            // Validate size is reasonable - rawfiles are scripts/configs, not multi-megabyte assets
+            // Max reasonable size: 5MB (most are under 100KB)
+            const int MAX_RAWFILE_SIZE = 5 * 1024 * 1024;
+            if (dataLength > MAX_RAWFILE_SIZE)
+            {
+                Debug.WriteLine($"[{ShortName}] dataLength {dataLength} (0x{dataLength:X}) is unreasonably large at 0x{offset + 4:X}. Not a valid rawfile.");
+                return null;
+            }
+
             // Read and validate second marker (should be 0xFFFFFFFF)
             uint marker2 = ReadUInt32BE(zoneData, offset + 8);
             if (marker2 != 0xFFFFFFFF)
@@ -83,6 +92,14 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             // Read null-terminated filename after header
             int fileNameOffset = offset + 12;
             string fileName = ReadNullTerminatedString(zoneData, fileNameOffset);
+
+            // Validate the filename looks like a valid rawfile
+            if (!IsValidRawFileName(fileName))
+            {
+                Debug.WriteLine($"[{ShortName}] Invalid filename '{fileName}' at 0x{fileNameOffset:X}. Not a valid rawfile.");
+                return null;
+            }
+
             node.FileName = fileName;
 
             // Calculate filename byte length including null terminator
@@ -923,6 +940,55 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 
             // If we didn't find a valid next header, return end of search range
             return Math.Min(searchStart + 100_000, data.Length);
+        }
+
+        /// <summary>
+        /// Validates that a string looks like a valid rawfile name.
+        /// Filters out garbage strings with excessive repeated characters or invalid patterns.
+        /// </summary>
+        protected static bool IsValidRawFileName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name.Length < 3 || name.Length > 256)
+                return false;
+
+            // Must contain at least one of the valid file extensions
+            string[] validExtensions = { ".gsc", ".csc", ".rmb", ".def", ".str", ".cfg", ".menu", ".txt", ".csv", ".vision", ".arena", ".atr", ".sun" };
+            bool hasValidExtension = validExtensions.Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+            if (!hasValidExtension)
+                return false;
+
+            // Check for excessive repeated characters (like "yyyyyyyyy")
+            int maxRepeats = 3;
+            int currentRepeats = 1;
+            char prevChar = '\0';
+            foreach (char c in name)
+            {
+                if (c == prevChar)
+                {
+                    currentRepeats++;
+                    if (currentRepeats > maxRepeats)
+                        return false;
+                }
+                else
+                {
+                    currentRepeats = 1;
+                }
+                prevChar = c;
+            }
+
+            // All characters must be printable ASCII (0x20-0x7E)
+            foreach (char c in name)
+            {
+                if (c < 0x20 || c > 0x7E)
+                    return false;
+            }
+
+            // Must have at least 2 letters (not just special chars and numbers)
+            int letterCount = name.Count(c => char.IsLetter(c));
+            if (letterCount < 2)
+                return false;
+
+            return true;
         }
 
         #endregion
