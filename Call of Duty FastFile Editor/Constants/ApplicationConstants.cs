@@ -2,7 +2,7 @@
 {
     public static class ApplicationConstants
     {
-        public const string ProgramName = "Call of Duty Fast File Editor for PS3";
+        public const string ProgramName = "Call of Duty Fast File Editor";
         public const string ProgramVersion = "v2.1.0";
         public const string About = $"{ProgramName}\n" +
              "Version: " + ProgramVersion + "\n\n" +
