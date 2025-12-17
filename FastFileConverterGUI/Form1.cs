@@ -218,7 +218,22 @@ public partial class Form1 : Form
         Log("FastFile Platform Converter ready.");
         Log("Supports: CoD4, WaW, MW2 (PS3, Xbox 360, PC)");
         Log("");
+        Log("How it works:");
+        Log("  - Select a mod FF to convert (e.g., Xbox 360 patch_mp.ff)");
+        Log("  - Extracts raw files (.gsc, .cfg, etc.) from the mod");
+        Log("  - Builds a fresh PS3-compatible zone with correct headers");
+        Log("  - Compresses to PS3 FastFile format");
+        Log("");
         Log("Drag and drop a .ff file or click Browse to begin.");
+    }
+
+    private void UpdateConvertButtonState()
+    {
+        bool hasInput = !string.IsNullOrEmpty(_inputPathTextBox.Text);
+        bool hasOutput = !string.IsNullOrEmpty(_outputPathTextBox.Text);
+        bool hasAnalysis = _currentAnalysis?.IsValid == true;
+
+        _convertButton.Enabled = hasInput && hasOutput && hasAnalysis;
     }
 
     private void Form1_DragEnter(object? sender, DragEventArgs e)
@@ -309,7 +324,7 @@ public partial class Form1 : Form
                     LogWarning($"  Note: {note}");
                 }
 
-                _convertButton.Enabled = true;
+                UpdateConvertButtonState();
                 LogSuccess("  File is valid and can be converted.");
             }
             else
@@ -394,11 +409,24 @@ public partial class Form1 : Form
 
         Log("");
         Log($"Converting to {targetPlatformStr}...");
+        Log($"  Source: {Path.GetFileName(_inputPathTextBox.Text)}");
 
         try
         {
-            var result = await Task.Run(() =>
-                FastFileConverter.Convert(_inputPathTextBox.Text, _outputPathTextBox.Text, targetPlatform));
+            ConversionResult result;
+
+            // Use the ZoneBuilder approach for PS3 conversions (builds fresh zone from raw files)
+            if (targetPlatform == Platform.PS3)
+            {
+                result = await Task.Run(() =>
+                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text));
+            }
+            else
+            {
+                // Direct conversion mode for other platforms
+                result = await Task.Run(() =>
+                    FastFileConverter.Convert(_inputPathTextBox.Text, _outputPathTextBox.Text, targetPlatform));
+            }
 
             if (result.Success)
             {
@@ -410,9 +438,14 @@ public partial class Form1 : Form
                 Log($"  Original size: {FormatSize(result.OriginalSize)}");
                 Log($"  Converted size: {FormatSize(result.ConvertedSize)}");
 
+                if (result.ReplacedFiles.Count > 0)
+                {
+                    LogSuccess($"  Included {result.ReplacedFiles.Count} raw files in new zone");
+                }
+
                 foreach (var warning in result.Warnings)
                 {
-                    LogWarning($"  Warning: {warning}");
+                    Log($"  {warning}");
                 }
 
                 Log($"  Output: {_outputPathTextBox.Text}");
@@ -421,7 +454,7 @@ public partial class Form1 : Form
                     $"Conversion successful!\n\n" +
                     $"Source: {result.SourcePlatform}\n" +
                     $"Target: {result.TargetPlatform}\n" +
-                    $"Blocks: {result.BlocksProcessed}\n" +
+                    $"Raw files: {result.ReplacedFiles.Count}\n" +
                     $"Size: {FormatSize(result.OriginalSize)} -> {FormatSize(result.ConvertedSize)}",
                     "Conversion Complete",
                     MessageBoxButtons.OK,
