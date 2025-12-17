@@ -6,6 +6,7 @@ public partial class Form1 : Form
 {
     private TextBox _inputPathTextBox = null!;
     private TextBox _outputPathTextBox = null!;
+    private TextBox _zoneNameTextBox = null!;
     private ComboBox _targetPlatformCombo = null!;
     private Button _browseInputButton = null!;
     private Button _browseOutputButton = null!;
@@ -38,11 +39,12 @@ public partial class Form1 : Form
         {
             Dock = DockStyle.Fill,
             Padding = new Padding(10),
-            RowCount = 5,
+            RowCount = 6,
             ColumnCount = 1
         };
         mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Input
         mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Source info
+        mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Zone name
         mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Output
         mainPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Buttons
         mainPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Log
@@ -111,6 +113,37 @@ public partial class Form1 : Form
         infoPanel.Controls.Add(_sourceSignedLabel, 2, 0);
         infoPanel.Controls.Add(_sourceSizeLabel, 3, 0);
         _sourceInfoGroup.Controls.Add(infoPanel);
+
+        // Zone name section
+        var zoneNameGroup = new GroupBox
+        {
+            Text = "Zone Name (must match what the game expects)",
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            Padding = new Padding(10)
+        };
+
+        var zoneNamePanel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            AutoSize = true
+        };
+        zoneNamePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+        _zoneNameTextBox = new TextBox { Dock = DockStyle.Fill };
+        var zoneNameNote = new Label
+        {
+            Text = "Auto-detected from filename. Change if needed (e.g., patch_mp, common_mp, patch).",
+            AutoSize = true,
+            ForeColor = Color.Gray,
+            Font = new Font(this.Font.FontFamily, 8)
+        };
+
+        zoneNamePanel.Controls.Add(_zoneNameTextBox, 0, 0);
+        zoneNamePanel.Controls.Add(zoneNameNote, 0, 1);
+        zoneNameGroup.Controls.Add(zoneNamePanel);
 
         // Output section
         var outputGroup = new GroupBox
@@ -204,9 +237,10 @@ public partial class Form1 : Form
         // Add all to main panel
         mainPanel.Controls.Add(inputGroup, 0, 0);
         mainPanel.Controls.Add(_sourceInfoGroup, 0, 1);
-        mainPanel.Controls.Add(outputGroup, 0, 2);
-        mainPanel.Controls.Add(buttonPanel, 0, 3);
-        mainPanel.Controls.Add(logGroup, 0, 4);
+        mainPanel.Controls.Add(zoneNameGroup, 0, 2);
+        mainPanel.Controls.Add(outputGroup, 0, 3);
+        mainPanel.Controls.Add(buttonPanel, 0, 4);
+        mainPanel.Controls.Add(logGroup, 0, 5);
 
         this.Controls.Add(mainPanel);
 
@@ -284,6 +318,9 @@ public partial class Form1 : Form
         string name = Path.GetFileNameWithoutExtension(path);
         string targetPlatform = _targetPlatformCombo.SelectedItem?.ToString()?.Replace(" ", "") ?? "PS3";
         _outputPathTextBox.Text = Path.Combine(dir, $"{name}_converted_{targetPlatform}.ff");
+
+        // Auto-detect zone name from filename
+        _zoneNameTextBox.Text = GetZoneNameFromPath(path);
 
         // Auto-analyze (calls UpdateConvertButtonState which needs output path)
         AnalyzeFile(path);
@@ -418,8 +455,10 @@ public partial class Form1 : Form
             // Use the ZoneBuilder approach for PS3 conversions (builds fresh zone from raw files)
             if (targetPlatform == Platform.PS3)
             {
+                string zoneName = _zoneNameTextBox.Text.Trim();
+                Log($"  Zone name: {zoneName}");
                 result = await Task.Run(() =>
-                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text));
+                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text, zoneName));
             }
             else
             {
@@ -532,5 +571,43 @@ public partial class Form1 : Form
             size /= 1024;
         }
         return $"{size:0.##} {sizes[order]}";
+    }
+
+    private static string GetZoneNameFromPath(string filePath)
+    {
+        string filename = Path.GetFileNameWithoutExtension(filePath);
+
+        // Known zone name suffixes
+        string[] knownZoneNames = {
+            "patch_mp", "patch", "common_mp", "common", "code_post_gfx_mp", "code_post_gfx",
+            "localized_common_mp", "localized_code_post_gfx_mp", "ui_mp", "ui"
+        };
+
+        foreach (var zoneName in knownZoneNames)
+        {
+            if (filename.EndsWith(zoneName, StringComparison.OrdinalIgnoreCase))
+                return zoneName;
+            if (filename.EndsWith("_" + zoneName, StringComparison.OrdinalIgnoreCase))
+                return zoneName;
+        }
+
+        foreach (var zoneName in knownZoneNames)
+        {
+            int idx = filename.IndexOf(" " + zoneName, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+                return zoneName;
+        }
+
+        // Fallback: clean up filename
+        string cleaned = filename
+            .Replace("xbox ", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("ps3 ", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("xbox_", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("ps3_", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("_converted", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("converted_", "", StringComparison.OrdinalIgnoreCase)
+            .Trim();
+
+        return string.IsNullOrEmpty(cleaned) ? filename : cleaned;
     }
 }

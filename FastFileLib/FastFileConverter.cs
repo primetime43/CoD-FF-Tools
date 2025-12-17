@@ -127,8 +127,9 @@ public static class FastFileConverter
     /// <param name="sourceModPath">Path to the source mod FastFile (Xbox/PC)</param>
     /// <param name="basePs3ZonePath">Not used in this version - kept for API compatibility</param>
     /// <param name="outputPath">Path for the converted FastFile</param>
+    /// <param name="zoneName">Optional zone name override (if null, auto-detected from filename)</param>
     /// <returns>Conversion result with details</returns>
-    public static ConversionResult ConvertUsingBaseZone(string sourceModPath, string basePs3ZonePath, string outputPath)
+    public static ConversionResult ConvertUsingBaseZone(string sourceModPath, string basePs3ZonePath, string outputPath, string? zoneName = null)
     {
         var result = new ConversionResult();
         result.TargetPlatform = "PS3";
@@ -175,9 +176,12 @@ public static class FastFileConverter
 
                 // Step 3: Build a fresh PS3 zone using ZoneBuilder (same approach as FFCompiler)
                 result.Warnings.Add("Building fresh PS3 zone with extracted raw files...");
-                // Use "patch_mp" as zone name for game compatibility (game looks for this specific name)
-                string zoneName = "patch_mp";
-                var zoneBuilder = new ZoneBuilder(result.GameVersion, zoneName);
+                // Use provided zone name or auto-detect from input filename
+                string effectiveZoneName = !string.IsNullOrWhiteSpace(zoneName)
+                    ? zoneName
+                    : GetZoneNameFromPath(sourceModPath);
+                result.Warnings.Add($"Using zone name: {effectiveZoneName}");
+                var zoneBuilder = new ZoneBuilder(result.GameVersion, effectiveZoneName);
                 zoneBuilder.AddRawFiles(rawFiles);
                 byte[] newZone = zoneBuilder.Build();
 
@@ -719,6 +723,59 @@ public static class FastFileConverter
 
         // Use the existing compress method with platform parameter
         FastFileProcessor.Compress(zonePath, outputPath, gameVersion, platformStr);
+    }
+
+    /// <summary>
+    /// Extracts the zone name from a file path.
+    /// Handles common naming patterns like "xbox modname patch_mp.ff" -> "patch_mp"
+    /// </summary>
+    private static string GetZoneNameFromPath(string filePath)
+    {
+        // Get filename without extension
+        string filename = Path.GetFileNameWithoutExtension(filePath);
+
+        // Known zone name suffixes that appear at the end of mod filenames
+        string[] knownZoneNames = {
+            "patch_mp", "patch", "common_mp", "common", "code_post_gfx_mp", "code_post_gfx",
+            "localized_common_mp", "localized_code_post_gfx_mp", "ui_mp", "ui"
+        };
+
+        // Check if filename ends with a known zone name (case-insensitive)
+        foreach (var zoneName in knownZoneNames)
+        {
+            if (filename.EndsWith(zoneName, StringComparison.OrdinalIgnoreCase))
+            {
+                return zoneName;
+            }
+            // Also check with underscore prefix (e.g., "modname_patch_mp")
+            if (filename.EndsWith("_" + zoneName, StringComparison.OrdinalIgnoreCase))
+            {
+                return zoneName;
+            }
+        }
+
+        // Check if filename contains a known zone name with space before it
+        foreach (var zoneName in knownZoneNames)
+        {
+            int idx = filename.IndexOf(" " + zoneName, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                return zoneName;
+            }
+        }
+
+        // Fallback: clean up the filename and use it as zone name
+        // Remove common prefixes like "xbox ", "ps3 ", "converted_", etc.
+        string cleaned = filename
+            .Replace("xbox ", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("ps3 ", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("xbox_", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("ps3_", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("_converted", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("converted_", "", StringComparison.OrdinalIgnoreCase)
+            .Trim();
+
+        return string.IsNullOrEmpty(cleaned) ? filename : cleaned;
     }
 }
 
