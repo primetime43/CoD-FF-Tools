@@ -166,7 +166,7 @@ public class ZoneBuilder
 
     /// <summary>
     /// Builds the asset table section.
-    /// Each asset entry is 8 bytes: 00 00 00 [type] FF FF FF FF
+    /// Each asset entry is 8 bytes: FF FF FF FF 00 00 00 [type] (ptr first, then type)
     /// </summary>
     private byte[] BuildAssetTableSection()
     {
@@ -175,22 +175,22 @@ public class ZoneBuilder
         byte rawFileType = FastFileConstants.GetRawFileAssetType(_gameVersion);
         byte localizeType = FastFileConstants.GetLocalizeAssetType(_gameVersion);
 
-        // Entry for each raw file
+        // Entry for each raw file - format: [ptr][type] = FF FF FF FF 00 00 00 22
         foreach (var _ in _rawFiles)
         {
-            byte[] entry = { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF };
+            byte[] entry = { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, rawFileType };
             table.AddRange(entry);
         }
 
         // Entry for each localized string
         foreach (var _ in _localizedEntries)
         {
-            byte[] entry = { 0x00, 0x00, 0x00, localizeType, 0xFF, 0xFF, 0xFF, 0xFF };
+            byte[] entry = { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, localizeType };
             table.AddRange(entry);
         }
 
         // Final rawfile entry (required by format)
-        byte[] finalEntry = { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF };
+        byte[] finalEntry = { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, rawFileType };
         table.AddRange(finalEntry);
 
         _assetTableSize = table.Count;

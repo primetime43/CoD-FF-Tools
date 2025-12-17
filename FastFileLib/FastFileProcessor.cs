@@ -27,6 +27,42 @@ public static class FastFileProcessor
         // Skip to compressed data based on game version
         SkipToCompressedData(br, info);
 
+        // For signed Xbox 360 files, try different decompression strategies
+        if (info.IsSigned)
+        {
+            // Try 1: Xbox 360 signed format (16KB signature + concatenated zlib streams)
+            br.BaseStream.Position = 0;
+            int blocks = TryDecompressSignedXbox360(br, bw);
+            if (blocks > 0)
+                return blocks;
+
+            // Try 2: XBlock format (4-byte lengths)
+            br.BaseStream.Position = 12;
+            SkipToCompressedData(br, info);
+            blocks = TryDecompressXBlocks(br, bw);
+            if (blocks > 0)
+                return blocks;
+
+            // Try 3: Single compressed stream (no block structure)
+            br.BaseStream.Position = 12;
+            SkipToCompressedData(br, info);
+            blocks = TryDecompressSingleStream(br, bw);
+            if (blocks > 0)
+                return blocks;
+
+            // Try 4: Standard blocks
+            br.BaseStream.Position = 12;
+            SkipToCompressedData(br, info);
+        }
+
+        return DecompressStandardBlocks(br, bw);
+    }
+
+    /// <summary>
+    /// Standard block decompression (2-byte length prefix, 64KB blocks).
+    /// </summary>
+    private static int DecompressStandardBlocks(BinaryReader br, BinaryWriter bw)
+    {
         int blockCount = 0;
         int errorCount = 0;
         long lastGoodPosition = br.BaseStream.Position;
@@ -68,11 +104,9 @@ public static class FastFileProcessor
             catch (Exception ex)
             {
                 errorCount++;
-                // Log the error but try to continue
                 System.Diagnostics.Debug.WriteLine(
                     $"[FastFileProcessor] Block {i} decompression failed at position 0x{lastGoodPosition:X}: {ex.Message}");
 
-                // If we've had too many errors, stop
                 if (errorCount > 3)
                 {
                     throw new InvalidDataException(
@@ -90,6 +124,195 @@ public static class FastFileProcessor
         }
 
         return blockCount;
+    }
+
+    /// <summary>
+    /// Try to decompress Xbox 360 signed files with concatenated zlib streams.
+    /// These files have 0x4000 bytes of signature data after the 12-byte header,
+    /// followed by multiple zlib streams (with full headers, no length prefixes).
+    /// </summary>
+    private static int TryDecompressSignedXbox360(BinaryReader br, BinaryWriter bw)
+    {
+        // Xbox 360 signed files: 12 byte header + 0x4000 signature + zlib streams
+        const int SignatureSize = 0x4000;
+        const int HeaderSize = 12;
+
+        br.BaseStream.Position = HeaderSize + SignatureSize;
+
+        if (br.BaseStream.Position >= br.BaseStream.Length)
+            return 0;
+
+        int blockCount = 0;
+        byte[] fileData = new byte[br.BaseStream.Length - br.BaseStream.Position];
+        br.Read(fileData, 0, fileData.Length);
+
+        int offset = 0;
+        while (offset < fileData.Length - 2)
+        {
+            // Look for zlib header (78 9C, 78 DA, 78 01, 78 5E)
+            if (fileData[offset] != 0x78)
+            {
+                offset++;
+                continue;
+            }
+
+            byte level = fileData[offset + 1];
+            if (level != 0x9C && level != 0xDA && level != 0x01 && level != 0x5E)
+            {
+                offset++;
+                continue;
+            }
+
+            // Found zlib header - try to decompress from this point
+            try
+            {
+                using var input = new MemoryStream(fileData, offset, fileData.Length - offset);
+                using var output = new MemoryStream();
+                using (var zlib = new ZLibStream(input, CompressionMode.Decompress))
+                {
+                    zlib.CopyTo(output);
+                }
+
+                byte[] decompressed = output.ToArray();
+                if (decompressed.Length > 0)
+                {
+                    bw.Write(decompressed);
+                    blockCount++;
+
+                    // Move offset past the compressed data we just read
+                    // The ZLibStream consumed some bytes - calculate how many
+                    long consumed = input.Position;
+                    offset += (int)consumed;
+                }
+                else
+                {
+                    offset++;
+                }
+            }
+            catch
+            {
+                // Not a valid zlib stream at this position, skip
+                offset++;
+            }
+        }
+
+        return blockCount;
+    }
+
+    /// <summary>
+    /// Try to decompress as a single compressed stream (no block structure).
+    /// Some signed files may have the entire zone as one deflate stream.
+    /// </summary>
+    private static int TryDecompressSingleStream(BinaryReader br, BinaryWriter bw)
+    {
+        long startPos = br.BaseStream.Position;
+
+        try
+        {
+            // Read all remaining data
+            int remainingBytes = (int)(br.BaseStream.Length - br.BaseStream.Position);
+            if (remainingBytes < 10)
+                return 0;
+
+            byte[] compressedData = br.ReadBytes(remainingBytes);
+
+            // Try to decompress as a single stream
+            byte[] decompressed = DecompressBlock(compressedData);
+
+            if (decompressed.Length > 0)
+            {
+                bw.Write(decompressed);
+                return 1; // Treated as 1 block
+            }
+
+            return 0;
+        }
+        catch
+        {
+            br.BaseStream.Position = startPos;
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Try to decompress Xbox 360 XBlock format (4-byte lengths, larger blocks).
+    /// Xbox 360 signed files may use different block structures.
+    /// </summary>
+    private static int TryDecompressXBlocks(BinaryReader br, BinaryWriter bw)
+    {
+        long startPos = br.BaseStream.Position;
+        long outputStartPos = bw.BaseStream.Position;
+
+        // Buffer decompressed data - only write to output if fully successful
+        using var tempOutput = new MemoryStream();
+        int blockCount = 0;
+
+        try
+        {
+            // Xbox 360 XBlocks use 4-byte block sizes (big-endian)
+            while (br.BaseStream.Position < br.BaseStream.Length - 4)
+            {
+                // Read 4-byte big-endian length
+                byte[] lengthBytes = br.ReadBytes(4);
+                if (lengthBytes.Length < 4) break;
+
+                int chunkLength = (lengthBytes[0] << 24) | (lengthBytes[1] << 16) |
+                                  (lengthBytes[2] << 8) | lengthBytes[3];
+
+                // Sanity check
+                if (chunkLength <= 0 || chunkLength > 0x200000) // Max 2MB XBlock
+                {
+                    br.BaseStream.Position = startPos;
+                    return 0;
+                }
+
+                if (br.BaseStream.Position + chunkLength > br.BaseStream.Length)
+                {
+                    br.BaseStream.Position = startPos;
+                    return 0;
+                }
+
+                byte[] compressedData = br.ReadBytes(chunkLength);
+
+                try
+                {
+                    byte[] decompressedData = DecompressBlock(compressedData);
+                    tempOutput.Write(decompressedData, 0, decompressedData.Length);
+                    blockCount++;
+                }
+                catch
+                {
+                    br.BaseStream.Position = startPos;
+                    return 0;
+                }
+
+                // Check for end marker
+                if (br.BaseStream.Position >= br.BaseStream.Length - 4)
+                    break;
+
+                // Peek at next bytes
+                byte[] peek = br.ReadBytes(4);
+                br.BaseStream.Position -= 4;
+
+                int nextLen = (peek[0] << 24) | (peek[1] << 16) | (peek[2] << 8) | peek[3];
+                if (nextLen == 0 || nextLen == 1)
+                    break;
+            }
+
+            // Success - write buffered data to actual output
+            if (blockCount > 0)
+            {
+                tempOutput.Position = 0;
+                tempOutput.CopyTo(bw.BaseStream);
+            }
+
+            return blockCount;
+        }
+        catch
+        {
+            br.BaseStream.Position = startPos;
+            return 0;
+        }
     }
 
     /// <summary>
@@ -124,6 +347,15 @@ public static class FastFileProcessor
             blockCount++;
         }
 
+        // Write end marker (0x00 0x01) followed by 4 bytes of padding
+        // PS3 FastFiles require this padding after the end marker
+        bw.Write((byte)0x00);
+        bw.Write((byte)0x01);
+        bw.Write((byte)0x00);
+        bw.Write((byte)0x00);
+        bw.Write((byte)0x00);
+        bw.Write((byte)0x00);
+
         return blockCount;
     }
 
@@ -133,6 +365,58 @@ public static class FastFileProcessor
     private static void SkipToCompressedData(BinaryReader br, FastFileInfo info)
     {
         // Reader is already past magic (8) and version (4) = position 12
+
+        // Handle signed Xbox 360 FastFiles
+        if (info.IsSigned)
+        {
+            // Signed files have a DB_AuthHeader structure after the standard header
+            // We need to scan for the start of compressed data
+            // The auth header contains RSA signatures and hash data
+
+            // Try to find the start of compressed data by scanning for valid block headers
+            long startPos = br.BaseStream.Position;
+            long fileLength = br.BaseStream.Length;
+
+            // Signed files typically have auth data of varying sizes
+            // Scan from current position looking for valid compressed block
+            for (long offset = startPos; offset < Math.Min(startPos + 0x1000, fileLength - 2); offset++)
+            {
+                br.BaseStream.Position = offset;
+                byte[] testBytes = br.ReadBytes(2);
+                if (testBytes.Length < 2) break;
+
+                int potentialLength = (testBytes[0] << 8) | testBytes[1];
+
+                // Valid block length should be reasonable (between 10 bytes and 64KB compressed)
+                if (potentialLength >= 10 && potentialLength <= 0x10000)
+                {
+                    // Check if this could be a valid deflate block
+                    if (br.BaseStream.Position + potentialLength <= fileLength)
+                    {
+                        byte[] testData = br.ReadBytes(Math.Min(potentialLength, 10));
+                        if (testData.Length >= 2)
+                        {
+                            // Try to verify this looks like deflate data
+                            // Deflate blocks typically start with specific bit patterns
+                            // Or we can try to decompress a small amount
+                            bool looksValid = IsLikelyDeflateData(testData);
+
+                            if (looksValid)
+                            {
+                                // Found likely start of compressed data
+                                br.BaseStream.Position = offset;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If scanning failed, try common signed header sizes
+            // Xbox 360 signed files often have 0x100 (256) bytes of signature after version
+            br.BaseStream.Position = 12 + 0x100; // Try offset 0x10C
+            return;
+        }
 
         if (info.GameVersion == GameVersion.MW2)
         {
@@ -160,7 +444,62 @@ public static class FastFileProcessor
 
             br.ReadBytes(8);         // fileSizes
         }
-        // For CoD4/WaW, we're already at the correct position (12)
+        // For CoD4/WaW unsigned, we're already at the correct position (12)
+    }
+
+    /// <summary>
+    /// Checks if data looks like it could be valid deflate compressed data.
+    /// </summary>
+    private static bool IsLikelyDeflateData(byte[] data)
+    {
+        if (data == null || data.Length < 2)
+            return false;
+
+        // Check for zlib header (0x78 XX)
+        if (data[0] == 0x78 && (data[1] == 0x01 || data[1] == 0x5E ||
+                                data[1] == 0x9C || data[1] == 0xDA))
+        {
+            return true;
+        }
+
+        // Raw deflate blocks start with specific bit patterns
+        // The first byte contains the BFINAL bit (bit 0) and BTYPE (bits 1-2)
+        // BTYPE: 00 = no compression, 01 = fixed Huffman, 10 = dynamic Huffman, 11 = reserved
+        int btype = (data[0] >> 1) & 0x03;
+
+        // Valid BTYPE values are 0, 1, or 2 (not 3)
+        // Most compressed data uses dynamic Huffman (10) or fixed Huffman (01)
+        if (btype == 3)
+            return false;
+
+        // For dynamic Huffman (most common), check for reasonable values
+        if (btype == 2 && data.Length >= 3)
+        {
+            // Dynamic Huffman has HLIT, HDIST, HCLEN encoded after the header bits
+            return true;
+        }
+
+        // For fixed Huffman or stored blocks, assume valid
+        if (btype == 0 || btype == 1)
+        {
+            return true;
+        }
+
+        // Try a quick decompression test
+        try
+        {
+            using var input = new MemoryStream(data);
+            using var output = new MemoryStream();
+            using var deflate = new DeflateStream(input, CompressionMode.Decompress);
+
+            byte[] buffer = new byte[256];
+            int read = deflate.Read(buffer, 0, buffer.Length);
+            return read > 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

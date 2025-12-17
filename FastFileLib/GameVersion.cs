@@ -5,6 +5,7 @@ namespace FastFileLib;
 /// </summary>
 public enum GameVersion
 {
+    Unknown,
     CoD4,
     WaW,
     MW2

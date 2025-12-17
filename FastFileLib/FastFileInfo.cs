@@ -109,6 +109,7 @@ public class FastFileInfo
                 info.HeaderSize = -1; // Variable, needs to be calculated
                 break;
             default:
+                info.GameVersion = GameVersion.Unknown;
                 info.GameName = "Unknown";
                 info.Platforms = new[] { "Unknown" };
                 info.HeaderSize = 12;
@@ -119,17 +120,35 @@ public class FastFileInfo
     /// <summary>
     /// Gets the version bytes for packing a FastFile.
     /// </summary>
+    /// <param name="version">Game version</param>
+    /// <param name="platform">Target platform (PS3, Xbox360, PC, Wii)</param>
     public static byte[] GetVersionBytes(GameVersion version, string platform = "PS3")
     {
+        // Normalize platform string
+        string normalizedPlatform = platform.ToUpperInvariant() switch
+        {
+            "XBOX360" or "XBOX 360" or "360" => "Xbox360",
+            "PS3" or "PLAYSTATION3" or "PLAYSTATION 3" => "PS3",
+            "PC" or "WINDOWS" => "PC",
+            "WII" => "Wii",
+            _ => platform
+        };
+
         return version switch
         {
-            GameVersion.CoD4 when platform == "PC" => new byte[] { 0x00, 0x00, 0x00, 0x05 },
-            GameVersion.CoD4 when platform == "Wii" => new byte[] { 0x00, 0x00, 0x01, 0xA2 },
-            GameVersion.CoD4 => new byte[] { 0x00, 0x00, 0x00, 0x01 },
-            GameVersion.WaW when platform == "Wii" => new byte[] { 0x00, 0x00, 0x01, 0x9B },
-            GameVersion.WaW => new byte[] { 0x00, 0x00, 0x01, 0x83 },
-            GameVersion.MW2 when platform == "PC" => new byte[] { 0x00, 0x00, 0x01, 0x14 },
-            GameVersion.MW2 => new byte[] { 0x00, 0x00, 0x01, 0x0D },
+            // CoD4 versions
+            GameVersion.CoD4 when normalizedPlatform == "PC" => new byte[] { 0x00, 0x00, 0x00, 0x05 },
+            GameVersion.CoD4 when normalizedPlatform == "Wii" => new byte[] { 0x00, 0x00, 0x01, 0xA2 },
+            GameVersion.CoD4 => new byte[] { 0x00, 0x00, 0x00, 0x01 }, // PS3/Xbox 360 share same version
+
+            // WaW versions
+            GameVersion.WaW when normalizedPlatform == "Wii" => new byte[] { 0x00, 0x00, 0x01, 0x9B },
+            GameVersion.WaW => new byte[] { 0x00, 0x00, 0x01, 0x83 }, // PS3/Xbox 360/PC share same version
+
+            // MW2 versions
+            GameVersion.MW2 when normalizedPlatform == "PC" => new byte[] { 0x00, 0x00, 0x01, 0x14 },
+            GameVersion.MW2 => new byte[] { 0x00, 0x00, 0x01, 0x0D }, // PS3/Xbox 360 share same version
+
             _ => new byte[] { 0x00, 0x00, 0x00, 0x01 }
         };
     }
