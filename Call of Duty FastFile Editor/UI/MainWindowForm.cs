@@ -3475,7 +3475,7 @@ namespace Call_of_Duty_FastFile_Editor
             checkForUpdate();
         }
 
-        private void toolStripMenuItem2_Click(object sender, EventArgs e)
+        private void zoneHexViewToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (_openedFastFile == null)
             {
