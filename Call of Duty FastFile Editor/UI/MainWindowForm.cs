@@ -139,6 +139,11 @@ namespace Call_of_Duty_FastFile_Editor
             // Hide tabs initially - no file loaded
             mainTabControl.Visible = false;
 
+            // Enable drag and drop
+            this.AllowDrop = true;
+            this.DragEnter += MainWindowForm_DragEnter;
+            this.DragDrop += MainWindowForm_DragDrop;
+
             // Create loading panel
             CreateLoadingPanel();
         }
@@ -194,6 +199,144 @@ namespace Call_of_Duty_FastFile_Editor
         {
             _loadingPanel.Visible = false;
         }
+
+        #region Drag and Drop Support
+
+        private void MainWindowForm_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
+            {
+                var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+                if (files?.Length == 1 && files[0].EndsWith(".ff", StringComparison.OrdinalIgnoreCase))
+                {
+                    e.Effect = DragDropEffects.Copy;
+                    return;
+                }
+            }
+            e.Effect = DragDropEffects.None;
+        }
+
+        private void MainWindowForm_DragDrop(object sender, DragEventArgs e)
+        {
+            if (e.Data?.GetData(DataFormats.FileDrop) is not string[] files || files.Length == 0)
+                return;
+
+            string filePath = files[0];
+            if (!filePath.EndsWith(".ff", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            OpenFastFileAutoDetect(filePath);
+        }
+
+        /// <summary>
+        /// Opens a FastFile and auto-detects the game version (CoD4, WaW/CoD5, MW2).
+        /// </summary>
+        /// <param name="filePath">Path to the .ff file</param>
+        private void OpenFastFileAutoDetect(string filePath)
+        {
+            if (_openedFastFile != null)
+            {
+                SaveCloseFastFileAndCleanUp();
+            }
+
+            // Create a backup of the original FastFile before any modifications
+            CreateBackupIfNeeded(filePath);
+
+            try
+            {
+                _openedFastFile = new FastFile(filePath);
+                UIManager.UpdateLoadedFileNameStatusStrip(loadedFileNameStatusLabel, _openedFastFile);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to read FastFile header: {ex.Message}", "Header Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (!_openedFastFile.IsValid)
+            {
+                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid .ff file!\n\nSupported: CoD4, WaW (CoD5), MW2", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return;
+            }
+
+            // Determine game name for display
+            string gameName = _openedFastFile.IsCod4File ? "CoD4" :
+                              _openedFastFile.IsCod5File ? "WaW (CoD5)" :
+                              _openedFastFile.IsMW2File ? "MW2" : "Unknown";
+
+            try
+            {
+                // Assign the correct handler for the opened file
+                _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
+
+                // Show the opened FF path in the program's title text
+                this.SetProgramTitle(_openedFastFile.FfFilePath);
+
+                // Decompress the Fast File to get the zone file
+                _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
+
+                // Load & parse that zone in one go
+                _openedFastFile.LoadZone();
+
+                // Get tag count for the dialog
+                int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
+
+                // Show asset selection dialog
+                bool loadRawFiles = true;
+                bool loadLocalizedEntries = true;
+                bool loadTags = true;
+
+                using (var assetDialog = new AssetSelectionDialog(
+                    _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
+                    _openedFastFile,
+                    tagCount))
+                {
+                    if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
+                    {
+                        SaveCloseFastFileAndCleanUp();
+                        return;
+                    }
+                    loadRawFiles = assetDialog.LoadRawFiles;
+                    loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
+                    loadTags = assetDialog.LoadTags;
+                }
+
+                // Show loading indicator while parsing assets
+                ShowLoading($"Parsing {gameName} zone assets...");
+
+                // Here is where the asset records actual data is parsed throughout the zone
+                LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
+            }
+            catch (Exception ex)
+            {
+                HideLoading();
+                MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            try
+            {
+                // Update loading message
+                ShowLoading("Loading data to UI...");
+
+                // Load all the parsed data from the zone file to the UI
+                LoadZoneDataToUI();
+            }
+            catch (Exception ex)
+            {
+                HideLoading();
+                MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            finally
+            {
+                HideLoading();
+            }
+
+            EnableUI_Elements();
+        }
+
+        #endregion
 
         #region Right Click Context Menu initialization
         private string _rightClickedItemText = string.Empty;
