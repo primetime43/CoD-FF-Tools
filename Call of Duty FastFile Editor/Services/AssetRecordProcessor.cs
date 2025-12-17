@@ -916,6 +916,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
         {
             if (fastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
+            if (fastFile.IsCod5File && fastFile.IsXbox360)
+                return (int)record.AssetType_COD5_Xbox360;
             if (fastFile.IsCod5File)
                 return (int)record.AssetType_COD5;
             if (fastFile.IsMW2File)

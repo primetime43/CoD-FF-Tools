@@ -14,7 +14,8 @@ namespace Call_of_Duty_FastFile_Editor.Models
 
     public struct ZoneAssetRecord
     {
-        public CoD5AssetType AssetType_COD5 { get; set; }
+        public CoD5AssetTypePS3 AssetType_COD5 { get; set; }
+        public CoD5AssetTypeXbox360 AssetType_COD5_Xbox360 { get; set; }
         public CoD4AssetType AssetType_COD4 { get; set; }
         public MW2AssetType AssetType_MW2 { get; set; }
         public int HeaderStartOffset { get; set; }

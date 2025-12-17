@@ -19,6 +19,17 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         string ShortName { get; }
 
         /// <summary>
+        /// Platform this definition is configured for (PS3, Xbox 360, PC).
+        /// Asset type IDs differ between platforms.
+        /// </summary>
+        string Platform { get; }
+
+        /// <summary>
+        /// Whether this is an Xbox 360 definition (asset types are shifted).
+        /// </summary>
+        bool IsXbox360 { get; }
+
+        /// <summary>
         /// Console/PS3 version value.
         /// </summary>
         int VersionValue { get; }

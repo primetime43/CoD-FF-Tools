@@ -32,6 +32,9 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public bool IsCod4File => OpenedFastFileHeader.IsCod4File;
         public bool IsCod5File => OpenedFastFileHeader.IsCod5File;
         public bool IsMW2File => OpenedFastFileHeader.IsMW2File;
+        public bool IsSigned => OpenedFastFileHeader.IsSigned;
+        public bool IsXbox360 => OpenedFastFileHeader.IsSigned; // Signed files are Xbox 360
+        public string Platform => OpenedFastFileHeader.IsSigned ? "Xbox 360" : "PS3";
 
         public FastFile(string filePath)
         {
@@ -131,6 +134,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
             public bool IsCod4File { get; private set; }
             public bool IsCod5File { get; private set; }
             public bool IsMW2File { get; private set; }
+            public bool IsSigned { get; private set; }
 
             public FastFileHeader(string filePath)
             {
@@ -144,6 +148,9 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 FastFileMagic = new string(br.ReadChars(8)).TrimEnd('\0');
                 GameVersion = IPAddress.NetworkToHostOrder(br.ReadInt32());
                 FileLength = (int)new FileInfo(filePath).Length;
+
+                // Check if signed (Xbox 360)
+                IsSigned = FastFileMagic == FastFileHeaderConstants.SignedFF;
 
                 ValidateHeader();
             }
@@ -184,7 +191,9 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 IsValid = false;
 
                 // Check the FastFileMagic and GameVersion to determine validity
-                if (FastFileMagic == FastFileHeaderConstants.UnSignedFF)
+                // Accept both unsigned (PS3) and signed (Xbox 360) files
+                if (FastFileMagic == FastFileHeaderConstants.UnSignedFF ||
+                    FastFileMagic == FastFileHeaderConstants.SignedFF)
                 {
                     if (GameVersion == CoD4Definition.VersionValue ||
                         GameVersion == CoD4Definition.PCVersionValue)

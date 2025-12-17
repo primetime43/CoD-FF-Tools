@@ -16,6 +16,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
         private readonly bool _isCod4;
         private readonly bool _isCod5;
         private readonly bool _isMW2;
+        private readonly bool _isXbox360;
 
         // Parsed asset collections for name lookups
         private readonly List<RawFileNode> _rawFiles;
@@ -83,12 +84,13 @@ namespace Call_of_Duty_FastFile_Editor.UI
             _techSets = techSets ?? new List<TechSetAsset>();
             _menuLists = menuLists ?? new List<MenuList>();
 
-            // Detect game version
+            // Detect game version and platform
             if (_zoneFile?.ParentFastFile != null)
             {
                 _isCod4 = _zoneFile.ParentFastFile.IsCod4File;
                 _isCod5 = _zoneFile.ParentFastFile.IsCod5File;
                 _isMW2 = _zoneFile.ParentFastFile.IsMW2File;
+                _isXbox360 = _zoneFile.ParentFastFile.IsXbox360;
             }
 
             // Default to big-endian
@@ -333,6 +335,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
         {
             if (_isCod4)
                 return (int)record.AssetType_COD4;
+            if (_isCod5 && _isXbox360)
+                return (int)record.AssetType_COD5_Xbox360;
             if (_isCod5)
                 return (int)record.AssetType_COD5;
             if (_isMW2)
@@ -353,6 +357,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
         {
             if (_isCod4)
                 return record.AssetType_COD4.ToString();
+            else if (_isCod5 && _isXbox360)
+                return record.AssetType_COD5_Xbox360.ToString();
             else if (_isCod5)
                 return record.AssetType_COD5.ToString();
             else if (_isMW2)
