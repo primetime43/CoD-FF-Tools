@@ -85,6 +85,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 string typeName;
                 if (_fastFile.IsCod4File)
                     typeName = record.AssetType_COD4.ToString();
+                else if (_fastFile.IsCod5File && _fastFile.IsXbox360)
+                    typeName = record.AssetType_COD5_Xbox360.ToString();
                 else if (_fastFile.IsCod5File)
                     typeName = record.AssetType_COD5.ToString();
                 else if (_fastFile.IsMW2File)

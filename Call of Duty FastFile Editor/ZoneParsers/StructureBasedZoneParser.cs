@@ -24,6 +24,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private readonly bool _isCod4;
         private readonly bool _isCod5;
         private readonly bool _isMW2;
+        private readonly bool _isXbox360;
 
         // Header size: 13 fields * 4 bytes = 52 bytes (0x34)
         private const int HEADER_SIZE = 0x34;
@@ -35,6 +36,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             _isCod4 = zone.ParentFastFile?.IsCod4File ?? false;
             _isCod5 = zone.ParentFastFile?.IsCod5File ?? false;
             _isMW2 = zone.ParentFastFile?.IsMW2File ?? false;
+            _isXbox360 = zone.ParentFastFile?.IsXbox360 ?? false;
         }
 
         /// <summary>
@@ -302,7 +304,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 }
                 else if (_isCod5)
                 {
-                    record.AssetType_COD5 = (CoD5AssetType)assetTypeInt;
+                    if (_isXbox360)
+                        record.AssetType_COD5_Xbox360 = (CoD5AssetTypeXbox360)assetTypeInt;
+                    else
+                        record.AssetType_COD5 = (CoD5AssetTypePS3)assetTypeInt;
                 }
                 else if (_isMW2)
                 {

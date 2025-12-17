@@ -14,6 +14,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
     {
         public abstract string GameName { get; }
         public abstract string ShortName { get; }
+        public virtual string Platform => IsXbox360 ? "Xbox 360" : "PS3";
+        public virtual bool IsXbox360 { get; protected set; } = false;
         public abstract int VersionValue { get; }
         public abstract int PCVersionValue { get; }
         public abstract byte[] VersionBytes { get; }

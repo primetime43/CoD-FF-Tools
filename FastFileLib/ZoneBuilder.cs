@@ -115,58 +115,80 @@ public class ZoneBuilder
     }
 
     /// <summary>
-    /// Builds the zone header (48 bytes for CoD4/WaW, different for MW2).
+    /// Builds the zone header (52 bytes for CoD4/WaW).
+    /// Structure from Zone.md:
+    /// 0x00: ZoneSize, 0x04: ExternalSize, 0x08: BlockSizeTemp, 0x0C: BlockSizePhysical,
+    /// 0x10: BlockSizeRuntime, 0x14: BlockSizeVirtual, 0x18: BlockSizeLarge, 0x1C: BlockSizeCallback,
+    /// 0x20: BlockSizeVertex, 0x24: ScriptStringCount, 0x28: ScriptStringsPtr, 0x2C: AssetCount, 0x30: AssetsPtr
     /// </summary>
     private byte[] BuildHeaderSection()
     {
-        var header = new List<byte>();
+        var header = new byte[52];
 
-        // Calculate total sizes
-        int totalDataSize = _assetTableSize + _rawFilesSize + _localizedSize + _footerSize + 16;
-        int totalZoneSize = 52 + _assetTableSize + _rawFilesSize + _localizedSize + _footerSize;
+        // Calculate ZoneSize (total size excluding header, but we'll calculate based on content)
+        int zoneSize = _assetTableSize + _rawFilesSize + _localizedSize + _footerSize;
 
-        // Asset count (number of asset table entries / 8)
-        byte[] assetCount = GetBigEndianBytes(_assetTableSize / 8);
-
-        // Total data size (big-endian)
-        byte[] dataSizeBytes = GetBigEndianBytes(totalDataSize);
-
-        // Total zone size (big-endian)
-        byte[] zoneSizeBytes = GetBigEndianBytes(totalZoneSize);
+        // Asset count
+        int assetCount = _assetTableSize / 8;
 
         // Memory allocation blocks
-        var memAlloc1 = FastFileConstants.GetMemAlloc1(_gameVersion);
-        var memAlloc2 = FastFileConstants.GetMemAlloc2(_gameVersion);
+        var blockSizeTemp = FastFileConstants.GetMemAlloc1(_gameVersion);
+        var blockSizeVertex = FastFileConstants.GetMemAlloc2(_gameVersion);
 
-        // Build header structure
-        // Bytes 0-3: Total data size
-        header.AddRange(dataSizeBytes);
+        // 0x00: ZoneSize
+        WriteBigEndian(header, 0x00, zoneSize);
 
-        // Bytes 4-23: Memory allocation block 1 (20 bytes, memAlloc1 at offset 4)
-        byte[] allocBlock1 = new byte[20];
-        memAlloc1.CopyTo(allocBlock1, 4);
-        header.AddRange(allocBlock1);
+        // 0x04: ExternalSize (0)
+        WriteBigEndian(header, 0x04, 0);
 
-        // Bytes 24-27: Total zone size
-        header.AddRange(zoneSizeBytes);
+        // 0x08: BlockSizeTemp
+        blockSizeTemp.CopyTo(header, 0x08);
 
-        // Bytes 28-43: Memory allocation block 2 (16 bytes, memAlloc2 at offset 4)
-        byte[] allocBlock2 = new byte[16];
-        memAlloc2.CopyTo(allocBlock2, 4);
-        header.AddRange(allocBlock2);
+        // 0x0C: BlockSizePhysical (0)
+        WriteBigEndian(header, 0x0C, 0);
 
-        // Bytes 44-47: Asset count
-        header.AddRange(assetCount);
+        // 0x10: BlockSizeRuntime (0)
+        WriteBigEndian(header, 0x10, 0);
 
-        // Bytes 48-51: 0xFFFFFFFF marker
-        header.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+        // 0x14: BlockSizeVirtual (0 for rawfile-only zones)
+        WriteBigEndian(header, 0x14, 0);
 
-        return header.ToArray();
+        // 0x18: BlockSizeLarge (set to raw files size + some buffer)
+        WriteBigEndian(header, 0x18, _rawFilesSize + _localizedSize);
+
+        // 0x1C: BlockSizeCallback (0)
+        WriteBigEndian(header, 0x1C, 0);
+
+        // 0x20: BlockSizeVertex
+        blockSizeVertex.CopyTo(header, 0x20);
+
+        // 0x24: ScriptStringCount (0 - no script strings in rawfile-only zones)
+        WriteBigEndian(header, 0x24, 0);
+
+        // 0x28: ScriptStringsPtr (FF FF FF FF)
+        header[0x28] = 0xFF; header[0x29] = 0xFF; header[0x2A] = 0xFF; header[0x2B] = 0xFF;
+
+        // 0x2C: AssetCount
+        WriteBigEndian(header, 0x2C, assetCount);
+
+        // 0x30: AssetsPtr (FF FF FF FF)
+        header[0x30] = 0xFF; header[0x31] = 0xFF; header[0x32] = 0xFF; header[0x33] = 0xFF;
+
+        return header;
+    }
+
+    private static void WriteBigEndian(byte[] data, int offset, int value)
+    {
+        data[offset] = (byte)(value >> 24);
+        data[offset + 1] = (byte)(value >> 16);
+        data[offset + 2] = (byte)(value >> 8);
+        data[offset + 3] = (byte)(value & 0xFF);
     }
 
     /// <summary>
     /// Builds the asset table section.
-    /// Each asset entry is 8 bytes: 00 00 00 [type] FF FF FF FF
+    /// Each asset entry is 8 bytes: [4-byte type: 00 00 00 XX] [4-byte ptr: FF FF FF FF]
+    /// Per Zone.md: "Each record is 8 bytes (big-endian on PS3)"
     /// </summary>
     private byte[] BuildAssetTableSection()
     {
@@ -175,7 +197,7 @@ public class ZoneBuilder
         byte rawFileType = FastFileConstants.GetRawFileAssetType(_gameVersion);
         byte localizeType = FastFileConstants.GetLocalizeAssetType(_gameVersion);
 
-        // Entry for each raw file
+        // Entry for each raw file - format: [type][ptr] = 00 00 00 22 FF FF FF FF
         foreach (var _ in _rawFiles)
         {
             byte[] entry = { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF };

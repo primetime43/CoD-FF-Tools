@@ -241,6 +241,20 @@ public class ZonePatcher
         zoneData[1] = (byte)(newZoneSize >> 16);
         zoneData[2] = (byte)(newZoneSize >> 8);
         zoneData[3] = (byte)newZoneSize;
+
+        // Also update BlockSizeLarge (offset 0x18) - raw file data is stored in the LARGE memory block
+        // When raw file content sizes change, this allocation hint must also be updated
+        int originalBlockSizeLarge = (_originalZone[0x18] << 24) |
+                                     (_originalZone[0x19] << 16) |
+                                     (_originalZone[0x1A] << 8) |
+                                     _originalZone[0x1B];
+
+        int newBlockSizeLarge = originalBlockSizeLarge + sizeChange;
+
+        zoneData[0x18] = (byte)(newBlockSizeLarge >> 24);
+        zoneData[0x19] = (byte)(newBlockSizeLarge >> 16);
+        zoneData[0x1A] = (byte)(newBlockSizeLarge >> 8);
+        zoneData[0x1B] = (byte)newBlockSizeLarge;
     }
 
     private class RawFileLocation

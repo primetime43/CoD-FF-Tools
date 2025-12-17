@@ -3150,6 +3150,8 @@ namespace Call_of_Duty_FastFile_Editor
         {
             if (_openedFastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
+            if (_openedFastFile.IsCod5File && _openedFastFile.IsXbox360)
+                return (int)record.AssetType_COD5_Xbox360;
             if (_openedFastFile.IsCod5File)
                 return (int)record.AssetType_COD5;
             if (_openedFastFile.IsMW2File)

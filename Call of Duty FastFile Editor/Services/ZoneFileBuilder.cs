@@ -23,12 +23,21 @@ namespace Call_of_Duty_FastFile_Editor.Services
         };
 
         /// <summary>
-        /// Supported asset types for COD5.
+        /// Supported asset types for COD5 (PS3).
         /// </summary>
-        private static readonly HashSet<CoD5AssetType> SupportedTypesCOD5 = new HashSet<CoD5AssetType>
+        private static readonly HashSet<CoD5AssetTypePS3> SupportedTypesCOD5 = new HashSet<CoD5AssetTypePS3>
         {
-            CoD5AssetType.rawfile,
-            CoD5AssetType.localize
+            CoD5AssetTypePS3.rawfile,
+            CoD5AssetTypePS3.localize
+        };
+
+        /// <summary>
+        /// Supported asset types for COD5 (Xbox 360).
+        /// </summary>
+        private static readonly HashSet<CoD5AssetTypeXbox360> SupportedTypesCOD5Xbox360 = new HashSet<CoD5AssetTypeXbox360>
+        {
+            CoD5AssetTypeXbox360.rawfile,
+            CoD5AssetTypeXbox360.localize
         };
 
         /// <summary>
@@ -52,7 +61,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
             {
                 if (fastFile.IsCod4File && !SupportedTypesCOD4.Contains(record.AssetType_COD4))
                     return false;
-                if (fastFile.IsCod5File && !SupportedTypesCOD5.Contains(record.AssetType_COD5))
+                if (fastFile.IsCod5File && fastFile.IsXbox360 && !SupportedTypesCOD5Xbox360.Contains(record.AssetType_COD5_Xbox360))
+                    return false;
+                if (fastFile.IsCod5File && !fastFile.IsXbox360 && !SupportedTypesCOD5.Contains(record.AssetType_COD5))
                     return false;
                 if (fastFile.IsMW2File && !SupportedTypesMW2.Contains(record.AssetType_MW2))
                     return false;
@@ -76,6 +87,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 if (fastFile.IsCod4File)
                     isSupported = SupportedTypesCOD4.Contains(record.AssetType_COD4);
+                else if (fastFile.IsCod5File && fastFile.IsXbox360)
+                    isSupported = SupportedTypesCOD5Xbox360.Contains(record.AssetType_COD5_Xbox360);
                 else if (fastFile.IsCod5File)
                     isSupported = SupportedTypesCOD5.Contains(record.AssetType_COD5);
                 else if (fastFile.IsMW2File)
@@ -107,6 +120,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 {
                     isSupported = SupportedTypesCOD4.Contains(record.AssetType_COD4);
                     typeName = record.AssetType_COD4.ToString();
+                }
+                else if (fastFile.IsCod5File && fastFile.IsXbox360)
+                {
+                    isSupported = SupportedTypesCOD5Xbox360.Contains(record.AssetType_COD5_Xbox360);
+                    typeName = record.AssetType_COD5_Xbox360.ToString();
                 }
                 else if (fastFile.IsCod5File)
                 {
@@ -172,7 +190,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         // Write asset type (4 bytes big-endian)
                         int assetType = fastFile.IsCod4File
                             ? (int)record.AssetType_COD4
-                            : (int)record.AssetType_COD5;
+                            : fastFile.IsCod5File && fastFile.IsXbox360
+                                ? (int)record.AssetType_COD5_Xbox360
+                                : (int)record.AssetType_COD5;
 
                         ms.WriteByte(0x00);
                         ms.WriteByte(0x00);
@@ -401,11 +421,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
             byte rawFileType = fastFile.IsCod4File
                 ? (byte)CoD4AssetType.rawfile
-                : (byte)CoD5AssetType.rawfile;
+                : (byte)CoD5AssetTypePS3.rawfile;
 
             byte localizeType = fastFile.IsCod4File
                 ? (byte)CoD4AssetType.localize
-                : (byte)CoD5AssetType.localize;
+                : (byte)CoD5AssetTypePS3.localize;
 
             // Entry for each raw file
             for (int i = 0; i < rawFileCount; i++)

@@ -7,23 +7,41 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
     /// <summary>
     /// Game definition implementation for Call of Duty: World at War (CoD5).
     /// Uses the default CoD4/CoD5 rawfile parsing structure.
+    /// Supports both PS3 and Xbox 360 asset type IDs.
     /// </summary>
     public class CoD5GameDefinition : GameDefinitionBase
     {
+        /// <summary>
+        /// Creates a CoD5 game definition for PS3 (default).
+        /// </summary>
+        public CoD5GameDefinition() : this(isXbox360: false) { }
+
+        /// <summary>
+        /// Creates a CoD5 game definition for the specified platform.
+        /// </summary>
+        /// <param name="isXbox360">True for Xbox 360, false for PS3.</param>
+        public CoD5GameDefinition(bool isXbox360)
+        {
+            IsXbox360 = isXbox360;
+        }
+
         public override string GameName => CoD5Definition.GameName;
-        public override string ShortName => "COD5";
+        public override string ShortName => IsXbox360 ? "COD5 (Xbox)" : "COD5";
         public override int VersionValue => CoD5Definition.VersionValue;
         public override int PCVersionValue => CoD5Definition.PCVersionValue;
         public override byte[] VersionBytes => CoD5Definition.VersionBytes;
-        public override byte RawFileAssetType => CoD5Definition.RawFileAssetType;
-        public override byte LocalizeAssetType => CoD5Definition.LocalizeAssetType;
-        public override byte MenuFileAssetType => CoD5Definition.MenuFileAssetType;
-        public override byte XAnimAssetType => CoD5Definition.XAnimAssetType;
-        public override byte StringTableAssetType => CoD5Definition.StringTableAssetType;
-        public override byte WeaponAssetType => CoD5Definition.WeaponAssetType;
-        public override byte ImageAssetType => CoD5Definition.ImageAssetType;
-        public byte MaterialAssetType => CoD5Definition.MaterialAssetType;
-        public byte TechSetAssetType => CoD5Definition.TechSetAssetType;
+
+        // Platform-aware asset type IDs
+        // Xbox 360 doesn't have vertexshader (0x08), so all types >= 0x08 are shifted by -1
+        public override byte RawFileAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.rawfile : (byte)CoD5AssetTypePS3.rawfile;
+        public override byte LocalizeAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.localize : (byte)CoD5AssetTypePS3.localize;
+        public override byte MenuFileAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.menufile : (byte)CoD5AssetTypePS3.menufile;
+        public override byte XAnimAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.xanim : (byte)CoD5AssetTypePS3.xanim;
+        public override byte StringTableAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.stringtable : (byte)CoD5AssetTypePS3.stringtable;
+        public override byte WeaponAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.weapon : (byte)CoD5AssetTypePS3.weapon;
+        public override byte ImageAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.image : (byte)CoD5AssetTypePS3.image;
+        public byte MaterialAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.material : (byte)CoD5AssetTypePS3.material;
+        public byte TechSetAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.techset : (byte)CoD5AssetTypePS3.techset;
 
         // Maximum bytes to search forward for alignment/padding
         // Reduced from 512 to 64 for better performance - alignment issues are typically small
@@ -31,9 +49,19 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 
         public override string GetAssetTypeName(int assetType)
         {
-            if (Enum.IsDefined(typeof(CoD5AssetType), assetType))
+            if (IsXbox360)
             {
-                return ((CoD5AssetType)assetType).ToString();
+                if (Enum.IsDefined(typeof(CoD5AssetTypeXbox360), assetType))
+                {
+                    return ((CoD5AssetTypeXbox360)assetType).ToString();
+                }
+            }
+            else
+            {
+                if (Enum.IsDefined(typeof(CoD5AssetTypePS3), assetType))
+                {
+                    return ((CoD5AssetTypePS3)assetType).ToString();
+                }
             }
             return $"unknown_0x{assetType:X2}";
         }
