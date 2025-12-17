@@ -46,6 +46,7 @@ namespace Call_of_Duty_FastFile_Editor
             removeCommentsToolStripMenuItem = new ToolStripMenuItem();
             checkSyntaxToolStripMenuItem = new ToolStripMenuItem();
             toolsToolStripMenuItem = new ToolStripMenuItem();
+            fileInfoToolStripMenuItem = new ToolStripMenuItem();
             rawFileToolsMenuItem = new ToolStripMenuItem();
             reloadRawFilesPatternMatchingToolStripMenuItem = new ToolStripMenuItem();
             increaseRawFileSizeToolStripMenuItem = new ToolStripMenuItem();
@@ -323,11 +324,19 @@ namespace Call_of_Duty_FastFile_Editor
             checkSyntaxToolStripMenuItem.Click += checkSyntaxToolStripMenuItem_Click;
             // 
             // toolsToolStripMenuItem
-            // 
-            toolsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { rawFileToolsMenuItem, injectFileToolStripMenuItem, extractAllRawFilesToolStripMenuItem, localizeToolsMenuItem, toolStripMenuItem2, toolStripSeparator2, compressZoneToFFToolStripMenuItem, keepZoneFileToolStripMenuItem });
+            //
+            toolsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { fileInfoToolStripMenuItem, rawFileToolsMenuItem, injectFileToolStripMenuItem, extractAllRawFilesToolStripMenuItem, localizeToolsMenuItem, toolStripMenuItem2, toolStripSeparator2, compressZoneToFFToolStripMenuItem, keepZoneFileToolStripMenuItem });
             toolsToolStripMenuItem.Name = "toolsToolStripMenuItem";
             toolsToolStripMenuItem.Size = new Size(56, 24);
             toolsToolStripMenuItem.Text = "Tools";
+            //
+            // fileInfoToolStripMenuItem
+            //
+            fileInfoToolStripMenuItem.Name = "fileInfoToolStripMenuItem";
+            fileInfoToolStripMenuItem.Size = new Size(195, 24);
+            fileInfoToolStripMenuItem.Text = "File Information...";
+            fileInfoToolStripMenuItem.Enabled = false;
+            fileInfoToolStripMenuItem.Click += new System.EventHandler(this.fileInfoToolStripMenuItem_Click);
             // 
             // rawFileToolsMenuItem
             // 
@@ -520,12 +529,12 @@ namespace Call_of_Duty_FastFile_Editor
             selectedFileCurrentSizeStatusLabel.Size = new Size(185, 21);
             selectedFileCurrentSizeStatusLabel.Text = "Selected File Current Size";
             selectedFileCurrentSizeStatusLabel.Visible = false;
-            // 
+            //
             // filesTreeToolTip
-            // 
+            //
             filesTreeToolTip.ShowAlways = true;
             filesTreeToolTip.ToolTipIcon = ToolTipIcon.Info;
-            // 
+            //
             // mainTabControl
             // 
             mainTabControl.ContextMenuStrip = universalContextMenu;
@@ -938,6 +947,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem exitToolStripMenuItem;
         private ToolStripMenuItem editToolStripMenuItem;
         private ToolStripMenuItem toolsToolStripMenuItem;
+        private ToolStripMenuItem fileInfoToolStripMenuItem;
         private ToolStripMenuItem helpToolStripMenuItem;
         private ToolStripMenuItem renameRawFileToolStripMenuItem;
         private ToolStripSeparator toolStripSeparator1;

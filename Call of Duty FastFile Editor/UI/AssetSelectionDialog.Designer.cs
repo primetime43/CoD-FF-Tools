@@ -28,7 +28,93 @@ namespace Call_of_Duty_FastFile_Editor.UI
             this.selectAllButton = new System.Windows.Forms.Button();
             this.selectNoneButton = new System.Windows.Forms.Button();
             this.infoLabel = new System.Windows.Forms.Label();
+            this.fileInfoGroupBox = new System.Windows.Forms.GroupBox();
+            this.fileInfoTableLayout = new System.Windows.Forms.TableLayoutPanel();
+            this.gameLabel = new System.Windows.Forms.Label();
+            this.platformLabel = new System.Windows.Forms.Label();
+            this.signedLabel = new System.Windows.Forms.Label();
+            this.sizeLabel = new System.Windows.Forms.Label();
+            this.fileInfoGroupBox.SuspendLayout();
             this.SuspendLayout();
+            //
+            // fileInfoGroupBox
+            //
+            this.fileInfoGroupBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left)
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.fileInfoGroupBox.Controls.Add(this.fileInfoTableLayout);
+            this.fileInfoGroupBox.Location = new System.Drawing.Point(12, 12);
+            this.fileInfoGroupBox.Name = "fileInfoGroupBox";
+            this.fileInfoGroupBox.Padding = new System.Windows.Forms.Padding(8, 3, 8, 3);
+            this.fileInfoGroupBox.Size = new System.Drawing.Size(476, 50);
+            this.fileInfoGroupBox.TabIndex = 8;
+            this.fileInfoGroupBox.TabStop = false;
+            this.fileInfoGroupBox.Text = "Source File Information";
+            //
+            // fileInfoTableLayout
+            //
+            this.fileInfoTableLayout.ColumnCount = 4;
+            this.fileInfoTableLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.fileInfoTableLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.fileInfoTableLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.fileInfoTableLayout.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+            this.fileInfoTableLayout.Controls.Add(this.gameLabel, 0, 0);
+            this.fileInfoTableLayout.Controls.Add(this.platformLabel, 1, 0);
+            this.fileInfoTableLayout.Controls.Add(this.signedLabel, 2, 0);
+            this.fileInfoTableLayout.Controls.Add(this.sizeLabel, 3, 0);
+            this.fileInfoTableLayout.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.fileInfoTableLayout.Location = new System.Drawing.Point(8, 19);
+            this.fileInfoTableLayout.Name = "fileInfoTableLayout";
+            this.fileInfoTableLayout.RowCount = 1;
+            this.fileInfoTableLayout.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100F));
+            this.fileInfoTableLayout.Size = new System.Drawing.Size(460, 28);
+            this.fileInfoTableLayout.TabIndex = 0;
+            //
+            // gameLabel
+            //
+            this.gameLabel.AutoSize = true;
+            this.gameLabel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.gameLabel.Location = new System.Drawing.Point(3, 0);
+            this.gameLabel.Name = "gameLabel";
+            this.gameLabel.Padding = new System.Windows.Forms.Padding(0, 0, 15, 0);
+            this.gameLabel.Size = new System.Drawing.Size(92, 28);
+            this.gameLabel.TabIndex = 0;
+            this.gameLabel.Text = "Game: -";
+            this.gameLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            //
+            // platformLabel
+            //
+            this.platformLabel.AutoSize = true;
+            this.platformLabel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.platformLabel.Location = new System.Drawing.Point(101, 0);
+            this.platformLabel.Name = "platformLabel";
+            this.platformLabel.Padding = new System.Windows.Forms.Padding(0, 0, 15, 0);
+            this.platformLabel.Size = new System.Drawing.Size(140, 28);
+            this.platformLabel.TabIndex = 1;
+            this.platformLabel.Text = "Platform: -";
+            this.platformLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            //
+            // signedLabel
+            //
+            this.signedLabel.AutoSize = true;
+            this.signedLabel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.signedLabel.Location = new System.Drawing.Point(199, 0);
+            this.signedLabel.Name = "signedLabel";
+            this.signedLabel.Padding = new System.Windows.Forms.Padding(0, 0, 15, 0);
+            this.signedLabel.Size = new System.Drawing.Size(92, 28);
+            this.signedLabel.TabIndex = 2;
+            this.signedLabel.Text = "Signed: -";
+            this.signedLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            //
+            // sizeLabel
+            //
+            this.sizeLabel.AutoSize = true;
+            this.sizeLabel.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.sizeLabel.Location = new System.Drawing.Point(297, 0);
+            this.sizeLabel.Name = "sizeLabel";
+            this.sizeLabel.Size = new System.Drawing.Size(94, 28);
+            this.sizeLabel.TabIndex = 3;
+            this.sizeLabel.Text = "Size: -";
+            this.sizeLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             //
             // assetListView
             //
@@ -42,9 +128,9 @@ namespace Call_of_Duty_FastFile_Editor.UI
             this.supportedColumn});
             this.assetListView.FullRowSelect = true;
             this.assetListView.GridLines = true;
-            this.assetListView.Location = new System.Drawing.Point(12, 70);
+            this.assetListView.Location = new System.Drawing.Point(12, 130);
             this.assetListView.Name = "assetListView";
-            this.assetListView.Size = new System.Drawing.Size(410, 250);
+            this.assetListView.Size = new System.Drawing.Size(476, 250);
             this.assetListView.TabIndex = 0;
             this.assetListView.UseCompatibleStateImageBehavior = false;
             this.assetListView.View = System.Windows.Forms.View.Details;
@@ -68,7 +154,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             // okButton
             //
             this.okButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.okButton.Location = new System.Drawing.Point(266, 370);
+            this.okButton.Location = new System.Drawing.Point(332, 430);
             this.okButton.Name = "okButton";
             this.okButton.Size = new System.Drawing.Size(75, 28);
             this.okButton.TabIndex = 1;
@@ -80,7 +166,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             //
             this.cancelButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
             this.cancelButton.DialogResult = System.Windows.Forms.DialogResult.Cancel;
-            this.cancelButton.Location = new System.Drawing.Point(347, 370);
+            this.cancelButton.Location = new System.Drawing.Point(413, 430);
             this.cancelButton.Name = "cancelButton";
             this.cancelButton.Size = new System.Drawing.Size(75, 28);
             this.cancelButton.TabIndex = 2;
@@ -92,7 +178,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             //
             this.titleLabel.AutoSize = true;
             this.titleLabel.Font = new System.Drawing.Font("Segoe UI", 11F, System.Drawing.FontStyle.Bold);
-            this.titleLabel.Location = new System.Drawing.Point(12, 12);
+            this.titleLabel.Location = new System.Drawing.Point(12, 72);
             this.titleLabel.Name = "titleLabel";
             this.titleLabel.Size = new System.Drawing.Size(230, 20);
             this.titleLabel.TabIndex = 3;
@@ -102,7 +188,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             //
             this.summaryLabel.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
             this.summaryLabel.AutoSize = true;
-            this.summaryLabel.Location = new System.Drawing.Point(12, 328);
+            this.summaryLabel.Location = new System.Drawing.Point(12, 388);
             this.summaryLabel.Name = "summaryLabel";
             this.summaryLabel.Size = new System.Drawing.Size(150, 15);
             this.summaryLabel.TabIndex = 4;
@@ -111,7 +197,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             // selectAllButton
             //
             this.selectAllButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
-            this.selectAllButton.Location = new System.Drawing.Point(12, 370);
+            this.selectAllButton.Location = new System.Drawing.Point(12, 430);
             this.selectAllButton.Name = "selectAllButton";
             this.selectAllButton.Size = new System.Drawing.Size(90, 28);
             this.selectAllButton.TabIndex = 5;
@@ -122,7 +208,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             // selectNoneButton
             //
             this.selectNoneButton.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
-            this.selectNoneButton.Location = new System.Drawing.Point(108, 370);
+            this.selectNoneButton.Location = new System.Drawing.Point(108, 430);
             this.selectNoneButton.Name = "selectNoneButton";
             this.selectNoneButton.Size = new System.Drawing.Size(90, 28);
             this.selectNoneButton.TabIndex = 6;
@@ -134,7 +220,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             //
             this.infoLabel.AutoSize = true;
             this.infoLabel.ForeColor = System.Drawing.Color.DimGray;
-            this.infoLabel.Location = new System.Drawing.Point(12, 40);
+            this.infoLabel.Location = new System.Drawing.Point(12, 100);
             this.infoLabel.Name = "infoLabel";
             this.infoLabel.Size = new System.Drawing.Size(380, 15);
             this.infoLabel.TabIndex = 7;
@@ -146,7 +232,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.cancelButton;
-            this.ClientSize = new System.Drawing.Size(434, 411);
+            this.ClientSize = new System.Drawing.Size(500, 471);
+            this.Controls.Add(this.fileInfoGroupBox);
             this.Controls.Add(this.infoLabel);
             this.Controls.Add(this.selectNoneButton);
             this.Controls.Add(this.selectAllButton);
@@ -162,6 +249,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             this.ShowInTaskbar = false;
             this.StartPosition = System.Windows.Forms.FormStartPosition.CenterParent;
             this.Text = "Asset Selection";
+            this.fileInfoGroupBox.ResumeLayout(false);
             this.ResumeLayout(false);
             this.PerformLayout();
         }
@@ -179,5 +267,11 @@ namespace Call_of_Duty_FastFile_Editor.UI
         private System.Windows.Forms.Button selectAllButton;
         private System.Windows.Forms.Button selectNoneButton;
         private System.Windows.Forms.Label infoLabel;
+        private System.Windows.Forms.GroupBox fileInfoGroupBox;
+        private System.Windows.Forms.TableLayoutPanel fileInfoTableLayout;
+        private System.Windows.Forms.Label gameLabel;
+        private System.Windows.Forms.Label platformLabel;
+        private System.Windows.Forms.Label signedLabel;
+        private System.Windows.Forms.Label sizeLabel;
     }
 }
