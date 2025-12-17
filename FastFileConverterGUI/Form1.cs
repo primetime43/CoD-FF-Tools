@@ -279,14 +279,14 @@ public partial class Form1 : Form
         _inputPathTextBox.Text = path;
         _analyzeButton.Enabled = true;
 
-        // Auto-analyze
-        AnalyzeFile(path);
-
-        // Set default output path
+        // Set default output path before analysis so UpdateConvertButtonState has it
         string dir = Path.GetDirectoryName(path) ?? "";
         string name = Path.GetFileNameWithoutExtension(path);
         string targetPlatform = _targetPlatformCombo.SelectedItem?.ToString()?.Replace(" ", "") ?? "PS3";
         _outputPathTextBox.Text = Path.Combine(dir, $"{name}_converted_{targetPlatform}.ff");
+
+        // Auto-analyze (calls UpdateConvertButtonState which needs output path)
+        AnalyzeFile(path);
     }
 
     private void AnalyzeButton_Click(object? sender, EventArgs e)
