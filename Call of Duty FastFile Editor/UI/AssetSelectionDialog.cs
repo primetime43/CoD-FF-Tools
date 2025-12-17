@@ -49,7 +49,31 @@ namespace Call_of_Duty_FastFile_Editor.UI
             _fastFile = fastFile;
             _tagCount = tagCount;
             _assetTypes = AnalyzeAssets(zoneAssetRecords);
+            PopulateFileInfo();
             PopulateAssetList();
+        }
+
+        /// <summary>
+        /// Populates the source file information labels.
+        /// </summary>
+        private void PopulateFileInfo()
+        {
+            // Game name
+            string gameName = _fastFile.IsCod4File ? "CoD4" :
+                              _fastFile.IsCod5File ? "WaW" :
+                              _fastFile.IsMW2File ? "MW2" : "Unknown";
+            gameLabel.Text = $"Game: {gameName}";
+
+            // Platform - use shared library method
+            string platform = FastFileLib.FastFileInfo.GetPlatform((uint)_fastFile.GameVersion, _fastFile.FastFileMagic);
+            platformLabel.Text = $"Platform: {platform}";
+
+            // Signed status
+            bool isSigned = _fastFile.FastFileMagic == FastFileLib.FastFileInfo.SignedMagic;
+            signedLabel.Text = $"Signed: {(isSigned ? "Yes" : "No")}";
+
+            // File size - use shared library method
+            sizeLabel.Text = $"Size: {FastFileLib.FastFileInfo.FormatFileSize(_fastFile.FileLength)}";
         }
 
         private List<AssetTypeInfo> AnalyzeAssets(List<ZoneAssetRecord> records)

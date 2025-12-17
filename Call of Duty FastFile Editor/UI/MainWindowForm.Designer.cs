@@ -42,10 +42,17 @@ namespace Call_of_Duty_FastFile_Editor
             editToolStripMenuItem = new ToolStripMenuItem();
             renameRawFileToolStripMenuItem = new ToolStripMenuItem();
             toolStripSeparator1 = new ToolStripSeparator();
+            toolStripSeparator3 = new ToolStripSeparator();
+            toolStripSeparator4 = new ToolStripSeparator();
+            toolStripSeparator5 = new ToolStripSeparator();
             compressCodeToolStripMenuItem = new ToolStripMenuItem();
             removeCommentsToolStripMenuItem = new ToolStripMenuItem();
             checkSyntaxToolStripMenuItem = new ToolStripMenuItem();
             toolsToolStripMenuItem = new ToolStripMenuItem();
+            viewToolStripMenuItem = new ToolStripMenuItem();
+            optionsToolStripMenuItem = new ToolStripMenuItem();
+            fileInfoToolStripMenuItem = new ToolStripMenuItem();
+            zoneHexViewToolStripMenuItem = new ToolStripMenuItem();
             rawFileToolsMenuItem = new ToolStripMenuItem();
             reloadRawFilesPatternMatchingToolStripMenuItem = new ToolStripMenuItem();
             increaseRawFileSizeToolStripMenuItem = new ToolStripMenuItem();
@@ -55,7 +62,6 @@ namespace Call_of_Duty_FastFile_Editor
             localizeToolsMenuItem = new ToolStripMenuItem();
             exportLocalizeToTxtMenuItem = new ToolStripMenuItem();
             importLocalizeFromTxtMenuItem = new ToolStripMenuItem();
-            toolStripMenuItem2 = new ToolStripMenuItem();
             toolStripSeparator2 = new ToolStripSeparator();
             compressZoneToFFToolStripMenuItem = new ToolStripMenuItem();
             keepZoneFileToolStripMenuItem = new ToolStripMenuItem();
@@ -195,7 +201,7 @@ namespace Call_of_Duty_FastFile_Editor
             // menuStripTopToolbar
             // 
             menuStripTopToolbar.Font = new Font("Segoe UI", 11.25F, FontStyle.Regular, GraphicsUnit.Point, 0);
-            menuStripTopToolbar.Items.AddRange(new ToolStripItem[] { fileToolStripMenuItem, editToolStripMenuItem, toolsToolStripMenuItem, helpToolStripMenuItem });
+            menuStripTopToolbar.Items.AddRange(new ToolStripItem[] { fileToolStripMenuItem, editToolStripMenuItem, viewToolStripMenuItem, toolsToolStripMenuItem, optionsToolStripMenuItem, helpToolStripMenuItem });
             menuStripTopToolbar.Location = new Point(0, 0);
             menuStripTopToolbar.Name = "menuStripTopToolbar";
             menuStripTopToolbar.Size = new Size(1450, 28);
@@ -204,7 +210,7 @@ namespace Call_of_Duty_FastFile_Editor
             // 
             // fileToolStripMenuItem
             // 
-            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openFastFileToolStripMenuItem, openZoneFileToolStripMenuItem, saveFastFileToolStripMenuItem, saveFastFileAsToolStripMenuItem, toolStripMenuItem1, exitToolStripMenuItem });
+            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openFastFileToolStripMenuItem, openZoneFileToolStripMenuItem, toolStripSeparator3, saveFastFileToolStripMenuItem, saveFastFileAsToolStripMenuItem, toolStripSeparator4, toolStripMenuItem1, exitToolStripMenuItem });
             fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             fileToolStripMenuItem.Size = new Size(44, 24);
             fileToolStripMenuItem.Text = "File";
@@ -323,18 +329,52 @@ namespace Call_of_Duty_FastFile_Editor
             checkSyntaxToolStripMenuItem.Click += checkSyntaxToolStripMenuItem_Click;
             // 
             // toolsToolStripMenuItem
-            // 
-            toolsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { rawFileToolsMenuItem, injectFileToolStripMenuItem, extractAllRawFilesToolStripMenuItem, localizeToolsMenuItem, toolStripMenuItem2, toolStripSeparator2, compressZoneToFFToolStripMenuItem, keepZoneFileToolStripMenuItem });
+            //
+            toolsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { rawFileToolsMenuItem, localizeToolsMenuItem, toolStripSeparator2, compressZoneToFFToolStripMenuItem });
             toolsToolStripMenuItem.Name = "toolsToolStripMenuItem";
             toolsToolStripMenuItem.Size = new Size(56, 24);
             toolsToolStripMenuItem.Text = "Tools";
-            // 
+            //
+            // viewToolStripMenuItem
+            //
+            viewToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { fileInfoToolStripMenuItem, zoneHexViewToolStripMenuItem });
+            viewToolStripMenuItem.Name = "viewToolStripMenuItem";
+            viewToolStripMenuItem.Size = new Size(53, 24);
+            viewToolStripMenuItem.Text = "View";
+            //
+            // fileInfoToolStripMenuItem
+            //
+            fileInfoToolStripMenuItem.Name = "fileInfoToolStripMenuItem";
+            fileInfoToolStripMenuItem.Size = new Size(195, 24);
+            fileInfoToolStripMenuItem.Text = "File Information...";
+            fileInfoToolStripMenuItem.Enabled = false;
+            fileInfoToolStripMenuItem.Click += new System.EventHandler(this.fileInfoToolStripMenuItem_Click);
+            //
+            // zoneHexViewToolStripMenuItem
+            //
+            zoneHexViewToolStripMenuItem.Name = "zoneHexViewToolStripMenuItem";
+            zoneHexViewToolStripMenuItem.Size = new Size(195, 24);
+            zoneHexViewToolStripMenuItem.Text = "Zone Hex View";
+            zoneHexViewToolStripMenuItem.Click += zoneHexViewToolStripMenuItem_Click;
+            //
+            // optionsToolStripMenuItem
+            //
+            optionsToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { keepZoneFileToolStripMenuItem });
+            optionsToolStripMenuItem.Name = "optionsToolStripMenuItem";
+            optionsToolStripMenuItem.Size = new Size(73, 24);
+            optionsToolStripMenuItem.Text = "Options";
+            //
             // rawFileToolsMenuItem
-            // 
-            rawFileToolsMenuItem.DropDownItems.AddRange(new ToolStripItem[] { reloadRawFilesPatternMatchingToolStripMenuItem, increaseRawFileSizeToolStripMenuItem, searchRawFileTxtMenuItem });
+            //
+            rawFileToolsMenuItem.DropDownItems.AddRange(new ToolStripItem[] { injectFileToolStripMenuItem, extractAllRawFilesToolStripMenuItem, toolStripSeparator5, increaseRawFileSizeToolStripMenuItem, searchRawFileTxtMenuItem, reloadRawFilesPatternMatchingToolStripMenuItem });
             rawFileToolsMenuItem.Name = "rawFileToolsMenuItem";
             rawFileToolsMenuItem.Size = new Size(210, 24);
-            rawFileToolsMenuItem.Text = "Raw File Tools";
+            rawFileToolsMenuItem.Text = "Raw Files";
+            //
+            // toolStripSeparator5
+            //
+            toolStripSeparator5.Name = "toolStripSeparator5";
+            toolStripSeparator5.Size = new Size(207, 6);
             // 
             // reloadRawFilesPatternMatchingToolStripMenuItem
             // 
@@ -356,52 +396,45 @@ namespace Call_of_Duty_FastFile_Editor
             searchRawFileTxtMenuItem.Size = new Size(316, 24);
             searchRawFileTxtMenuItem.Text = "Search Raw File Text";
             searchRawFileTxtMenuItem.Click += searchRawFileTxtMenuItem_Click;
-            // 
+            //
             // injectFileToolStripMenuItem
             //
             injectFileToolStripMenuItem.Name = "injectFileToolStripMenuItem";
-            injectFileToolStripMenuItem.Size = new Size(210, 24);
-            injectFileToolStripMenuItem.Text = "Inject/Update Raw File";
+            injectFileToolStripMenuItem.Size = new Size(280, 24);
+            injectFileToolStripMenuItem.Text = "Inject/Update File...";
             injectFileToolStripMenuItem.ToolTipText = "Update existing raw files only. Use the FF Compiler to add custom raw files.";
             injectFileToolStripMenuItem.Click += injectFileToolStripMenuItem_Click;
-            // 
+            //
             // extractAllRawFilesToolStripMenuItem
-            // 
+            //
             extractAllRawFilesToolStripMenuItem.Name = "extractAllRawFilesToolStripMenuItem";
-            extractAllRawFilesToolStripMenuItem.Size = new Size(210, 24);
-            extractAllRawFilesToolStripMenuItem.Text = "Extract All Raw Files (Content Only)";
+            extractAllRawFilesToolStripMenuItem.Size = new Size(280, 24);
+            extractAllRawFilesToolStripMenuItem.Text = "Extract All Files...";
             extractAllRawFilesToolStripMenuItem.ToolTipText = "Extracts file content without zone headers. Files can be edited and re-injected.";
             extractAllRawFilesToolStripMenuItem.Click += extractAllRawFilesToolStripMenuItem_Click;
-            // 
+            //
             // localizeToolsMenuItem
-            // 
+            //
             localizeToolsMenuItem.DropDownItems.AddRange(new ToolStripItem[] { exportLocalizeToTxtMenuItem, importLocalizeFromTxtMenuItem });
             localizeToolsMenuItem.Enabled = false;
             localizeToolsMenuItem.Name = "localizeToolsMenuItem";
             localizeToolsMenuItem.Size = new Size(210, 24);
-            localizeToolsMenuItem.Text = "Localize Tools";
+            localizeToolsMenuItem.Text = "Localize";
             localizeToolsMenuItem.ToolTipText = "Export or import localize strings as .txt";
-            // 
+            //
             // exportLocalizeToTxtMenuItem
-            // 
+            //
             exportLocalizeToTxtMenuItem.Name = "exportLocalizeToTxtMenuItem";
-            exportLocalizeToTxtMenuItem.Size = new Size(274, 24);
-            exportLocalizeToTxtMenuItem.Text = "Export Localize to .txt";
+            exportLocalizeToTxtMenuItem.Size = new Size(220, 24);
+            exportLocalizeToTxtMenuItem.Text = "Export to Text...";
             exportLocalizeToTxtMenuItem.Click += exportLocalizeToTxtMenuItem_Click;
-            // 
+            //
             // importLocalizeFromTxtMenuItem
-            // 
+            //
             importLocalizeFromTxtMenuItem.Name = "importLocalizeFromTxtMenuItem";
-            importLocalizeFromTxtMenuItem.Size = new Size(274, 24);
-            importLocalizeFromTxtMenuItem.Text = "Import Localize from .txt";
+            importLocalizeFromTxtMenuItem.Size = new Size(220, 24);
+            importLocalizeFromTxtMenuItem.Text = "Import from Text...";
             importLocalizeFromTxtMenuItem.Click += importLocalizeFromTxtMenuItem_Click;
-            // 
-            // toolStripMenuItem2
-            // 
-            toolStripMenuItem2.Name = "toolStripMenuItem2";
-            toolStripMenuItem2.Size = new Size(210, 24);
-            toolStripMenuItem2.Text = "Zone Hex View";
-            toolStripMenuItem2.Click += toolStripMenuItem2_Click;
             //
             // toolStripSeparator2
             //
@@ -520,12 +553,12 @@ namespace Call_of_Duty_FastFile_Editor
             selectedFileCurrentSizeStatusLabel.Size = new Size(185, 21);
             selectedFileCurrentSizeStatusLabel.Text = "Selected File Current Size";
             selectedFileCurrentSizeStatusLabel.Visible = false;
-            // 
+            //
             // filesTreeToolTip
-            // 
+            //
             filesTreeToolTip.ShowAlways = true;
             filesTreeToolTip.ToolTipIcon = ToolTipIcon.Info;
-            // 
+            //
             // mainTabControl
             // 
             mainTabControl.ContextMenuStrip = universalContextMenu;
@@ -938,9 +971,16 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem exitToolStripMenuItem;
         private ToolStripMenuItem editToolStripMenuItem;
         private ToolStripMenuItem toolsToolStripMenuItem;
+        private ToolStripMenuItem viewToolStripMenuItem;
+        private ToolStripMenuItem optionsToolStripMenuItem;
+        private ToolStripMenuItem fileInfoToolStripMenuItem;
+        private ToolStripMenuItem zoneHexViewToolStripMenuItem;
         private ToolStripMenuItem helpToolStripMenuItem;
         private ToolStripMenuItem renameRawFileToolStripMenuItem;
         private ToolStripSeparator toolStripSeparator1;
+        private ToolStripSeparator toolStripSeparator3;
+        private ToolStripSeparator toolStripSeparator4;
+        private ToolStripSeparator toolStripSeparator5;
         private ToolStripMenuItem compressCodeToolStripMenuItem;
         private ToolStripMenuItem removeCommentsToolStripMenuItem;
         private ToolStripMenuItem checkSyntaxToolStripMenuItem;
@@ -994,7 +1034,6 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem deleteRawFileToolStripMenuItem;
         private ToolStripMenuItem aboutToolStripMenuItem;
         private ToolStripMenuItem CheckForUpdatesToolStripMenuItem;
-        private ToolStripMenuItem toolStripMenuItem2;
         private ToolStripMenuItem COD5ToolStripMenuItem;
         private ToolStripMenuItem cOD4ToolStripMenuItem;
         private ToolStripMenuItem mW2ToolStripMenuItem;
