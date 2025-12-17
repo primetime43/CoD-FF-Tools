@@ -456,6 +456,7 @@ namespace Call_of_Duty_FastFile_Editor
             saveFastFileToolStripMenuItem.Enabled = true;
             saveFastFileAsToolStripMenuItem.Enabled = true;
             localizeToolsMenuItem.Enabled = _localizedEntries != null && _localizedEntries.Count > 0;
+            fileInfoToolStripMenuItem.Enabled = true;
         }
 
         /// <summary>
@@ -3281,6 +3282,7 @@ namespace Call_of_Duty_FastFile_Editor
             selectedFileCurrentSizeStatusLabel.Visible = false;
             saveFastFileToolStripMenuItem.Enabled = false;
             saveFastFileAsToolStripMenuItem.Enabled = false;
+            fileInfoToolStripMenuItem.Enabled = false;
             this.SetProgramTitle();
         }
 
@@ -3437,6 +3439,35 @@ namespace Call_of_Duty_FastFile_Editor
         private void aboutToolStripMenuItem_Click(object sender, EventArgs e)
         {
             MessageBox.Show(ApplicationConstants.About, "About Call of Duty Fast File Editor");
+        }
+
+        /// <summary>
+        /// Shows a popup with the current file's information.
+        /// </summary>
+        private void fileInfoToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (_openedFastFile == null)
+            {
+                MessageBox.Show("No file is currently loaded.", "File Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Get file info using shared library methods
+            string gameName = _openedFastFile.IsCod4File ? "CoD4" :
+                              _openedFastFile.IsCod5File ? "WaW" :
+                              _openedFastFile.IsMW2File ? "MW2" : "Unknown";
+
+            string platform = FastFileLib.FastFileInfo.GetPlatform((uint)_openedFastFile.GameVersion, _openedFastFile.FastFileMagic);
+            bool isSigned = _openedFastFile.FastFileMagic == FastFileLib.FastFileInfo.SignedMagic;
+            string fileSize = FastFileLib.FastFileInfo.FormatFileSize(_openedFastFile.FileLength);
+
+            string message = $"File: {_openedFastFile.FastFileName}\n\n" +
+                           $"Game: {gameName}\n" +
+                           $"Platform: {platform}\n" +
+                           $"Signed: {(isSigned ? "Yes" : "No")}\n" +
+                           $"Size: {fileSize}";
+
+            MessageBox.Show(message, "File Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void CheckForUpdatesToolStripMenuItem_Click(object sender, EventArgs e)

@@ -141,4 +141,59 @@ public class FastFileInfo
     {
         return Encoding.ASCII.GetBytes(signed ? SignedMagic : UnsignedMagic);
     }
+
+    /// <summary>
+    /// Gets the specific platform name based on the magic string and version.
+    /// Uses magic to distinguish PS3 (unsigned) from Xbox 360 (signed).
+    /// </summary>
+    /// <param name="version">The version number from the header</param>
+    /// <param name="magic">The magic string from the header</param>
+    /// <returns>Platform name: PS3, Xbox 360, PC, or Wii</returns>
+    public static string GetPlatform(uint version, string magic)
+    {
+        // PC versions have specific version numbers
+        if (version == CoD4_PC_Version || version == MW2_PC_Version)
+            return "PC";
+
+        // Wii versions
+        if (version == CoD4_Wii_Version || version == WaW_Wii_Version)
+            return "Wii";
+
+        // For console versions, use magic to distinguish PS3 vs Xbox 360
+        // IWffu100 = unsigned (PS3)
+        // IWffs100 = signed (Xbox 360)
+        // IWff0100 = signed (Xbox 360)
+        if (magic == UnsignedMagic)
+            return "PS3";
+        else if (magic == SignedMagic || magic == "IWffs100")
+            return "Xbox 360";
+
+        return "Console";
+    }
+
+    /// <summary>
+    /// Gets the specific platform name for this FastFileInfo instance.
+    /// </summary>
+    public string GetPlatform()
+    {
+        return GetPlatform(Version, Magic);
+    }
+
+    /// <summary>
+    /// Formats a file size in bytes to a human-readable string.
+    /// </summary>
+    /// <param name="bytes">File size in bytes</param>
+    /// <returns>Formatted string like "1.5 MB"</returns>
+    public static string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        int order = 0;
+        double size = bytes;
+        while (size >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            size /= 1024;
+        }
+        return $"{size:0.##} {sizes[order]}";
+    }
 }
