@@ -3483,9 +3483,16 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
             }
 
-            // make sure bytes are loaded
-            var zoneData = _openedFastFile.OpenedFastFileZone.Data;
-            var hexForm = new ZoneHexViewForm(zoneData);
+            // Get zone data and use the processed/updated asset records (which have names populated)
+            var zone = _openedFastFile.OpenedFastFileZone;
+            var zoneData = zone.Data;
+
+            // Use the updated records from processing (has names), fall back to original if not available
+            var assetRecords = _zoneAssetRecords ?? zone.ZoneFileAssets?.ZoneAssetRecords;
+
+            // Pass all parsed asset collections so hex view can build name lookups
+            var hexForm = new ZoneHexViewForm(zoneData, assetRecords, zone,
+                _rawFileNodes, _localizedEntries, _stringTables, _weapons, _xanims, _images, _techSets, _menuLists);
             hexForm.Show();
         }
 
