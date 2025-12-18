@@ -329,7 +329,12 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
                 if (_isCod4)
                 {
-                    record.AssetType_COD4 = (CoD4AssetType)assetTypeInt;
+                    if (_isPC)
+                        record.AssetType_COD4_PC = (CoD4AssetTypePC)assetTypeInt;
+                    else if (_isXbox360)
+                        record.AssetType_COD4_Xbox360 = (CoD4AssetTypeXbox360)assetTypeInt;
+                    else
+                        record.AssetType_COD4 = (CoD4AssetTypePS3)assetTypeInt;
                 }
                 else if (_isCod5)
                 {

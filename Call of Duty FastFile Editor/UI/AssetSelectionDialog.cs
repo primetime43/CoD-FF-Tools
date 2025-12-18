@@ -82,7 +82,11 @@ namespace Call_of_Duty_FastFile_Editor.UI
             foreach (var record in records)
             {
                 string typeName;
-                if (_fastFile.IsCod4File)
+                if (_fastFile.IsCod4File && _fastFile.IsPC)
+                    typeName = record.AssetType_COD4_PC.ToString();
+                else if (_fastFile.IsCod4File && _fastFile.IsXbox360)
+                    typeName = record.AssetType_COD4_Xbox360.ToString();
+                else if (_fastFile.IsCod4File)
                     typeName = record.AssetType_COD4.ToString();
                 else if (_fastFile.IsCod5File && _fastFile.IsPC)
                     typeName = record.AssetType_COD5_PC.ToString();

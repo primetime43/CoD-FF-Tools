@@ -3148,6 +3148,10 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private int GetAssetTypeValue(Models.ZoneAssetRecord record)
         {
+            if (_openedFastFile.IsCod4File && _openedFastFile.IsPC)
+                return (int)record.AssetType_COD4_PC;
+            if (_openedFastFile.IsCod4File && _openedFastFile.IsXbox360)
+                return (int)record.AssetType_COD4_Xbox360;
             if (_openedFastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
             if (_openedFastFile.IsCod5File && _openedFastFile.IsPC)

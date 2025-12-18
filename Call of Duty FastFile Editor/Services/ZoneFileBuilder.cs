@@ -14,12 +14,12 @@ namespace Call_of_Duty_FastFile_Editor.Services
     public static class ZoneFileBuilder
     {
         /// <summary>
-        /// Supported asset types for COD4.
+        /// Supported asset types for COD4 (PS3).
         /// </summary>
-        private static readonly HashSet<CoD4AssetType> SupportedTypesCOD4 = new HashSet<CoD4AssetType>
+        private static readonly HashSet<CoD4AssetTypePS3> SupportedTypesCOD4 = new HashSet<CoD4AssetTypePS3>
         {
-            CoD4AssetType.rawfile,
-            CoD4AssetType.localize
+            CoD4AssetTypePS3.rawfile,
+            CoD4AssetTypePS3.localize
         };
 
         /// <summary>
@@ -458,11 +458,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
             var table = new List<byte>();
 
             byte rawFileType = fastFile.IsCod4File
-                ? (byte)CoD4AssetType.rawfile
+                ? (byte)CoD4AssetTypePS3.rawfile
                 : (byte)CoD5AssetTypePS3.rawfile;
 
             byte localizeType = fastFile.IsCod4File
-                ? (byte)CoD4AssetType.localize
+                ? (byte)CoD4AssetTypePS3.localize
                 : (byte)CoD5AssetTypePS3.localize;
 
             // Entry for each raw file

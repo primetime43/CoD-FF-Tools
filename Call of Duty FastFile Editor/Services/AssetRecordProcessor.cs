@@ -923,6 +923,10 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// </summary>
         private static int GetAssetTypeValue(FastFile fastFile, ZoneAssetRecord record)
         {
+            if (fastFile.IsCod4File && fastFile.IsPC)
+                return (int)record.AssetType_COD4_PC;
+            if (fastFile.IsCod4File && fastFile.IsXbox360)
+                return (int)record.AssetType_COD4_Xbox360;
             if (fastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
             if (fastFile.IsCod5File && fastFile.IsPC)

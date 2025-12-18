@@ -60,7 +60,9 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 {
                     int assetTypeInt = (int)Utilities.ReadUInt32AtOffset(i + 4, _zone, isBigEndian: isBigEndian);
                     bool isDefined =
-                        (isCod4 && Enum.IsDefined(typeof(CoD4AssetType), assetTypeInt)) ||
+                        (isCod4 && isPC && Enum.IsDefined(typeof(CoD4AssetTypePC), assetTypeInt)) ||
+                        (isCod4 && isXbox360 && Enum.IsDefined(typeof(CoD4AssetTypeXbox360), assetTypeInt)) ||
+                        (isCod4 && !isXbox360 && !isPC && Enum.IsDefined(typeof(CoD4AssetTypePS3), assetTypeInt)) ||
                         (isCod5 && isPC && Enum.IsDefined(typeof(CoD5AssetTypePC), assetTypeInt)) ||
                         (isCod5 && isXbox360 && Enum.IsDefined(typeof(CoD5AssetTypeXbox360), assetTypeInt)) ||
                         (isCod5 && !isXbox360 && !isPC && Enum.IsDefined(typeof(CoD5AssetTypePS3), assetTypeInt)) ||
@@ -73,7 +75,9 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         if (!foundAnyAsset) assetPoolStart = i;
 
                         var record = new ZoneAssetRecord { AssetPoolRecordOffset = i };
-                        if (isCod4) record.AssetType_COD4 = (CoD4AssetType)assetTypeInt;
+                        if (isCod4 && isPC) record.AssetType_COD4_PC = (CoD4AssetTypePC)assetTypeInt;
+                        else if (isCod4 && isXbox360) record.AssetType_COD4_Xbox360 = (CoD4AssetTypeXbox360)assetTypeInt;
+                        else if (isCod4) record.AssetType_COD4 = (CoD4AssetTypePS3)assetTypeInt;
                         else if (isCod5 && isPC) record.AssetType_COD5_PC = (CoD5AssetTypePC)assetTypeInt;
                         else if (isCod5 && isXbox360) record.AssetType_COD5_Xbox360 = (CoD5AssetTypeXbox360)assetTypeInt;
                         else if (isCod5) record.AssetType_COD5 = (CoD5AssetTypePS3)assetTypeInt;
@@ -93,7 +97,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 {
                     int assetTypeInt = (int)Utilities.ReadUInt32AtOffset(i, _zone, isBigEndian: true);
                     bool isDefined =
-                        (isCod4 && Enum.IsDefined(typeof(CoD4AssetType), assetTypeInt)) ||
+                        (isCod4 && isXbox360 && Enum.IsDefined(typeof(CoD4AssetTypeXbox360), assetTypeInt)) ||
+                        (isCod4 && !isXbox360 && Enum.IsDefined(typeof(CoD4AssetTypePS3), assetTypeInt)) ||
                         (isCod5 && isXbox360 && Enum.IsDefined(typeof(CoD5AssetTypeXbox360), assetTypeInt)) ||
                         (isCod5 && !isXbox360 && !isPC && Enum.IsDefined(typeof(CoD5AssetTypePS3), assetTypeInt)) ||
                         (isMW2 && Enum.IsDefined(typeof(MW2AssetType), assetTypeInt));
@@ -105,7 +110,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         if (!foundAnyAsset) assetPoolStart = i;
 
                         var record = new ZoneAssetRecord { AssetPoolRecordOffset = i };
-                        if (isCod4) record.AssetType_COD4 = (CoD4AssetType)assetTypeInt;
+                        if (isCod4 && isXbox360) record.AssetType_COD4_Xbox360 = (CoD4AssetTypeXbox360)assetTypeInt;
+                        else if (isCod4) record.AssetType_COD4 = (CoD4AssetTypePS3)assetTypeInt;
                         else if (isCod5 && isXbox360) record.AssetType_COD5_Xbox360 = (CoD5AssetTypeXbox360)assetTypeInt;
                         else if (isCod5) record.AssetType_COD5 = (CoD5AssetTypePS3)assetTypeInt;
                         else if (isMW2) record.AssetType_MW2 = (MW2AssetType)assetTypeInt;
@@ -123,6 +129,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 {
                     int assetTypeInt = (int)Utilities.ReadUInt32AtOffset(i, _zone, isBigEndian: false);
                     bool isDefined =
+                        (isCod4 && isPC && Enum.IsDefined(typeof(CoD4AssetTypePC), assetTypeInt)) ||
                         (isCod5 && isPC && Enum.IsDefined(typeof(CoD5AssetTypePC), assetTypeInt));
 
                     Debug.WriteLine($"[DEBUG] Found Format A (LE) asset at 0x{i:X}: assetType=0x{assetTypeInt:X} defined={isDefined}");
@@ -132,7 +139,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         if (!foundAnyAsset) assetPoolStart = i;
 
                         var record = new ZoneAssetRecord { AssetPoolRecordOffset = i };
-                        record.AssetType_COD5_PC = (CoD5AssetTypePC)assetTypeInt;
+                        if (isCod4 && isPC) record.AssetType_COD4_PC = (CoD4AssetTypePC)assetTypeInt;
+                        else if (isCod5 && isPC) record.AssetType_COD5_PC = (CoD5AssetTypePC)assetTypeInt;
                         records.Add(record);
 
                         foundAnyAsset = true;

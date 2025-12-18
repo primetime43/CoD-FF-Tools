@@ -335,6 +335,10 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
         private int GetAssetTypeValue(ZoneAssetRecord record)
         {
+            if (_isCod4 && _isPC)
+                return (int)record.AssetType_COD4_PC;
+            if (_isCod4 && _isXbox360)
+                return (int)record.AssetType_COD4_Xbox360;
             if (_isCod4)
                 return (int)record.AssetType_COD4;
             if (_isCod5 && _isPC)
@@ -359,7 +363,11 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
         private string GetAssetTypeName(ZoneAssetRecord record)
         {
-            if (_isCod4)
+            if (_isCod4 && _isPC)
+                return record.AssetType_COD4_PC.ToString();
+            else if (_isCod4 && _isXbox360)
+                return record.AssetType_COD4_Xbox360.ToString();
+            else if (_isCod4)
                 return record.AssetType_COD4.ToString();
             else if (_isCod5 && _isPC)
                 return record.AssetType_COD5_PC.ToString();
