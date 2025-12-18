@@ -1,20 +1,31 @@
-# CoD FF Tools
+# CoD FastFile Tools
 
-A collection of Windows tools for working with Call of Duty FastFile (.ff) archives.
+Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives.
 
-## Tools Included
+## Supported Games
+
+| Game | PS3 | Xbox 360 | PC | Wii |
+|------|-----|----------|-----|-----|
+| CoD4: Modern Warfare | Full | Full | Extract | Extract |
+| WaW: World at War | Full | Full | Extract | Extract |
+| MW2: Modern Warfare 2 | Full | Full | Extract | - |
+
+**Full** = decompress, edit assets, recompress
+**Extract** = decompress to zone only (no asset editing)
+
+## Tools
 
 ### FastFile Editor
-Full-featured GUI editor for CoD4 and WaW PS3 FastFiles. Edit raw files, string tables, localized strings, and view asset pools.
+Edit raw files (GSC scripts, configs, vision files, etc.), string tables, and localized strings inside existing FastFiles. View the full asset pool to see what's packed in a zone.
 
-### FastFile Compiler GUI
-Create new FastFiles from scratch. Add raw files (GSC scripts, configs, etc.) and localized strings to build custom patch files.
+### FastFile Compiler
+Build new FastFiles from scratch. Drop in your raw files and localized strings to create custom patch files.
 
-### FastFile Tool GUI
-Standalone extract/pack utility supporting:
-- CoD4: Modern Warfare (PS3, Xbox 360, PC, Wii)
-- WaW: World at War (PS3, Xbox 360, PC, Wii)
-- MW2: Modern Warfare 2 (PS3, Xbox 360, PC)
+### FastFile Converter
+Convert FastFiles between platforms. Turn a PS3 FastFile into an Xbox 360 one, or vice versa.
+
+### FastFile Tool
+Simple extract/repack utility. Pull out the zone file or recompress a modified one.
 
 ## Screenshots
 
@@ -48,30 +59,31 @@ Standalone extract/pack utility supporting:
 
 ## Requirements
 
-- [.NET 8.0 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
+[.NET 8.0 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0)
 
-## Downloads
+## Download
 
-Download the latest release from the [Releases](https://github.com/primetime43/CoD-FF-Tools/releases) page.
+Grab the latest build from [Releases](https://github.com/primetime43/CoD-FF-Tools/releases).
 
-## Solution Structure
+## Project Layout
 
-| Project | Description |
-|---------|-------------|
-| **Call of Duty FastFile Editor** | Main GUI editor with full asset editing capabilities |
-| **FastFileCompilerGUI** | GUI for creating custom FastFiles from raw files |
-| **FastFileToolGUI** | Standalone extract/pack utility for multiple CoD games |
-| **FastFileLib** | Shared library for FastFile compression, decompression, zone building, and patching |
+| Project | What it does |
+|---------|--------------|
+| FastFileLib | Core library - handles compression, decompression, zone parsing, and patching |
+| Call of Duty FastFile Editor | Main editor GUI |
+| FastFileCompilerGUI | FastFile creation GUI |
+| FastFileConverterGUI | Platform conversion GUI |
+| FastFileToolGUI | Extract/repack GUI |
 
-## Contributions
+## Contributing
 
-Contributions are welcome! If you encounter bugs, have feature requests, or want to contribute code, feel free to open an issue or submit a pull request.
+Found a bug or want to add something? Open an issue or PR.
 
-## Acknowledgments
+## Credits
 
-**primetime43**: Author and maintainer
+**primetime43** - Author
 
-Special thanks to:
+Thanks to:
 - BuC-ShoTz
 - aerosoul94
 - EliteMossy
