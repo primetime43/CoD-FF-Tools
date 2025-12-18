@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text;
-using Call_of_Duty_FastFile_Editor.Constants;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
+using FastFileLib;
 
 namespace Call_of_Duty_FastFile_Editor.Models
 {
@@ -252,14 +252,14 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 FileLength = (int)new FileInfo(filePath).Length;
 
                 // Check if signed (Xbox 360)
-                IsSigned = FastFileMagic == FastFileHeaderConstants.SignedFF;
+                IsSigned = FastFileMagic == FastFileConstants.SignedHeader;
 
                 // Try big-endian first (console), then little-endian (PC)
                 GameVersion = versionBE;
                 ValidateHeader();
 
                 // If big-endian didn't work and file is unsigned, try little-endian (PC)
-                if (!IsValid && !IsSigned && FastFileMagic == FastFileHeaderConstants.UnSignedFF)
+                if (!IsValid && !IsSigned && FastFileMagic == FastFileConstants.UnsignedHeader)
                 {
                     GameVersion = versionLE;
                     ValidateHeaderAsPC();
@@ -272,7 +272,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
             /// </summary>
             public FastFileHeader(GameType gameType)
             {
-                FastFileMagic = FastFileHeaderConstants.UnSignedFF;
+                FastFileMagic = FastFileConstants.UnsignedHeader;
                 FileLength = 0; // Unknown when loading from zone
                 IsValid = true;
 
@@ -303,8 +303,8 @@ namespace Call_of_Duty_FastFile_Editor.Models
 
                 // Check the FastFileMagic and GameVersion to determine validity
                 // Accept both unsigned (PS3) and signed (Xbox 360) files
-                if (FastFileMagic == FastFileHeaderConstants.UnSignedFF ||
-                    FastFileMagic == FastFileHeaderConstants.SignedFF)
+                if (FastFileMagic == FastFileConstants.UnsignedHeader ||
+                    FastFileMagic == FastFileConstants.SignedHeader)
                 {
                     if (GameVersion == CoD4Definition.VersionValue ||
                         GameVersion == CoD4Definition.PCVersionValue)
@@ -336,7 +336,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 IsPC = false;
 
                 // PC files must be unsigned
-                if (FastFileMagic != FastFileHeaderConstants.UnSignedFF)
+                if (FastFileMagic != FastFileConstants.UnsignedHeader)
                     return;
 
                 if (GameVersion == CoD4Definition.VersionValue ||

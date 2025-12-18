@@ -85,10 +85,24 @@ public static class FastFileConstants
         return result + extension;
     }
 
+    // Header magic strings
     public const string UnsignedHeader = "IWffu100";
     public const string SignedHeader = "IWff0100";
-    public const int HeaderSize = 12; // 8 bytes magic + 4 bytes version
-    public const int BlockSize = 65536; // 0x10000 - 64KB blocks
+    public const string TreyarchHeader = "TAff0100";
+    public const string SledgehammerHeader = "S1ff0100";
+
+    // Header magic as byte arrays
+    public static readonly byte[] UnsignedHeaderBytes = System.Text.Encoding.ASCII.GetBytes(UnsignedHeader);
+    public static readonly byte[] SignedHeaderBytes = System.Text.Encoding.ASCII.GetBytes(SignedHeader);
+
+    // Header structure offsets and sizes
+    public const int HeaderSize = 12;      // 8 bytes magic + 4 bytes version
+    public const int MagicLength = 8;      // Magic string length
+    public const int VersionOffset = 8;    // Version starts at byte 8
+    public const int VersionLength = 4;    // Version is 4 bytes
+
+    // Compression block size
+    public const int BlockSize = 65536;    // 0x10000 - 64KB blocks
 
     // Version bytes (big-endian)
     public static readonly byte[] CoD4Version = { 0x00, 0x00, 0x00, 0x01 };

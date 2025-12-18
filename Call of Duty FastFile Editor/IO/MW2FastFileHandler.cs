@@ -1,4 +1,3 @@
-using Call_of_Duty_FastFile_Editor.Constants;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
 using FastFileLib;
@@ -11,7 +10,7 @@ namespace Call_of_Duty_FastFile_Editor.IO
     /// </summary>
     public class MW2FastFileHandler : FastFileHandlerBase
     {
-        protected override byte[] HeaderBytes => FastFileHeaderConstants.IWffu100Header;
+        protected override byte[] HeaderBytes => FastFileConstants.UnsignedHeaderBytes;
         protected override byte[] VersionBytes => MW2Definition.VersionBytes;
 
         /// <summary>
