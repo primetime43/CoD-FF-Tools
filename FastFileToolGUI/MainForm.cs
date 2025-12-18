@@ -1,40 +1,9 @@
-using System.Text;
-using System.IO.Compression;
 using FastFileLib;
 
 namespace FastFileToolGUI;
 
 public partial class MainForm : Form
 {
-    // Version detection mapping (version int -> game/platform info)
-    private static readonly Dictionary<uint, (string Game, string[] Platforms)> VersionMap = new()
-    {
-        // COD4
-        { 0x01, ("COD4", new[] { "PS3", "Xbox 360" }) },
-        { 0x05, ("COD4", new[] { "PC" }) },
-        { 0x1A2, ("COD4", new[] { "Wii" }) },
-        // WAW
-        { 0x183, ("WAW", new[] { "PS3", "Xbox 360", "PC" }) },
-        { 0x19B, ("WAW", new[] { "Wii" }) },
-        // MW2
-        { 0x10D, ("MW2", new[] { "PS3", "Xbox 360" }) },
-        { 0x114, ("MW2", new[] { "PC" }) },
-        // BO1
-        { 0x1D9, ("BO1", new[] { "PS3", "Xbox 360", "PC" }) },
-        { 0x1DD, ("BO1", new[] { "Wii" }) },
-        // MW3
-        { 0x70, ("MW3", new[] { "PS3", "Xbox 360" }) },
-        { 0x6B, ("MW3", new[] { "Wii" }) },
-        // Note: MW3 PC uses 0x01 which conflicts with COD4
-        // BO2
-        { 0x92, ("BO2", new[] { "PS3", "Xbox 360" }) },
-        { 0x93, ("BO2", new[] { "PC" }) },
-        { 0x94, ("BO2", new[] { "Wii U" }) },
-        // Quantum of Solace
-        { 0x1D6, ("Quantum of Solace", new[] { "PS3", "Xbox 360", "PC" }) },
-        { 0x1D2, ("Quantum of Solace", new[] { "Wii" }) },
-    };
-
     public MainForm()
     {
         InitializeComponent();
@@ -214,80 +183,25 @@ public partial class MainForm : Form
     {
         try
         {
-            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read);
-            using var br = new BinaryReader(fs);
+            // Use the library's FastFileInfo for detection
+            var ffInfo = FastFileInfo.FromFile(filePath);
+            var fileInfo = new FileInfo(filePath);
 
-            byte[] header = br.ReadBytes(8);
-            byte[] versionBytes = br.ReadBytes(4);
-
-            string headerStr = Encoding.ASCII.GetString(header);
-
-            // Determine header type
-            string headerType;
-            bool isSigned;
-            string studio = "IW";
-
-            if (headerStr == "IWffu100")
+            // Determine studio from magic
+            string studio = ffInfo.Magic switch
             {
-                headerType = "IWffu100";
-                isSigned = false;
-            }
-            else if (headerStr == "IWff0100")
-            {
-                headerType = "IWff0100";
-                isSigned = true;
-            }
-            else if (headerStr == "TAff0100")
-            {
-                headerType = "TAff0100";
-                isSigned = true;
-                studio = "Treyarch";
-            }
-            else if (headerStr == "S1ff0100")
-            {
-                headerType = "S1ff0100";
-                isSigned = true;
-                studio = "Sledgehammer";
-            }
-            else
-            {
-                fileInfoLabel.Text = $"Unknown header: {headerStr}";
-                fileInfoLabel.ForeColor = Color.Red;
-                return;
-            }
+                "TAff0100" => "Treyarch",
+                "S1ff0100" => "Sledgehammer",
+                _ => "IW"
+            };
 
-            // Try big-endian first (console format)
-            uint versionBE = (uint)((versionBytes[0] << 24) | (versionBytes[1] << 16) | (versionBytes[2] << 8) | versionBytes[3]);
-            // Little-endian (PC format)
-            uint versionLE = (uint)(versionBytes[0] | (versionBytes[1] << 8) | (versionBytes[2] << 16) | (versionBytes[3] << 24));
+            string signedStr = ffInfo.IsSigned ? "Signed" : "Unsigned";
 
-            // Detect game and platform
-            string game = "Unknown";
-            string platform = "Unknown";
-            uint version = versionBE;
-
-            // Try big-endian first (console format)
-            if (VersionMap.TryGetValue(versionBE, out var info))
-            {
-                game = info.Game;
-                platform = DetermineSpecificPlatform(info.Platforms, isSigned);
-            }
-            // If big-endian didn't match and file is unsigned, try little-endian (PC)
-            else if (!isSigned && VersionMap.TryGetValue(versionLE, out info))
-            {
-                version = versionLE;
-                game = info.Game;
-                platform = "PC";
-            }
-
-            // Build info string
-            string signedStr = isSigned ? "Signed" : "Unsigned";
-
-            fileInfoLabel.Text = $"Header: {headerType} | {signedStr} | Studio: {studio} | Game: {game} | Platform: {platform} | Version: 0x{version:X}";
+            fileInfoLabel.Text = $"Header: {ffInfo.Magic} | {signedStr} | Studio: {studio} | Game: {ffInfo.GameName} | Platform: {ffInfo.Platform} | Version: 0x{ffInfo.Version:X}";
             fileInfoLabel.ForeColor = Color.DarkGreen;
 
             // Update detailed info
-            UpdateDetailedInfo(fs.Length, headerStr, isSigned, studio, game, platform, version);
+            UpdateDetailedInfo(fileInfo.Length, ffInfo.Magic, ffInfo.IsSigned, studio, ffInfo.GameName, ffInfo.Platform, ffInfo.Version);
         }
         catch (Exception ex)
         {
@@ -325,43 +239,6 @@ public partial class MainForm : Form
                 detailsTextBox.AppendText("Note: Xbox 360 requires a patched XEX to load modified FastFiles.\r\n");
             }
         }
-    }
-
-    /// <summary>
-    /// Determines the specific platform based on available platforms and signed status.
-    /// Signed files are Xbox 360, unsigned console files are PS3.
-    /// </summary>
-    private static string DetermineSpecificPlatform(string[] platforms, bool isSigned)
-    {
-        // If only one platform is possible, return it
-        if (platforms.Length == 1)
-            return platforms[0];
-
-        // Check if this is a console-only version (PS3/Xbox 360)
-        bool hasPS3 = platforms.Contains("PS3");
-        bool hasXbox360 = platforms.Contains("Xbox 360");
-        bool hasPC = platforms.Contains("PC");
-
-        // If both PS3 and Xbox 360 are possibilities
-        if (hasPS3 && hasXbox360)
-        {
-            // Signed = Xbox 360, Unsigned = PS3
-            return isSigned ? "Xbox 360" : "PS3";
-        }
-
-        // If PC is in the mix with consoles (like WaW which has PS3/Xbox360/PC all with same version)
-        if (hasPC && (hasPS3 || hasXbox360))
-        {
-            // For WaW-style games where all platforms share the same version:
-            // - Signed = Xbox 360
-            // - Unsigned could be PS3 or PC (can't distinguish without more info)
-            // We'll assume unsigned console files, so return PS3
-            // (PC files would typically be detected differently in practice)
-            return isSigned ? "Xbox 360" : "PS3/PC";
-        }
-
-        // Fallback to joining all platforms
-        return string.Join("/", platforms);
     }
 
     private void Decompress(string inputPath, string outputPath)

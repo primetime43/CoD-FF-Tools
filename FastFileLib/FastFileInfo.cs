@@ -83,8 +83,16 @@ public class FastFileInfo
             }
         }
 
-        // Set the specific platform based on magic and version
-        info.Platform = GetPlatform(info.Version, info.Magic);
+        // Set the specific platform
+        // If detected as PC via little-endian, use "PC", otherwise use magic-based detection
+        if (info.IsPC)
+        {
+            info.Platform = "PC";
+        }
+        else
+        {
+            info.Platform = GetPlatform(info.Version, info.Magic);
+        }
 
         return info;
     }
