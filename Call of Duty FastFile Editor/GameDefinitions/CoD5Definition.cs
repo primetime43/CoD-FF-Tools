@@ -11,7 +11,9 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         // Version values
         public const int VersionValue = 0x183;         // PS3/Xbox 360/PC
         public const int PCVersionValue = 0x183;       // Same as console
+        public const int WiiVersionValue = 0x19B;      // Wii (411)
         public static readonly byte[] VersionBytes = { 0x00, 0x00, 0x01, 0x83 };
+        public static readonly byte[] WiiVersionBytes = { 0x00, 0x00, 0x01, 0x9B };
 
         // Memory allocation values (for zone building)
         public static readonly byte[] MemAlloc1 = { 0x00, 0x00, 0x10, 0xB0 };

@@ -27,6 +27,18 @@ public static class FastFileProcessor
         // Skip to compressed data based on game version
         SkipToCompressedData(br, info);
 
+        // For Wii files, use single zlib stream decompression (no block structure)
+        if (info.IsWii)
+        {
+            br.BaseStream.Position = 12; // After header
+            int blocks = TryDecompressWiiZlib(br, bw);
+            if (blocks > 0)
+                return blocks;
+
+            // If single zlib failed, reset and try standard methods
+            br.BaseStream.Position = 12;
+        }
+
         // For signed Xbox 360 files, try different decompression strategies
         if (info.IsSigned)
         {
@@ -412,6 +424,64 @@ public static class FastFileProcessor
         catch
         {
             br.BaseStream.Position = startPos;
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Try to decompress Wii FastFiles which use a single zlib stream (no block structure).
+    /// Unlike PS3/Xbox which have 2-byte block length prefixes, Wii uses one continuous zlib stream.
+    /// </summary>
+    private static int TryDecompressWiiZlib(BinaryReader br, BinaryWriter bw)
+    {
+        long startPos = br.BaseStream.Position;
+        long outputStartPos = bw.BaseStream.Position;
+
+        try
+        {
+            // Peek at first 2 bytes to verify zlib header
+            byte[] header = br.ReadBytes(2);
+            if (header.Length < 2)
+                return 0;
+
+            // Check for zlib header (0x78 XX)
+            bool hasZlibHeader = header[0] == 0x78 &&
+                                 (header[1] == 0x01 || header[1] == 0x5E ||
+                                  header[1] == 0x9C || header[1] == 0xDA);
+
+            if (!hasZlibHeader)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[FastFileProcessor] Wii file doesn't have zlib header at position {startPos}: {header[0]:X2} {header[1]:X2}");
+                br.BaseStream.Position = startPos;
+                return 0;
+            }
+
+            // Reset to start of zlib data
+            br.BaseStream.Position = startPos;
+
+            // Read all remaining compressed data
+            byte[] compressedData = br.ReadBytes((int)(br.BaseStream.Length - startPos));
+
+            // Decompress as a single zlib stream
+            using var input = new MemoryStream(compressedData);
+            using (var zlib = new ZLibStream(input, CompressionMode.Decompress))
+            {
+                zlib.CopyTo(bw.BaseStream);
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[FastFileProcessor] Wii zlib decompression successful: {compressedData.Length} -> {bw.BaseStream.Position - outputStartPos} bytes");
+
+            return 1; // Single stream counts as 1 block
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[FastFileProcessor] Wii zlib decompression failed: {ex.Message}");
+            br.BaseStream.Position = startPos;
+            bw.BaseStream.Position = outputStartPos;
+            bw.BaseStream.SetLength(outputStartPos);
             return 0;
         }
     }

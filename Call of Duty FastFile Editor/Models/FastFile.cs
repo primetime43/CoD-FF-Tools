@@ -48,9 +48,19 @@ namespace Call_of_Duty_FastFile_Editor.Models
         private bool? _isPC;
 
         /// <summary>
+        /// Indicates if this FastFile is from a Wii version.
+        /// </summary>
+        public bool IsWii
+        {
+            get => _isWii ?? OpenedFastFileHeader?.IsWii ?? false;
+            set => _isWii = value;
+        }
+        private bool? _isWii;
+
+        /// <summary>
         /// Gets the platform string for this FastFile.
         /// </summary>
-        public string Platform => IsPC ? "PC" : (OpenedFastFileHeader.IsSigned ? "Xbox 360" : "PS3");
+        public string Platform => IsPC ? "PC" : (IsWii ? "Wii" : (OpenedFastFileHeader.IsSigned ? "Xbox 360" : "PS3"));
 
         public FastFile(string filePath)
         {
@@ -233,6 +243,11 @@ namespace Call_of_Duty_FastFile_Editor.Models
             /// </summary>
             public bool IsPC { get; private set; }
 
+            /// <summary>
+            /// Indicates if this is a Wii FastFile (detected by Wii-specific version).
+            /// </summary>
+            public bool IsWii { get; private set; }
+
             public FastFileHeader(string filePath)
             {
                 using var br = new BinaryReader(new FileStream(filePath, FileMode.Open, FileAccess.Read), Encoding.Default);
@@ -302,21 +317,27 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 IsValid = false;
 
                 // Check the FastFileMagic and GameVersion to determine validity
-                // Accept both unsigned (PS3) and signed (Xbox 360) files
+                // Accept both unsigned (PS3/Wii) and signed (Xbox 360) files
                 if (FastFileMagic == FastFileConstants.UnsignedHeader ||
                     FastFileMagic == FastFileConstants.SignedHeader)
                 {
                     if (GameVersion == CoD4Definition.VersionValue ||
-                        GameVersion == CoD4Definition.PCVersionValue)
+                        GameVersion == CoD4Definition.PCVersionValue ||
+                        GameVersion == CoD4Definition.WiiVersionValue)
                     {
                         IsCod4File = true;
                         IsValid = true;
+                        if (GameVersion == CoD4Definition.WiiVersionValue)
+                            IsWii = true;
                     }
                     else if (GameVersion == CoD5Definition.VersionValue ||
-                             GameVersion == CoD5Definition.PCVersionValue)
+                             GameVersion == CoD5Definition.PCVersionValue ||
+                             GameVersion == CoD5Definition.WiiVersionValue)
                     {
                         IsCod5File = true;
                         IsValid = true;
+                        if (GameVersion == CoD5Definition.WiiVersionValue)
+                            IsWii = true;
                     }
                     else if (GameVersion == MW2Definition.VersionValue ||
                              GameVersion == MW2Definition.PCVersionValue)

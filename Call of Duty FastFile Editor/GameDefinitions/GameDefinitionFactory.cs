@@ -9,7 +9,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
     {
         PS3,
         Xbox360,
-        PC
+        PC,
+        Wii
     }
 
     /// <summary>
@@ -140,23 +141,28 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public static IGameDefinition? GetDefinitionByVersion(int versionValue, FastFilePlatform platform)
         {
             // CoD4
-            if (versionValue == CoD4Definition.VersionValue || versionValue == CoD4Definition.PCVersionValue)
+            if (versionValue == CoD4Definition.VersionValue ||
+                versionValue == CoD4Definition.PCVersionValue ||
+                versionValue == CoD4Definition.WiiVersionValue)
             {
                 return platform switch
                 {
                     FastFilePlatform.Xbox360 => _cod4Xbox,
                     FastFilePlatform.PC => _cod4PC,
+                    FastFilePlatform.Wii => _cod4Ps3, // Wii uses PS3 asset types (big-endian)
                     _ => _cod4Ps3
                 };
             }
 
             // CoD5/WaW
-            if (versionValue == CoD5Definition.VersionValue)
+            if (versionValue == CoD5Definition.VersionValue ||
+                versionValue == CoD5Definition.WiiVersionValue)
             {
                 return platform switch
                 {
                     FastFilePlatform.Xbox360 => _cod5Xbox,
                     FastFilePlatform.PC => _cod5PC,
+                    FastFilePlatform.Wii => _cod5Ps3, // Wii uses PS3 asset types (big-endian)
                     _ => _cod5Ps3
                 };
             }

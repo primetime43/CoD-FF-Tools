@@ -12,6 +12,7 @@ public class FastFileInfo
     public GameVersion GameVersion { get; set; }
     public bool IsSigned { get; set; }
     public bool IsPC { get; set; }
+    public bool IsWii { get; set; }
     public string GameName { get; set; } = "Unknown";
     public string[] Platforms { get; set; } = Array.Empty<string>();
     public int HeaderSize { get; set; }
@@ -90,10 +91,14 @@ public class FastFileInfo
         }
 
         // Set the specific platform
-        // If detected as PC via little-endian, use "PC", otherwise use magic-based detection
+        // Check for PC (little-endian) or Wii (specific version) first, otherwise use magic-based detection
         if (info.IsPC)
         {
             info.Platform = "PC";
+        }
+        else if (info.IsWii)
+        {
+            info.Platform = "Wii";
         }
         else
         {
@@ -127,6 +132,7 @@ public class FastFileInfo
                 info.Studio = "Infinity Ward";
                 info.Platforms = new[] { "Wii" };
                 info.HeaderSize = 12;
+                info.IsWii = true;
                 break;
             case WaW_Console_PC_Version:
                 info.GameVersion = GameVersion.WaW;
@@ -141,6 +147,7 @@ public class FastFileInfo
                 info.Studio = "Treyarch";
                 info.Platforms = new[] { "Wii" };
                 info.HeaderSize = 12;
+                info.IsWii = true;
                 break;
             case MW2_Console_Version:
                 info.GameVersion = GameVersion.MW2;
