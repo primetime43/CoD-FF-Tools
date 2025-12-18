@@ -34,7 +34,23 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public bool IsMW2File => OpenedFastFileHeader.IsMW2File;
         public bool IsSigned => OpenedFastFileHeader.IsSigned;
         public bool IsXbox360 => OpenedFastFileHeader.IsSigned; // Signed files are Xbox 360
-        public string Platform => OpenedFastFileHeader.IsSigned ? "Xbox 360" : "PS3";
+
+        /// <summary>
+        /// Indicates if this FastFile is from a PC version.
+        /// PC files use little-endian byte order (unlike PS3/Xbox which use big-endian).
+        /// Auto-detected from header, but can be overridden if needed.
+        /// </summary>
+        public bool IsPC
+        {
+            get => _isPC ?? OpenedFastFileHeader?.IsPC ?? false;
+            set => _isPC = value;
+        }
+        private bool? _isPC;
+
+        /// <summary>
+        /// Gets the platform string for this FastFile.
+        /// </summary>
+        public string Platform => IsPC ? "PC" : (OpenedFastFileHeader.IsSigned ? "Xbox 360" : "PS3");
 
         public FastFile(string filePath)
         {
@@ -118,6 +134,82 @@ namespace Call_of_Duty_FastFile_Editor.Models
         }
 
         /// <summary>
+        /// Detects if a zone file is from a PC version by checking endianness.
+        /// PC files use little-endian byte order, while PS3/Xbox use big-endian.
+        /// </summary>
+        /// <param name="zonePath">Path to the zone file</param>
+        /// <returns>True if the zone appears to be PC (little-endian), false otherwise</returns>
+        public static bool DetectPCFromZone(string zonePath)
+        {
+            try
+            {
+                byte[] header = new byte[12];
+                using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
+                {
+                    if (fs.Read(header, 0, 12) < 12)
+                        return false;
+                }
+
+                // Read MemAlloc1 at offset 0x08 as both big-endian and little-endian
+                uint memAlloc1BE = (uint)((header[8] << 24) | (header[9] << 16) | (header[10] << 8) | header[11]);
+                uint memAlloc1LE = (uint)(header[8] | (header[9] << 8) | (header[10] << 16) | (header[11] << 24));
+
+                // Known WaW MemAlloc1 values
+                // PS3/Xbox BE: 0x000010B0 or 0x00000A90
+                // PC LE: The same numeric value (0x10B0) but stored as LE bytes
+
+                // If we read as BE and get a known console value, it's console
+                if (memAlloc1BE == 0x000010B0 || memAlloc1BE == 0x00000A90 ||
+                    memAlloc1BE == 0x00000F70 || memAlloc1BE == 0x000003B4)
+                {
+                    return false; // Big-endian = console
+                }
+
+                // If we read as LE and get a known value, it's PC
+                if (memAlloc1LE == 0x000010B0 || memAlloc1LE == 0x00000F70 || memAlloc1LE == 0x000003B4)
+                {
+                    return true; // Little-endian = PC
+                }
+
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Detects if zone data (byte array) is from a PC version by checking endianness.
+        /// </summary>
+        /// <param name="zoneData">The zone file data</param>
+        /// <returns>True if the zone appears to be PC (little-endian), false otherwise</returns>
+        public static bool DetectPCFromZoneData(byte[] zoneData)
+        {
+            if (zoneData == null || zoneData.Length < 12)
+                return false;
+
+            // Read MemAlloc1 at offset 0x08 as both big-endian and little-endian
+            uint memAlloc1BE = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
+            uint memAlloc1LE = (uint)(zoneData[8] | (zoneData[9] << 8) | (zoneData[10] << 16) | (zoneData[11] << 24));
+
+            // If we read as BE and get a known console value, it's console
+            if (memAlloc1BE == 0x000010B0 || memAlloc1BE == 0x00000A90 ||
+                memAlloc1BE == 0x00000F70 || memAlloc1BE == 0x000003B4)
+            {
+                return false; // Big-endian = console
+            }
+
+            // If we read as LE and get a known value, it's PC
+            if (memAlloc1LE == 0x000010B0 || memAlloc1LE == 0x00000F70 || memAlloc1LE == 0x000003B4)
+            {
+                return true; // Little-endian = PC
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// AFTER you’ve written the .zone to disk, call this to load it.
         /// </summary>
         public void LoadZone()
@@ -136,6 +228,11 @@ namespace Call_of_Duty_FastFile_Editor.Models
             public bool IsMW2File { get; private set; }
             public bool IsSigned { get; private set; }
 
+            /// <summary>
+            /// Indicates if this is a PC FastFile (detected by little-endian version).
+            /// </summary>
+            public bool IsPC { get; private set; }
+
             public FastFileHeader(string filePath)
             {
                 using var br = new BinaryReader(new FileStream(filePath, FileMode.Open, FileAccess.Read), Encoding.Default);
@@ -146,13 +243,27 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 }
 
                 FastFileMagic = new string(br.ReadChars(8)).TrimEnd('\0');
-                GameVersion = IPAddress.NetworkToHostOrder(br.ReadInt32());
+
+                // Read version bytes to try both endianness
+                byte[] versionBytes = br.ReadBytes(4);
+                int versionBE = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(versionBytes, 0));
+                int versionLE = BitConverter.ToInt32(versionBytes, 0);
+
                 FileLength = (int)new FileInfo(filePath).Length;
 
                 // Check if signed (Xbox 360)
                 IsSigned = FastFileMagic == FastFileHeaderConstants.SignedFF;
 
+                // Try big-endian first (console), then little-endian (PC)
+                GameVersion = versionBE;
                 ValidateHeader();
+
+                // If big-endian didn't work and file is unsigned, try little-endian (PC)
+                if (!IsValid && !IsSigned && FastFileMagic == FastFileHeaderConstants.UnSignedFF)
+                {
+                    GameVersion = versionLE;
+                    ValidateHeaderAsPC();
+                }
             }
 
             /// <summary>
@@ -213,6 +324,41 @@ namespace Call_of_Duty_FastFile_Editor.Models
                         IsMW2File = true;
                         IsValid = true;
                     }
+                }
+            }
+
+            /// <summary>
+            /// Validates the Fast File header assuming PC (little-endian) format.
+            /// </summary>
+            private void ValidateHeaderAsPC()
+            {
+                IsValid = false;
+                IsPC = false;
+
+                // PC files must be unsigned
+                if (FastFileMagic != FastFileHeaderConstants.UnSignedFF)
+                    return;
+
+                if (GameVersion == CoD4Definition.VersionValue ||
+                    GameVersion == CoD4Definition.PCVersionValue)
+                {
+                    IsCod4File = true;
+                    IsValid = true;
+                    IsPC = true;
+                }
+                else if (GameVersion == CoD5Definition.VersionValue ||
+                         GameVersion == CoD5Definition.PCVersionValue)
+                {
+                    IsCod5File = true;
+                    IsValid = true;
+                    IsPC = true;
+                }
+                else if (GameVersion == MW2Definition.VersionValue ||
+                         GameVersion == MW2Definition.PCVersionValue)
+                {
+                    IsMW2File = true;
+                    IsValid = true;
+                    IsPC = true;
                 }
             }
         }

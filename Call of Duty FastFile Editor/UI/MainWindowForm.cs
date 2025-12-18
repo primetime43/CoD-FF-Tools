@@ -3150,6 +3150,8 @@ namespace Call_of_Duty_FastFile_Editor
         {
             if (_openedFastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
+            if (_openedFastFile.IsCod5File && _openedFastFile.IsPC)
+                return (int)record.AssetType_COD5_PC;
             if (_openedFastFile.IsCod5File && _openedFastFile.IsXbox360)
                 return (int)record.AssetType_COD5_Xbox360;
             if (_openedFastFile.IsCod5File)
@@ -3459,7 +3461,8 @@ namespace Call_of_Duty_FastFile_Editor
                               _openedFastFile.IsCod5File ? "WaW" :
                               _openedFastFile.IsMW2File ? "MW2" : "Unknown";
 
-            string platform = FastFileLib.FastFileInfo.GetPlatform((uint)_openedFastFile.GameVersion, _openedFastFile.FastFileMagic);
+            // Use FastFile's detected platform (handles PC detection via little-endian version)
+            string platform = _openedFastFile.Platform;
             bool isSigned = _openedFastFile.FastFileMagic == FastFileLib.FastFileInfo.SignedMagic;
             string fileSize = FastFileLib.FastFileInfo.FormatFileSize(_openedFastFile.FileLength);
 

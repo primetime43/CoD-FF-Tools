@@ -14,8 +14,9 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
     {
         public abstract string GameName { get; }
         public abstract string ShortName { get; }
-        public virtual string Platform => IsXbox360 ? "Xbox 360" : "PS3";
+        public virtual string Platform => IsPC ? "PC" : (IsXbox360 ? "Xbox 360" : "PS3");
         public virtual bool IsXbox360 { get; protected set; } = false;
+        public virtual bool IsPC { get; protected set; } = false;
         public abstract int VersionValue { get; }
         public abstract int PCVersionValue { get; }
         public abstract byte[] VersionBytes { get; }
@@ -822,6 +823,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 
         #region Helper Methods
 
+        // Big-endian helpers (for PS3/Xbox 360)
         protected static ushort ReadUInt16BE(byte[] data, int offset)
         {
             if (offset + 2 > data.Length) return 0;
@@ -849,6 +851,31 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         protected static int ReadInt32BE(byte[] data, int offset)
         {
             return (int)ReadUInt32BE(data, offset);
+        }
+
+        // Little-endian helpers (for PC)
+        protected static ushort ReadUInt16LE(byte[] data, int offset)
+        {
+            if (offset + 2 > data.Length) return 0;
+            return (ushort)(data[offset] | (data[offset + 1] << 8));
+        }
+
+        protected static float ReadFloatLE(byte[] data, int offset)
+        {
+            if (offset + 4 > data.Length) return 0;
+            return BitConverter.ToSingle(data, offset);
+        }
+
+        protected static uint ReadUInt32LE(byte[] data, int offset)
+        {
+            if (offset + 4 > data.Length) return 0;
+            return (uint)(data[offset] | (data[offset + 1] << 8) |
+                          (data[offset + 2] << 16) | (data[offset + 3] << 24));
+        }
+
+        protected static int ReadInt32LE(byte[] data, int offset)
+        {
+            return (int)ReadUInt32LE(data, offset);
         }
 
         protected static string ReadNullTerminatedString(byte[] data, int offset)

@@ -33,6 +33,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
             // Create the result container.
             AssetRecordCollection result = new AssetRecordCollection();
 
+            // PC zone asset parsing is not yet supported - only show asset pool records
+            if (openedFastFile.IsPC)
+            {
+                Debug.WriteLine($"[AssetRecordProcessor] PC zone asset parsing not supported. Returning empty result.");
+                Debug.WriteLine($"[AssetRecordProcessor] Asset pool contains {zoneAssetRecords.Count} records.");
+                // Return empty result - the asset pool records are still available in the zone file
+                return result;
+            }
+
             // Keep track of the index and end offset of the last successfully parsed asset record.
             int indexOfLastAssetRecordParsed = 0;
             int previousRecordEndOffset = 0;
@@ -916,6 +925,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
         {
             if (fastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
+            if (fastFile.IsCod5File && fastFile.IsPC)
+                return (int)record.AssetType_COD5_PC;
             if (fastFile.IsCod5File && fastFile.IsXbox360)
                 return (int)record.AssetType_COD5_Xbox360;
             if (fastFile.IsCod5File)

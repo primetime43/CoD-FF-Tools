@@ -55,14 +55,112 @@ public static class FastFileProcessor
             SkipToCompressedData(br, info);
         }
 
-        return DecompressStandardBlocks(br, bw);
+        return DecompressStandardBlocks(br, bw, info.IsPC);
+    }
+
+    /// <summary>
+    /// Try to decompress PC FastFiles which use full zlib compression.
+    /// PC WaW uses zlib with header (0x78) as a single stream or with different block structure.
+    /// </summary>
+    private static int TryDecompressPCZlib(BinaryReader br, BinaryWriter bw)
+    {
+        long startPos = br.BaseStream.Position;
+        long outputStartPos = bw.BaseStream.Position;
+
+        try
+        {
+            // Check if the data starts with a zlib header
+            byte[] header = br.ReadBytes(2);
+            br.BaseStream.Position = startPos;
+
+            if (header.Length >= 2 && header[0] == 0x78 &&
+                (header[1] == 0x01 || header[1] == 0x5E || header[1] == 0x9C || header[1] == 0xDA))
+            {
+                // Single zlib stream - decompress entire remainder
+                byte[] compressedData = br.ReadBytes((int)(br.BaseStream.Length - startPos));
+
+                using var input = new MemoryStream(compressedData);
+                using (var zlib = new ZLibStream(input, CompressionMode.Decompress))
+                {
+                    zlib.CopyTo(bw.BaseStream);
+                }
+                return 1;
+            }
+
+            // Try PC format with 4-byte little-endian block lengths + zlib data
+            br.BaseStream.Position = startPos;
+            using var tempOutput = new MemoryStream();
+            int blockCount = 0;
+
+            while (br.BaseStream.Position < br.BaseStream.Length - 4)
+            {
+                // Read 4-byte little-endian length
+                byte[] lengthBytes = br.ReadBytes(4);
+                if (lengthBytes.Length < 4) break;
+
+                int chunkLength = lengthBytes[0] | (lengthBytes[1] << 8) |
+                                  (lengthBytes[2] << 16) | (lengthBytes[3] << 24);
+
+                // Check for end marker or invalid length
+                if (chunkLength <= 0 || chunkLength > 0x100000) // Max 1MB block
+                    break;
+
+                if (br.BaseStream.Position + chunkLength > br.BaseStream.Length)
+                    break;
+
+                byte[] compressedBlock = br.ReadBytes(chunkLength);
+
+                // Try to decompress with zlib
+                try
+                {
+                    byte[] decompressed = DecompressBlock(compressedBlock);
+                    tempOutput.Write(decompressed, 0, decompressed.Length);
+                    blockCount++;
+                }
+                catch
+                {
+                    // If decompression fails, this format doesn't work
+                    br.BaseStream.Position = startPos;
+                    bw.BaseStream.Position = outputStartPos;
+                    return 0;
+                }
+            }
+
+            if (blockCount > 0)
+            {
+                tempOutput.Position = 0;
+                tempOutput.CopyTo(bw.BaseStream);
+                return blockCount;
+            }
+
+            return 0;
+        }
+        catch
+        {
+            br.BaseStream.Position = startPos;
+            bw.BaseStream.Position = outputStartPos;
+            return 0;
+        }
     }
 
     /// <summary>
     /// Standard block decompression (2-byte length prefix, 64KB blocks).
     /// </summary>
-    private static int DecompressStandardBlocks(BinaryReader br, BinaryWriter bw)
+    /// <param name="br">BinaryReader positioned at start of compressed blocks</param>
+    /// <param name="bw">BinaryWriter to write decompressed data</param>
+    /// <param name="isLittleEndian">True for PC files (little-endian), false for console (big-endian)</param>
+    private static int DecompressStandardBlocks(BinaryReader br, BinaryWriter bw, bool isLittleEndian = false)
     {
+        // For PC files, try single zlib stream first (PC WaW uses full zlib, not block structure)
+        if (isLittleEndian)
+        {
+            int pcBlocks = TryDecompressPCZlib(br, bw);
+            if (pcBlocks > 0)
+                return pcBlocks;
+            // Reset position if PC method failed
+            br.BaseStream.Position = 12; // After header
+        }
+
         int blockCount = 0;
         int errorCount = 0;
         long lastGoodPosition = br.BaseStream.Position;
@@ -75,7 +173,10 @@ public static class FastFileProcessor
             byte[] lengthBytes = br.ReadBytes(2);
             if (lengthBytes.Length < 2) break;
 
-            int chunkLength = (lengthBytes[0] << 8) | lengthBytes[1];
+            // PC uses little-endian, console uses big-endian
+            int chunkLength = isLittleEndian
+                ? (lengthBytes[0] | (lengthBytes[1] << 8))
+                : ((lengthBytes[0] << 8) | lengthBytes[1]);
 
             // Check for end marker (0x00 0x01 or 0x00 0x00)
             if (chunkLength == 0 || chunkLength == 1) break;

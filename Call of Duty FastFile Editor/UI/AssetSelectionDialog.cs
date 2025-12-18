@@ -64,9 +64,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                               _fastFile.IsMW2File ? "MW2" : "Unknown";
             gameLabel.Text = $"Game: {gameName}";
 
-            // Platform - use shared library method
-            string platform = FastFileLib.FastFileInfo.GetPlatform((uint)_fastFile.GameVersion, _fastFile.FastFileMagic);
-            platformLabel.Text = $"Platform: {platform}";
+            // Platform - use FastFile's detected platform (handles PC detection)
+            platformLabel.Text = $"Platform: {_fastFile.Platform}";
 
             // Signed status
             bool isSigned = _fastFile.FastFileMagic == FastFileLib.FastFileInfo.SignedMagic;
@@ -85,6 +84,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 string typeName;
                 if (_fastFile.IsCod4File)
                     typeName = record.AssetType_COD4.ToString();
+                else if (_fastFile.IsCod5File && _fastFile.IsPC)
+                    typeName = record.AssetType_COD5_PC.ToString();
                 else if (_fastFile.IsCod5File && _fastFile.IsXbox360)
                     typeName = record.AssetType_COD5_Xbox360.ToString();
                 else if (_fastFile.IsCod5File)

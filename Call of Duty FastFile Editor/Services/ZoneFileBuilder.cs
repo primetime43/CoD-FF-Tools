@@ -41,6 +41,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
         };
 
         /// <summary>
+        /// Supported asset types for COD5 (PC).
+        /// </summary>
+        private static readonly HashSet<CoD5AssetTypePC> SupportedTypesCOD5PC = new HashSet<CoD5AssetTypePC>
+        {
+            CoD5AssetTypePC.rawfile,
+            CoD5AssetTypePC.localize
+        };
+
+        /// <summary>
         /// Supported asset types for MW2.
         /// </summary>
         private static readonly HashSet<MW2AssetType> SupportedTypesMW2 = new HashSet<MW2AssetType>
@@ -61,9 +70,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
             {
                 if (fastFile.IsCod4File && !SupportedTypesCOD4.Contains(record.AssetType_COD4))
                     return false;
+                if (fastFile.IsCod5File && fastFile.IsPC && !SupportedTypesCOD5PC.Contains(record.AssetType_COD5_PC))
+                    return false;
                 if (fastFile.IsCod5File && fastFile.IsXbox360 && !SupportedTypesCOD5Xbox360.Contains(record.AssetType_COD5_Xbox360))
                     return false;
-                if (fastFile.IsCod5File && !fastFile.IsXbox360 && !SupportedTypesCOD5.Contains(record.AssetType_COD5))
+                if (fastFile.IsCod5File && !fastFile.IsPC && !fastFile.IsXbox360 && !SupportedTypesCOD5.Contains(record.AssetType_COD5))
                     return false;
                 if (fastFile.IsMW2File && !SupportedTypesMW2.Contains(record.AssetType_MW2))
                     return false;
@@ -87,6 +98,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 if (fastFile.IsCod4File)
                     isSupported = SupportedTypesCOD4.Contains(record.AssetType_COD4);
+                else if (fastFile.IsCod5File && fastFile.IsPC)
+                    isSupported = SupportedTypesCOD5PC.Contains(record.AssetType_COD5_PC);
                 else if (fastFile.IsCod5File && fastFile.IsXbox360)
                     isSupported = SupportedTypesCOD5Xbox360.Contains(record.AssetType_COD5_Xbox360);
                 else if (fastFile.IsCod5File)
@@ -120,6 +133,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 {
                     isSupported = SupportedTypesCOD4.Contains(record.AssetType_COD4);
                     typeName = record.AssetType_COD4.ToString();
+                }
+                else if (fastFile.IsCod5File && fastFile.IsPC)
+                {
+                    isSupported = SupportedTypesCOD5PC.Contains(record.AssetType_COD5_PC);
+                    typeName = record.AssetType_COD5_PC.ToString();
                 }
                 else if (fastFile.IsCod5File && fastFile.IsXbox360)
                 {
@@ -185,19 +203,39 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                     // 3. Write new asset pool (only supported assets)
                     int newAssetPoolStart = (int)ms.Position;
+                    bool isPC = fastFile.IsPC;
                     foreach (var record in supportedRecords)
                     {
-                        // Write asset type (4 bytes big-endian)
-                        int assetType = fastFile.IsCod4File
-                            ? (int)record.AssetType_COD4
-                            : fastFile.IsCod5File && fastFile.IsXbox360
-                                ? (int)record.AssetType_COD5_Xbox360
-                                : (int)record.AssetType_COD5;
+                        // Get asset type value based on game/platform
+                        int assetType;
+                        if (fastFile.IsCod4File)
+                            assetType = (int)record.AssetType_COD4;
+                        else if (fastFile.IsCod5File && isPC)
+                            assetType = (int)record.AssetType_COD5_PC;
+                        else if (fastFile.IsCod5File && fastFile.IsXbox360)
+                            assetType = (int)record.AssetType_COD5_Xbox360;
+                        else if (fastFile.IsCod5File)
+                            assetType = (int)record.AssetType_COD5;
+                        else if (fastFile.IsMW2File)
+                            assetType = (int)record.AssetType_MW2;
+                        else
+                            assetType = 0;
 
-                        ms.WriteByte(0x00);
-                        ms.WriteByte(0x00);
-                        ms.WriteByte(0x00);
-                        ms.WriteByte((byte)assetType);
+                        // Write asset type (4 bytes) - little-endian for PC, big-endian for console
+                        if (isPC)
+                        {
+                            ms.WriteByte((byte)assetType);
+                            ms.WriteByte(0x00);
+                            ms.WriteByte(0x00);
+                            ms.WriteByte(0x00);
+                        }
+                        else
+                        {
+                            ms.WriteByte(0x00);
+                            ms.WriteByte(0x00);
+                            ms.WriteByte(0x00);
+                            ms.WriteByte((byte)assetType);
+                        }
 
                         // Write pointer placeholder (FF FF FF FF)
                         ms.WriteByte(0xFF);

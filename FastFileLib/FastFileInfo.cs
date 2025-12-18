@@ -11,6 +11,7 @@ public class FastFileInfo
     public uint Version { get; set; }
     public GameVersion GameVersion { get; set; }
     public bool IsSigned { get; set; }
+    public bool IsPC { get; set; }
     public string GameName { get; set; } = "Unknown";
     public string[] Platforms { get; set; } = Array.Empty<string>();
     public int HeaderSize { get; set; }
@@ -50,14 +51,31 @@ public class FastFileInfo
         info.Magic = Encoding.ASCII.GetString(magicBytes);
 
         byte[] versionBytes = br.ReadBytes(4);
-        info.Version = (uint)((versionBytes[0] << 24) | (versionBytes[1] << 16) |
-                              (versionBytes[2] << 8) | versionBytes[3]);
+
+        // Try big-endian first (console format)
+        uint versionBE = (uint)((versionBytes[0] << 24) | (versionBytes[1] << 16) |
+                                (versionBytes[2] << 8) | versionBytes[3]);
+        // Little-endian (PC format)
+        uint versionLE = (uint)(versionBytes[0] | (versionBytes[1] << 8) |
+                                (versionBytes[2] << 16) | (versionBytes[3] << 24));
 
         // Determine if signed
         info.IsSigned = info.Magic == SignedMagic || info.Magic == TreyarchMagic;
 
-        // Detect game version and set header size
+        // Try big-endian first
+        info.Version = versionBE;
         DetectGameVersion(info);
+
+        // If big-endian didn't work and file is unsigned, try little-endian (PC)
+        if (info.GameVersion == GameVersion.Unknown && !info.IsSigned && info.Magic == UnsignedMagic)
+        {
+            info.Version = versionLE;
+            DetectGameVersion(info);
+            if (info.GameVersion != GameVersion.Unknown)
+            {
+                info.IsPC = true;
+            }
+        }
 
         return info;
     }

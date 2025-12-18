@@ -21,6 +21,13 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public static readonly byte[] Xbox360MemAlloc1 = { 0x00, 0x00, 0x0A, 0x90 };
         public static readonly byte[] Xbox360MemAlloc2 = { 0x00, 0x00, 0x00, 0x00 };
 
+        // PC memory allocation values (little-endian) - same numeric value as PS3 but LE byte order
+        // PC zone files use little-endian byte order for all multi-byte values
+        public static readonly byte[] PCMemAlloc1 = { 0xB0, 0x10, 0x00, 0x00 };  // 0x10B0 in LE
+        public static readonly byte[] PCMemAlloc2 = { 0xF0, 0xF8, 0x05, 0x00 };  // 0x05F8F0 in LE
+
+        // PC MemAlloc1 value when read as little-endian uint32
+        public const uint PCMemAlloc1ValueLE = 0x000010B0;
     }
 
     /// <summary>

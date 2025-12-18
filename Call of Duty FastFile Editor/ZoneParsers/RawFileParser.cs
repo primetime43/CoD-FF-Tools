@@ -12,25 +12,31 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     public static class RawFileParser
     {
         #region Structure Parsing
+        /// <summary>
+        /// Parses a raw file at the given offset using the console 12-byte header format:
+        /// [marker][len][marker][name][data]
+        /// NOTE: PC parsing is not currently supported - AssetRecordProcessor returns early for PC files.
+        /// </summary>
         public static RawFileNode ExtractSingleRawFileNodeNoPattern(FastFile openedFastFile, int offset)
         {
-
             Debug.WriteLine($"================================ Start of raw file node search =============================================");
-
             Debug.WriteLine($"[ExtractSingleRawFileNodeNoPattern] Starting raw file scan at offset 0x{offset:X}.");
 
             RawFileNode node = new RawFileNode();
             byte[] fileData = openedFastFile.OpenedFastFileZone.Data;
+
             Debug.WriteLine($"[ExtractSingleRawFileNodeNoPattern] Read file '{openedFastFile.ZoneFilePath}' ({fileData.Length} bytes).");
 
-            // Ensure we have enough bytes for the header (12 bytes)
-            if (offset > fileData.Length - 12)
+            // Console uses 12-byte header
+            const int headerSize = 12;
+
+            if (offset > fileData.Length - headerSize)
             {
-                Debug.WriteLine($"[RawFile] Not enough bytes remaining for a header at offset 0x{offset:X}.");
+                Debug.WriteLine($"[RawFile] Not enough bytes remaining for a {headerSize}-byte header at offset 0x{offset:X}.");
                 return null;
             }
 
-            // Read and validate the first marker (should be 0xFFFFFFFF)
+            // Console 12-byte header: [marker][len][marker]
             uint marker1 = Utilities.ReadUInt32BigEndian(fileData, offset);
             if (marker1 != 0xFFFFFFFF)
             {
@@ -38,24 +44,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 return null;
             }
 
-            // Read the data length (size of the file data)
             int dataLength = (int)Utilities.ReadUInt32BigEndian(fileData, offset + 4);
-            if (dataLength == 0)
-            {
-                Debug.WriteLine($"[RawFile] dataLength is 0 at offset 0x{offset + 4:X}. Probably not a rawfile. Returning null.");
-                return null;
-            }
 
-            // Validate size is reasonable - rawfiles are scripts/configs, not multi-megabyte assets
-            // Max reasonable size: 5MB (most are under 100KB)
-            const int MAX_RAWFILE_SIZE = 5 * 1024 * 1024;
-            if (dataLength > MAX_RAWFILE_SIZE || dataLength < 0)
-            {
-                Debug.WriteLine($"[RawFile] dataLength {dataLength} (0x{dataLength:X}) is unreasonably large at offset 0x{offset + 4:X}. Not a valid rawfile.");
-                return null;
-            }
-
-            // Read and validate the second marker (should be 0xFFFFFFFF)
             uint marker2 = Utilities.ReadUInt32BigEndian(fileData, offset + 8);
             if (marker2 != 0xFFFFFFFF)
             {
@@ -63,12 +53,27 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 return null;
             }
 
+            int fileNameOffset = offset + 12;
+
+            if (dataLength == 0)
+            {
+                Debug.WriteLine($"[RawFile] dataLength is 0. Probably not a rawfile. Returning null.");
+                return null;
+            }
+
+            // Validate size is reasonable - rawfiles are scripts/configs, not multi-megabyte assets
+            const int MAX_RAWFILE_SIZE = 5 * 1024 * 1024;
+            if (dataLength > MAX_RAWFILE_SIZE || dataLength < 0)
+            {
+                Debug.WriteLine($"[RawFile] dataLength {dataLength} (0x{dataLength:X}) is unreasonably large. Not a valid rawfile.");
+                return null;
+            }
+
             // Record the start of the header and file size
             node.StartOfFileHeader = offset;
             node.MaxSize = dataLength;
+            node.HeaderSize = headerSize;
 
-            // Move past the 12-byte header to read the file name
-            int fileNameOffset = offset + 12;
             string inlineName = Utilities.ReadNullTerminatedString(fileData, fileNameOffset);
 
             // Validate the filename looks reasonable
@@ -81,11 +86,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             node.FileName = inlineName;
             Debug.WriteLine($"[RawFile] Inline name read: '{inlineName}'.");
 
-            // Calculate the total bytes consumed by the file name (including null terminator)
-            // Use Length, not UTF8.GetByteCount - we read byte-by-byte, each byte = one char
             int nameByteCount = inlineName.Length + 1;
-
-            // File data starts immediately after the file name
             int fileDataOffset = fileNameOffset + nameByteCount;
 
             // Ensure there's enough data for the file data
@@ -93,8 +94,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             {
                 byte[] rawBytes = new byte[dataLength];
                 Array.Copy(fileData, fileDataOffset, rawBytes, 0, dataLength);
+
                 node.RawFileBytes = rawBytes;
                 node.RawFileContent = Encoding.UTF8.GetString(rawBytes);
+                node.RawFileEndPosition = fileDataOffset + dataLength + 1;
                 Debug.WriteLine($"[RawFile] Inline file data read: {rawBytes.Length} bytes.");
             }
             else
