@@ -261,23 +261,23 @@ public partial class MainForm : Form
 
             // Detect game and platform
             string game = "Unknown";
-            string platforms = "Unknown";
+            string platform = "Unknown";
 
             if (VersionMap.TryGetValue(version, out var info))
             {
                 game = info.Game;
-                platforms = string.Join("/", info.Platforms);
+                // Determine specific platform based on signed status
+                platform = DetermineSpecificPlatform(info.Platforms, isSigned);
             }
 
             // Build info string
             string signedStr = isSigned ? "Signed" : "Unsigned";
-            Color signedColor = isSigned ? Color.OrangeRed : Color.DarkGreen;
 
-            fileInfoLabel.Text = $"Header: {headerType} | {signedStr} | Studio: {studio} | Game: {game} | Platform: {platforms} | Version: 0x{version:X}";
-            fileInfoLabel.ForeColor = signedColor;
+            fileInfoLabel.Text = $"Header: {headerType} | {signedStr} | Studio: {studio} | Game: {game} | Platform: {platform} | Version: 0x{version:X}";
+            fileInfoLabel.ForeColor = Color.DarkGreen;
 
             // Update detailed info
-            UpdateDetailedInfo(fs.Length, headerStr, isSigned, studio, game, platforms, version);
+            UpdateDetailedInfo(fs.Length, headerStr, isSigned, studio, game, platform, version);
         }
         catch (Exception ex)
         {
@@ -286,7 +286,7 @@ public partial class MainForm : Form
         }
     }
 
-    private void UpdateDetailedInfo(long fileSize, string header, bool isSigned, string studio, string game, string platforms, uint version)
+    private void UpdateDetailedInfo(long fileSize, string header, bool isSigned, string studio, string game, string platform, uint version)
     {
         detailsTextBox.Clear();
         detailsTextBox.AppendText($"File Size: {fileSize:N0} bytes ({fileSize / 1024.0 / 1024.0:F2} MB)\r\n");
@@ -294,7 +294,7 @@ public partial class MainForm : Form
         detailsTextBox.AppendText($"Signed: {(isSigned ? "Yes (RSA2048)" : "No")}\r\n");
         detailsTextBox.AppendText($"Studio: {studio}\r\n");
         detailsTextBox.AppendText($"Game: {game}\r\n");
-        detailsTextBox.AppendText($"Platform(s): {platforms}\r\n");
+        detailsTextBox.AppendText($"Platform: {platform}\r\n");
         detailsTextBox.AppendText($"Version: 0x{version:X} ({version})\r\n");
         detailsTextBox.AppendText($"\r\n");
 
@@ -303,20 +303,55 @@ public partial class MainForm : Form
 
         if (isUnsupportedGame)
         {
-            detailsTextBox.AppendText("⚠ Warning: This game is not fully supported.\r\n");
+            detailsTextBox.AppendText("Warning: This game is not fully supported.\r\n");
             detailsTextBox.AppendText("Detection only - extraction/packing may not work.\r\n");
             detailsTextBox.AppendText("Supported games: CoD4, WaW, MW2\r\n");
         }
-        else if (isSigned)
-        {
-            detailsTextBox.AppendText("⚠ Warning: This is a signed FastFile.\r\n");
-            detailsTextBox.AppendText("Modifications will break the signature.\r\n");
-            detailsTextBox.AppendText("Use unsigned versions for modding.\r\n");
-        }
         else
         {
-            detailsTextBox.AppendText("✓ This FastFile can be modified.\r\n");
+            detailsTextBox.AppendText("This FastFile can be modified.\r\n");
+            if (isSigned)
+            {
+                detailsTextBox.AppendText("Note: Xbox 360 requires a patched XEX to load modified FastFiles.\r\n");
+            }
         }
+    }
+
+    /// <summary>
+    /// Determines the specific platform based on available platforms and signed status.
+    /// Signed files are Xbox 360, unsigned console files are PS3.
+    /// </summary>
+    private static string DetermineSpecificPlatform(string[] platforms, bool isSigned)
+    {
+        // If only one platform is possible, return it
+        if (platforms.Length == 1)
+            return platforms[0];
+
+        // Check if this is a console-only version (PS3/Xbox 360)
+        bool hasPS3 = platforms.Contains("PS3");
+        bool hasXbox360 = platforms.Contains("Xbox 360");
+        bool hasPC = platforms.Contains("PC");
+
+        // If both PS3 and Xbox 360 are possibilities
+        if (hasPS3 && hasXbox360)
+        {
+            // Signed = Xbox 360, Unsigned = PS3
+            return isSigned ? "Xbox 360" : "PS3";
+        }
+
+        // If PC is in the mix with consoles (like WaW which has PS3/Xbox360/PC all with same version)
+        if (hasPC && (hasPS3 || hasXbox360))
+        {
+            // For WaW-style games where all platforms share the same version:
+            // - Signed = Xbox 360
+            // - Unsigned could be PS3 or PC (can't distinguish without more info)
+            // We'll assume unsigned console files, so return PS3
+            // (PC files would typically be detected differently in practice)
+            return isSigned ? "Xbox 360" : "PS3/PC";
+        }
+
+        // Fallback to joining all platforms
+        return string.Join("/", platforms);
     }
 
     private void Decompress(string inputPath, string outputPath)

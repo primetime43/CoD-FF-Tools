@@ -16,6 +16,12 @@ public class FastFileInfo
     public string[] Platforms { get; set; } = Array.Empty<string>();
     public int HeaderSize { get; set; }
 
+    /// <summary>
+    /// Gets the specific platform detected from the header (PS3, Xbox 360, PC, or Wii).
+    /// Unlike Platforms array which lists all possible platforms, this returns the actual detected platform.
+    /// </summary>
+    public string Platform { get; set; } = "Unknown";
+
     // Header magic constants
     public const string UnsignedMagic = "IWffu100";
     public const string SignedMagic = "IWff0100";
@@ -76,6 +82,9 @@ public class FastFileInfo
                 info.IsPC = true;
             }
         }
+
+        // Set the specific platform based on magic and version
+        info.Platform = GetPlatform(info.Version, info.Magic);
 
         return info;
     }
