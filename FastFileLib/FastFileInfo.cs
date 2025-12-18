@@ -264,4 +264,47 @@ public class FastFileInfo
         }
         return $"{size:0.##} {sizes[order]}";
     }
+
+    /// <summary>
+    /// Extracts the zone name from a file path by matching known zone name patterns.
+    /// </summary>
+    /// <param name="filePath">Path to the zone or FastFile</param>
+    /// <returns>The detected zone name or cleaned filename</returns>
+    public static string GetZoneNameFromPath(string filePath)
+    {
+        string filename = Path.GetFileNameWithoutExtension(filePath);
+
+        // Known zone name suffixes
+        string[] knownZoneNames = {
+            "patch_mp", "patch", "common_mp", "common", "code_post_gfx_mp", "code_post_gfx",
+            "localized_common_mp", "localized_code_post_gfx_mp", "ui_mp", "ui"
+        };
+
+        foreach (var zoneName in knownZoneNames)
+        {
+            if (filename.EndsWith(zoneName, StringComparison.OrdinalIgnoreCase))
+                return zoneName;
+            if (filename.EndsWith("_" + zoneName, StringComparison.OrdinalIgnoreCase))
+                return zoneName;
+        }
+
+        foreach (var zoneName in knownZoneNames)
+        {
+            int idx = filename.IndexOf(" " + zoneName, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+                return zoneName;
+        }
+
+        // Fallback: clean up filename by removing platform prefixes
+        string cleaned = filename
+            .Replace("xbox ", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("ps3 ", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("xbox_", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("ps3_", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("_converted", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("converted_", "", StringComparison.OrdinalIgnoreCase)
+            .Trim();
+
+        return string.IsNullOrEmpty(cleaned) ? filename : cleaned;
+    }
 }

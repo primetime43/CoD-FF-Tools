@@ -5,6 +5,86 @@ namespace FastFileLib;
 /// </summary>
 public static class FastFileConstants
 {
+    /// <summary>
+    /// Valid file extensions for raw files in FastFiles.
+    /// </summary>
+    public static readonly string[] ValidRawFileExtensions = {
+        ".cfg", ".gsc", ".atr", ".csc", ".rmb", ".arena", ".vision", ".txt",
+        ".str", ".menu", ".def", ".lua", ".csv", ".graph", ".ai_bt"
+    };
+
+    /// <summary>
+    /// Checks if a file extension is a valid raw file extension.
+    /// </summary>
+    public static bool IsValidRawFileExtension(string extension)
+    {
+        return ValidRawFileExtensions.Contains(extension.ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// Known path prefixes for flattened asset names.
+    /// </summary>
+    public static readonly string[] KnownAssetPrefixes = {
+        "maps_mp_animscripts_",
+        "maps_mp_gametypes_",
+        "maps_mp_",
+        "maps_",
+        "clientscripts_mp_",
+        "clientscripts_",
+        "common_scripts_",
+        "zzzz_zz_",
+        "animscripts_"
+    };
+
+    /// <summary>
+    /// Converts flattened asset names back to proper game paths.
+    /// Example: maps_mp_gametypes__globallogic.gsc -> maps/mp/gametypes/_globallogic.gsc
+    /// </summary>
+    /// <param name="assetName">The flattened asset name</param>
+    /// <returns>The proper game path</returns>
+    public static string FixAssetPath(string assetName)
+    {
+        // Don't fix if it already contains forward slashes (already a path)
+        if (assetName.Contains('/'))
+            return assetName;
+
+        bool hasKnownPrefix = KnownAssetPrefixes.Any(p =>
+            assetName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+
+        // If no known prefix, don't change
+        if (!hasKnownPrefix)
+            return assetName;
+
+        // Get extension
+        string extension = Path.GetExtension(assetName);
+        string nameOnly = Path.GetFileNameWithoutExtension(assetName);
+
+        // The conversion logic:
+        // Original path: clientscripts/mp/_vehicle.csc
+        // Flattened:     clientscripts_mp__vehicle.csc
+        // Rules:
+        //   - Single underscore (_) was a path separator (/)
+        //   - Double underscore (__) was path separator + underscore (/_)
+        //
+        // To reverse:
+        // 1. Replace __ with a placeholder that represents /_
+        // 2. Replace _ with /
+        // 3. Replace placeholder with _
+
+        const string placeholder = "\x01\x02"; // Unique placeholder
+
+        // Step 1: Replace __ with /<placeholder> (this represents /_)
+        string result = nameOnly.Replace("__", "/" + placeholder);
+
+        // Step 2: Replace remaining single _ with /
+        result = result.Replace("_", "/");
+
+        // Step 3: Replace placeholder back with underscore
+        result = result.Replace(placeholder, "_");
+
+        return result + extension;
+    }
+
     public const string UnsignedHeader = "IWffu100";
     public const string SignedHeader = "IWff0100";
     public const int HeaderSize = 12; // 8 bytes magic + 4 bytes version

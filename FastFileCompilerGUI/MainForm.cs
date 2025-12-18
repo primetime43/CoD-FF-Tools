@@ -295,7 +295,7 @@ public partial class MainForm : Form
     private void AddFile(string sourcePath, string assetName)
     {
         // Automatically fix the asset path (convert flattened names to proper paths)
-        assetName = FixAssetPath(assetName);
+        assetName = FastFileConstants.FixAssetPath(assetName);
 
         // Check for duplicates
         if (_rawFiles.Any(f => f.AssetName.Equals(assetName, StringComparison.OrdinalIgnoreCase)))
@@ -328,7 +328,7 @@ public partial class MainForm : Form
         var item = new ListViewItem(new[]
         {
             entry.AssetName,
-            FormatSize(entry.Size),
+            FastFileInfo.FormatFileSize(entry.Size),
             entry.SourcePath
         })
         {
@@ -422,65 +422,6 @@ public partial class MainForm : Form
             item.Selected = true;
             item.Focused = true;
         }
-    }
-
-    /// <summary>
-    /// Converts flattened asset names back to proper game paths.
-    /// Example: maps_mp_gametypes__globallogic.gsc -> maps/mp/gametypes/_globallogic.gsc
-    /// </summary>
-    private static string FixAssetPath(string assetName)
-    {
-        // Don't fix if it already contains forward slashes (already a path)
-        if (assetName.Contains('/'))
-            return assetName;
-
-        // Don't fix simple filenames without known path prefixes
-        string[] knownPrefixes = {
-            "maps_mp_animscripts_",
-            "maps_mp_gametypes_",
-            "maps_mp_",
-            "maps_",  // Added for files like maps__load.gsc -> maps/_load.gsc
-            "clientscripts_mp_",
-            "clientscripts_",
-            "common_scripts_",
-            "zzzz_zz_",
-            "animscripts_"
-        };
-
-        bool hasKnownPrefix = knownPrefixes.Any(p => assetName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
-
-        // If no known prefix, don't change
-        if (!hasKnownPrefix)
-            return assetName;
-
-        // Get extension
-        string extension = Path.GetExtension(assetName);
-        string nameOnly = Path.GetFileNameWithoutExtension(assetName);
-
-        // The conversion logic:
-        // Original path: clientscripts/mp/_vehicle.csc
-        // Flattened:     clientscripts_mp__vehicle.csc
-        // Rules:
-        //   - Single underscore (_) was a path separator (/)
-        //   - Double underscore (__) was path separator + underscore (/_)
-        //
-        // To reverse:
-        // 1. Replace __ with a placeholder that represents /_
-        // 2. Replace _ with /
-        // 3. Replace placeholder with _
-
-        const string placeholder = "\x01\x02"; // Unique placeholder for underscore in filename
-
-        // Step 1: Replace __ with /<placeholder> (this represents /_)
-        string result = nameOnly.Replace("__", "/" + placeholder);
-
-        // Step 2: Replace remaining single _ with /
-        result = result.Replace("_", "/");
-
-        // Step 3: Replace placeholder back with underscore
-        result = result.Replace(placeholder, "_");
-
-        return result + extension;
     }
 
     private void RefreshFileListView()
@@ -709,7 +650,7 @@ public partial class MainForm : Form
     private void UpdateFileCount()
     {
         long totalSize = _rawFiles.Sum(f => f.Size);
-        UpdateStatus($"{_rawFiles.Count} file(s), {FormatSize(totalSize)} total");
+        UpdateStatus($"{_rawFiles.Count} file(s), {FastFileInfo.FormatFileSize(totalSize)} total");
     }
 
     private void SetUIEnabled(bool enabled)
@@ -729,13 +670,6 @@ public partial class MainForm : Form
         // Keep checkBoxIncludeExisting enabled state based on whether FF is loaded
         if (enabled)
             checkBoxIncludeExisting.Enabled = _existingFiles.Count > 0;
-    }
-
-    private static string FormatSize(long bytes)
-    {
-        if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
-        return $"{bytes / (1024.0 * 1024.0):F2} MB";
     }
 
     #endregion

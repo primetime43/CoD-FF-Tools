@@ -320,7 +320,7 @@ public partial class Form1 : Form
         _outputPathTextBox.Text = Path.Combine(dir, $"{name}_converted_{targetPlatform}.ff");
 
         // Auto-detect zone name from filename
-        _zoneNameTextBox.Text = GetZoneNameFromPath(path);
+        _zoneNameTextBox.Text = FastFileInfo.GetZoneNameFromPath(path);
 
         // Auto-analyze (calls UpdateConvertButtonState which needs output path)
         AnalyzeFile(path);
@@ -348,13 +348,13 @@ public partial class Form1 : Form
                 _sourceGameLabel.Text = $"Game: {_currentAnalysis.GameName}";
                 _sourcePlatformLabel.Text = $"Platform: {_currentAnalysis.DetectedPlatform}";
                 _sourceSignedLabel.Text = $"Signed: {(_currentAnalysis.IsSigned ? "Yes" : "No")}";
-                _sourceSizeLabel.Text = $"Size: {FormatSize(_currentAnalysis.FileSize)}";
+                _sourceSizeLabel.Text = $"Size: {FastFileInfo.FormatFileSize(_currentAnalysis.FileSize)}";
                 _sourceInfoGroup.Visible = true;
 
                 Log($"  Game: {_currentAnalysis.GameName}");
                 Log($"  Platform: {_currentAnalysis.DetectedPlatform}");
                 Log($"  Signed: {(_currentAnalysis.IsSigned ? "Yes (Xbox 360 MP)" : "No")}");
-                Log($"  Size: {FormatSize(_currentAnalysis.FileSize)}");
+                Log($"  Size: {FastFileInfo.FormatFileSize(_currentAnalysis.FileSize)}");
 
                 foreach (var note in _currentAnalysis.Notes)
                 {
@@ -474,8 +474,8 @@ public partial class Form1 : Form
                 Log($"  Target: {result.TargetPlatform}");
                 Log($"  Game: {result.GameVersion}");
                 Log($"  Blocks processed: {result.BlocksProcessed}");
-                Log($"  Original size: {FormatSize(result.OriginalSize)}");
-                Log($"  Converted size: {FormatSize(result.ConvertedSize)}");
+                Log($"  Original size: {FastFileInfo.FormatFileSize(result.OriginalSize)}");
+                Log($"  Converted size: {FastFileInfo.FormatFileSize(result.ConvertedSize)}");
 
                 if (result.ReplacedFiles.Count > 0)
                 {
@@ -494,7 +494,7 @@ public partial class Form1 : Form
                     $"Source: {result.SourcePlatform}\n" +
                     $"Target: {result.TargetPlatform}\n" +
                     $"Raw files: {result.ReplacedFiles.Count}\n" +
-                    $"Size: {FormatSize(result.OriginalSize)} -> {FormatSize(result.ConvertedSize)}",
+                    $"Size: {FastFileInfo.FormatFileSize(result.OriginalSize)} -> {FastFileInfo.FormatFileSize(result.ConvertedSize)}",
                     "Conversion Complete",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
@@ -560,54 +560,4 @@ public partial class Form1 : Form
         _logTextBox.ScrollToCaret();
     }
 
-    private static string FormatSize(long bytes)
-    {
-        string[] sizes = { "B", "KB", "MB", "GB" };
-        int order = 0;
-        double size = bytes;
-        while (size >= 1024 && order < sizes.Length - 1)
-        {
-            order++;
-            size /= 1024;
-        }
-        return $"{size:0.##} {sizes[order]}";
-    }
-
-    private static string GetZoneNameFromPath(string filePath)
-    {
-        string filename = Path.GetFileNameWithoutExtension(filePath);
-
-        // Known zone name suffixes
-        string[] knownZoneNames = {
-            "patch_mp", "patch", "common_mp", "common", "code_post_gfx_mp", "code_post_gfx",
-            "localized_common_mp", "localized_code_post_gfx_mp", "ui_mp", "ui"
-        };
-
-        foreach (var zoneName in knownZoneNames)
-        {
-            if (filename.EndsWith(zoneName, StringComparison.OrdinalIgnoreCase))
-                return zoneName;
-            if (filename.EndsWith("_" + zoneName, StringComparison.OrdinalIgnoreCase))
-                return zoneName;
-        }
-
-        foreach (var zoneName in knownZoneNames)
-        {
-            int idx = filename.IndexOf(" " + zoneName, StringComparison.OrdinalIgnoreCase);
-            if (idx >= 0)
-                return zoneName;
-        }
-
-        // Fallback: clean up filename
-        string cleaned = filename
-            .Replace("xbox ", "", StringComparison.OrdinalIgnoreCase)
-            .Replace("ps3 ", "", StringComparison.OrdinalIgnoreCase)
-            .Replace("xbox_", "", StringComparison.OrdinalIgnoreCase)
-            .Replace("ps3_", "", StringComparison.OrdinalIgnoreCase)
-            .Replace("_converted", "", StringComparison.OrdinalIgnoreCase)
-            .Replace("converted_", "", StringComparison.OrdinalIgnoreCase)
-            .Trim();
-
-        return string.IsNullOrEmpty(cleaned) ? filename : cleaned;
-    }
 }
