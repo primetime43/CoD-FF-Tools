@@ -187,21 +187,13 @@ public partial class MainForm : Form
             var ffInfo = FastFileInfo.FromFile(filePath);
             var fileInfo = new FileInfo(filePath);
 
-            // Determine studio from magic
-            string studio = ffInfo.Magic switch
-            {
-                "TAff0100" => "Treyarch",
-                "S1ff0100" => "Sledgehammer",
-                _ => "IW"
-            };
-
             string signedStr = ffInfo.IsSigned ? "Signed" : "Unsigned";
 
-            fileInfoLabel.Text = $"Header: {ffInfo.Magic} | {signedStr} | Studio: {studio} | Game: {ffInfo.GameName} | Platform: {ffInfo.Platform} | Version: 0x{ffInfo.Version:X}";
+            fileInfoLabel.Text = $"Header: {ffInfo.Magic} | {signedStr} | Studio: {ffInfo.Studio} | Game: {ffInfo.GameName} | Platform: {ffInfo.Platform} | Version: 0x{ffInfo.Version:X}";
             fileInfoLabel.ForeColor = Color.DarkGreen;
 
             // Update detailed info
-            UpdateDetailedInfo(fileInfo.Length, ffInfo.Magic, ffInfo.IsSigned, studio, ffInfo.GameName, ffInfo.Platform, ffInfo.Version);
+            UpdateDetailedInfo(fileInfo.Length, ffInfo.Magic, ffInfo.IsSigned, ffInfo.Studio, ffInfo.GameName, ffInfo.Platform, ffInfo.Version);
         }
         catch (Exception ex)
         {

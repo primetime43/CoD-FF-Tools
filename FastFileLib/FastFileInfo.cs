@@ -22,6 +22,12 @@ public class FastFileInfo
     /// </summary>
     public string Platform { get; set; } = "Unknown";
 
+    /// <summary>
+    /// Gets the studio that developed the game (Infinity Ward, Treyarch, Sledgehammer, etc.).
+    /// Note: The "IW" in the magic header refers to the engine format, not the studio.
+    /// </summary>
+    public string Studio { get; set; } = "Unknown";
+
     // Header magic constants
     public const string UnsignedMagic = "IWffu100";
     public const string SignedMagic = "IWff0100";
@@ -104,48 +110,56 @@ public class FastFileInfo
             case CoD4_PS3_Version:
                 info.GameVersion = GameVersion.CoD4;
                 info.GameName = "CoD4";
+                info.Studio = "Infinity Ward";
                 info.Platforms = new[] { "PS3", "Xbox 360" };
                 info.HeaderSize = 12;
                 break;
             case CoD4_PC_Version:
                 info.GameVersion = GameVersion.CoD4;
                 info.GameName = "CoD4";
+                info.Studio = "Infinity Ward";
                 info.Platforms = new[] { "PC" };
                 info.HeaderSize = 12;
                 break;
             case CoD4_Wii_Version:
                 info.GameVersion = GameVersion.CoD4;
                 info.GameName = "CoD4";
+                info.Studio = "Infinity Ward";
                 info.Platforms = new[] { "Wii" };
                 info.HeaderSize = 12;
                 break;
             case WaW_Console_PC_Version:
                 info.GameVersion = GameVersion.WaW;
                 info.GameName = "WaW";
+                info.Studio = "Treyarch";
                 info.Platforms = new[] { "PS3", "Xbox 360", "PC" };
                 info.HeaderSize = 12;
                 break;
             case WaW_Wii_Version:
                 info.GameVersion = GameVersion.WaW;
                 info.GameName = "WaW";
+                info.Studio = "Treyarch";
                 info.Platforms = new[] { "Wii" };
                 info.HeaderSize = 12;
                 break;
             case MW2_Console_Version:
                 info.GameVersion = GameVersion.MW2;
                 info.GameName = "MW2";
+                info.Studio = "Infinity Ward";
                 info.Platforms = new[] { "PS3", "Xbox 360" };
                 info.HeaderSize = -1; // Variable, needs to be calculated
                 break;
             case MW2_PC_Version:
                 info.GameVersion = GameVersion.MW2;
                 info.GameName = "MW2";
+                info.Studio = "Infinity Ward";
                 info.Platforms = new[] { "PC" };
                 info.HeaderSize = -1; // Variable, needs to be calculated
                 break;
             default:
                 info.GameVersion = GameVersion.Unknown;
                 info.GameName = "Unknown";
+                info.Studio = "Unknown";
                 info.Platforms = new[] { "Unknown" };
                 info.HeaderSize = 12;
                 break;
