@@ -23,6 +23,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     {
         /// <summary>
         /// Parses a StringTable asset at the given offset using structure-based parsing.
+        /// NOTE: PC parsing is not currently supported - AssetRecordProcessor returns early for PC files.
+        /// This parser uses big-endian (console) byte order.
         /// </summary>
         public static StringTable? ParseStringTable(FastFile openedFastFile, int startingOffset)
         {
@@ -36,7 +38,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 return null;
             }
 
-            // Read the 16-byte header
+            // Read the 16-byte header (big-endian for console)
             // [0-3]: name pointer
             // [4-7]: columnCount
             // [8-11]: rowCount

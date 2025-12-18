@@ -17,6 +17,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
         private readonly bool _isCod5;
         private readonly bool _isMW2;
         private readonly bool _isXbox360;
+        private readonly bool _isPC;
 
         // Parsed asset collections for name lookups
         private readonly List<RawFileNode> _rawFiles;
@@ -91,6 +92,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 _isCod5 = _zoneFile.ParentFastFile.IsCod5File;
                 _isMW2 = _zoneFile.ParentFastFile.IsMW2File;
                 _isXbox360 = _zoneFile.ParentFastFile.IsXbox360;
+                _isPC = _zoneFile.ParentFastFile.IsPC;
             }
 
             // Default to big-endian
@@ -333,8 +335,14 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
         private int GetAssetTypeValue(ZoneAssetRecord record)
         {
+            if (_isCod4 && _isPC)
+                return (int)record.AssetType_COD4_PC;
+            if (_isCod4 && _isXbox360)
+                return (int)record.AssetType_COD4_Xbox360;
             if (_isCod4)
                 return (int)record.AssetType_COD4;
+            if (_isCod5 && _isPC)
+                return (int)record.AssetType_COD5_PC;
             if (_isCod5 && _isXbox360)
                 return (int)record.AssetType_COD5_Xbox360;
             if (_isCod5)
@@ -355,8 +363,14 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
         private string GetAssetTypeName(ZoneAssetRecord record)
         {
-            if (_isCod4)
+            if (_isCod4 && _isPC)
+                return record.AssetType_COD4_PC.ToString();
+            else if (_isCod4 && _isXbox360)
+                return record.AssetType_COD4_Xbox360.ToString();
+            else if (_isCod4)
                 return record.AssetType_COD4.ToString();
+            else if (_isCod5 && _isPC)
+                return record.AssetType_COD5_PC.ToString();
             else if (_isCod5 && _isXbox360)
                 return record.AssetType_COD5_Xbox360.ToString();
             else if (_isCod5)

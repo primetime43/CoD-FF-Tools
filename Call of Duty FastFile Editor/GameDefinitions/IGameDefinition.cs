@@ -30,6 +30,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         bool IsXbox360 { get; }
 
         /// <summary>
+        /// Whether this is a PC definition (uses little-endian byte order).
+        /// </summary>
+        bool IsPC { get; }
+
+        /// <summary>
         /// Console/PS3 version value.
         /// </summary>
         int VersionValue { get; }

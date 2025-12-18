@@ -139,6 +139,17 @@ namespace Call_of_Duty_FastFile_Editor.Services
         }
 
         /// <summary>
+        /// Reads a 4-byte unsigned integer from the given byte array at the specified offset in little-endian order.
+        /// </summary>
+        public static uint ReadUInt32LittleEndian(byte[] data, int offset)
+        {
+            if (offset + 4 > data.Length)
+                return 0;
+            return (uint)(data[offset] | (data[offset + 1] << 8) |
+                          (data[offset + 2] << 16) | (data[offset + 3] << 24));
+        }
+
+        /// <summary>
         /// Reads a null-terminated UTF8 string from the given byte array starting at the specified offset.
         /// </summary>
         public static string ReadNullTerminatedString(byte[] data, int offset)

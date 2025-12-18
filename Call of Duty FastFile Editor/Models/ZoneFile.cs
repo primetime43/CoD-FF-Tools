@@ -172,12 +172,14 @@ namespace Call_of_Duty_FastFile_Editor.Models
         }
 
         /// <summary>
-        /// Helper that looks up the offset for a header‑field name and reads a BE uint from Data.
+        /// Helper that looks up the offset for a header‑field name and reads a uint from Data.
+        /// Uses big-endian for console, little-endian for PC.
         /// </summary>
         private uint ReadField(string name)
         {
             int offset = _headerFieldOffsets[name];
-            return Utilities.ReadUInt32AtOffset(offset, this);
+            bool isBigEndian = !(ParentFastFile?.IsPC ?? false);
+            return Utilities.ReadUInt32AtOffset(offset, this, isBigEndian);
         }
     }
 }

@@ -16,7 +16,10 @@ namespace Call_of_Duty_FastFile_Editor.Models
     {
         public CoD5AssetTypePS3 AssetType_COD5 { get; set; }
         public CoD5AssetTypeXbox360 AssetType_COD5_Xbox360 { get; set; }
-        public CoD4AssetType AssetType_COD4 { get; set; }
+        public CoD5AssetTypePC AssetType_COD5_PC { get; set; }
+        public CoD4AssetTypePS3 AssetType_COD4 { get; set; }
+        public CoD4AssetTypeXbox360 AssetType_COD4_Xbox360 { get; set; }
+        public CoD4AssetTypePC AssetType_COD4_PC { get; set; }
         public MW2AssetType AssetType_MW2 { get; set; }
         public int HeaderStartOffset { get; set; }
         /// <summary>

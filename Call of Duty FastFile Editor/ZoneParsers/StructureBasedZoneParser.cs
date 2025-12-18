@@ -25,6 +25,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private readonly bool _isCod5;
         private readonly bool _isMW2;
         private readonly bool _isXbox360;
+        private readonly bool _isPC;
+        private readonly bool _isBigEndian;
 
         // Header size: 13 fields * 4 bytes = 52 bytes (0x34)
         private const int HEADER_SIZE = 0x34;
@@ -37,6 +39,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             _isCod5 = zone.ParentFastFile?.IsCod5File ?? false;
             _isMW2 = zone.ParentFastFile?.IsMW2File ?? false;
             _isXbox360 = zone.ParentFastFile?.IsXbox360 ?? false;
+            _isPC = zone.ParentFastFile?.IsPC ?? false;
+            _isBigEndian = !_isPC; // PC uses little-endian, consoles use big-endian
         }
 
         /// <summary>
@@ -90,23 +94,47 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 // Skip any padding between tags and asset pool, looking for either format
                 while (assetPoolStart + 8 <= _data.Length)
                 {
-                    // Format A: 00 00 00 XX FF FF FF FF (type first)
-                    if (_data[assetPoolStart] == 0x00 && _data[assetPoolStart + 1] == 0x00 &&
+                    // Format A (Big-Endian Console): 00 00 00 XX FF FF FF FF (type first)
+                    if (_isBigEndian &&
+                        _data[assetPoolStart] == 0x00 && _data[assetPoolStart + 1] == 0x00 &&
                         _data[assetPoolStart + 2] == 0x00 &&
                         _data[assetPoolStart + 4] == 0xFF && _data[assetPoolStart + 5] == 0xFF &&
                         _data[assetPoolStart + 6] == 0xFF && _data[assetPoolStart + 7] == 0xFF)
                     {
-                        Debug.WriteLine($"[StructureParser] Found Format A asset pool at 0x{assetPoolStart:X}");
+                        Debug.WriteLine($"[StructureParser] Found Format A (BE) asset pool at 0x{assetPoolStart:X}");
                         break;
                     }
 
-                    // Format B: FF FF FF FF 00 00 00 XX (pointer first)
-                    if (_data[assetPoolStart] == 0xFF && _data[assetPoolStart + 1] == 0xFF &&
+                    // Format A (Little-Endian PC): XX 00 00 00 FF FF FF FF (type first, LE)
+                    if (!_isBigEndian &&
+                        _data[assetPoolStart + 1] == 0x00 && _data[assetPoolStart + 2] == 0x00 &&
+                        _data[assetPoolStart + 3] == 0x00 &&
+                        _data[assetPoolStart + 4] == 0xFF && _data[assetPoolStart + 5] == 0xFF &&
+                        _data[assetPoolStart + 6] == 0xFF && _data[assetPoolStart + 7] == 0xFF)
+                    {
+                        Debug.WriteLine($"[StructureParser] Found Format A (LE) asset pool at 0x{assetPoolStart:X}");
+                        break;
+                    }
+
+                    // Format B (Big-Endian Console): FF FF FF FF 00 00 00 XX (pointer first)
+                    if (_isBigEndian &&
+                        _data[assetPoolStart] == 0xFF && _data[assetPoolStart + 1] == 0xFF &&
                         _data[assetPoolStart + 2] == 0xFF && _data[assetPoolStart + 3] == 0xFF &&
                         _data[assetPoolStart + 4] == 0x00 && _data[assetPoolStart + 5] == 0x00 &&
                         _data[assetPoolStart + 6] == 0x00)
                     {
-                        Debug.WriteLine($"[StructureParser] Found Format B asset pool at 0x{assetPoolStart:X}");
+                        Debug.WriteLine($"[StructureParser] Found Format B (BE) asset pool at 0x{assetPoolStart:X}");
+                        break;
+                    }
+
+                    // Format B (Little-Endian PC): FF FF FF FF XX 00 00 00 (pointer first, LE)
+                    if (!_isBigEndian &&
+                        _data[assetPoolStart] == 0xFF && _data[assetPoolStart + 1] == 0xFF &&
+                        _data[assetPoolStart + 2] == 0xFF && _data[assetPoolStart + 3] == 0xFF &&
+                        _data[assetPoolStart + 5] == 0x00 && _data[assetPoolStart + 6] == 0x00 &&
+                        _data[assetPoolStart + 7] == 0x00)
+                    {
+                        Debug.WriteLine($"[StructureParser] Found Format B (LE) asset pool at 0x{assetPoolStart:X}");
                         break;
                     }
 
@@ -250,6 +278,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             {
                 Debug.WriteLine($"[ReadAssetRecords] Detected Format B (pointer-first) at 0x{offset:X}");
             }
+            Debug.WriteLine($"[ReadAssetRecords] Using endianness: {(_isBigEndian ? "Big-Endian" : "Little-Endian")}");
 
             for (int i = 0; i < count && offset + 8 <= _data.Length; i++)
             {
@@ -271,7 +300,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         break;
                     }
 
-                    assetTypeInt = (int)Utilities.ReadUInt32AtOffset(offset + 4, _zone, isBigEndian: true);
+                    assetTypeInt = (int)Utilities.ReadUInt32AtOffset(offset + 4, _zone, isBigEndian: _isBigEndian);
                 }
                 else
                 {
@@ -287,7 +316,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         break;
                     }
 
-                    assetTypeInt = (int)Utilities.ReadUInt32AtOffset(offset, _zone, isBigEndian: true);
+                    assetTypeInt = (int)Utilities.ReadUInt32AtOffset(offset, _zone, isBigEndian: _isBigEndian);
                 }
 
                 if (!validRecord)
@@ -300,11 +329,18 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
                 if (_isCod4)
                 {
-                    record.AssetType_COD4 = (CoD4AssetType)assetTypeInt;
+                    if (_isPC)
+                        record.AssetType_COD4_PC = (CoD4AssetTypePC)assetTypeInt;
+                    else if (_isXbox360)
+                        record.AssetType_COD4_Xbox360 = (CoD4AssetTypeXbox360)assetTypeInt;
+                    else
+                        record.AssetType_COD4 = (CoD4AssetTypePS3)assetTypeInt;
                 }
                 else if (_isCod5)
                 {
-                    if (_isXbox360)
+                    if (_isPC)
+                        record.AssetType_COD5_PC = (CoD5AssetTypePC)assetTypeInt;
+                    else if (_isXbox360)
                         record.AssetType_COD5_Xbox360 = (CoD5AssetTypeXbox360)assetTypeInt;
                     else
                         record.AssetType_COD5 = (CoD5AssetTypePS3)assetTypeInt;
