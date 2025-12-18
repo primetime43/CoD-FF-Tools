@@ -1,6 +1,7 @@
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
 using FastFileLib;
+using FastFileLib.GameDefinitions;
 using System.Text;
 
 namespace Call_of_Duty_FastFile_Editor.IO

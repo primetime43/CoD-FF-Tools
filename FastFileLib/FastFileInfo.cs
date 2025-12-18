@@ -1,4 +1,5 @@
 using System.Text;
+using FastFileLib.GameDefinitions;
 
 namespace FastFileLib;
 
@@ -34,14 +35,14 @@ public class FastFileInfo
     public const string SignedMagic = "IWff0100";
     public const string TreyarchMagic = "TAff0100";
 
-    // Version constants
-    public const uint CoD4_PS3_Version = 0x01;
-    public const uint CoD4_PC_Version = 0x05;
-    public const uint CoD4_Wii_Version = 0x1A2;
-    public const uint WaW_Console_PC_Version = 0x183;
-    public const uint WaW_Wii_Version = 0x19B;
-    public const uint MW2_Console_Version = 0x10D;
-    public const uint MW2_PC_Version = 0x114;
+    // Version constants - reference the game definitions
+    public const uint CoD4_PS3_Version = (uint)CoD4Definition.VersionValue;
+    public const uint CoD4_PC_Version = (uint)CoD4Definition.PCVersionValue;
+    public const uint CoD4_Wii_Version = (uint)CoD4Definition.WiiVersionValue;
+    public const uint WaW_Console_PC_Version = (uint)CoD5Definition.VersionValue;
+    public const uint WaW_Wii_Version = (uint)CoD5Definition.WiiVersionValue;
+    public const uint MW2_Console_Version = (uint)MW2Definition.VersionValue;
+    public const uint MW2_PC_Version = (uint)MW2Definition.PCVersionValue;
 
     /// <summary>
     /// Reads FastFile header information from a file.

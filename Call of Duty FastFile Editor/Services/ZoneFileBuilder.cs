@@ -1,6 +1,7 @@
 using Call_of_Duty_FastFile_Editor.Constants;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
+using FastFileLib.GameDefinitions;
 using System.Diagnostics;
 using System.Text;
 

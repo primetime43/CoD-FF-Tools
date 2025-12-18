@@ -1,4 +1,4 @@
-namespace Call_of_Duty_FastFile_Editor.GameDefinitions
+namespace FastFileLib.GameDefinitions
 {
     /// <summary>
     /// Game-specific constants and definitions for Call of Duty: World at War.
@@ -15,7 +15,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public static readonly byte[] VersionBytes = { 0x00, 0x00, 0x01, 0x83 };
         public static readonly byte[] WiiVersionBytes = { 0x00, 0x00, 0x01, 0x9B };
 
-        // Memory allocation values (for zone building)
+        // Memory allocation values (for zone building) - PS3
         public static readonly byte[] MemAlloc1 = { 0x00, 0x00, 0x10, 0xB0 };
         public static readonly byte[] MemAlloc2 = { 0x00, 0x05, 0xF8, 0xF0 };
 
@@ -27,6 +27,12 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         // PC zone files use little-endian byte order for all multi-byte values
         public static readonly byte[] PCMemAlloc1 = { 0xB0, 0x10, 0x00, 0x00 };  // 0x10B0 in LE
         public static readonly byte[] PCMemAlloc2 = { 0xF0, 0xF8, 0x05, 0x00 };  // 0x05F8F0 in LE
+
+        // Memory allocation as uint values
+        public const uint MemAlloc1Value = 0x10B0;
+        public const uint MemAlloc2Value = 0x05F8F0;
+        public const uint Xbox360MemAlloc1Value = 0x0A90;
+        public const uint Xbox360MemAlloc2Value = 0x0;
 
         // PC MemAlloc1 value when read as little-endian uint32
         public const uint PCMemAlloc1ValueLE = 0x000010B0;

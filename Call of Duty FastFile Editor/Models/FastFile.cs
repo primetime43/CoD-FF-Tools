@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using FastFileLib;
+using FastFileLib.GameDefinitions;
 
 namespace Call_of_Duty_FastFile_Editor.Models
 {

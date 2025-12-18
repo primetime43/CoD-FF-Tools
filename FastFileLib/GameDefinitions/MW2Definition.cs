@@ -1,4 +1,4 @@
-namespace Call_of_Duty_FastFile_Editor.GameDefinitions
+namespace FastFileLib.GameDefinitions
 {
     /// <summary>
     /// Game-specific constants and definitions for Call of Duty: Modern Warfare 2.
@@ -17,6 +17,10 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         // Memory allocation values (for zone building)
         public static readonly byte[] MemAlloc1 = { 0x00, 0x00, 0x03, 0xB4 };
         public static readonly byte[] MemAlloc2 = { 0x00, 0x00, 0x10, 0x00 };
+
+        // Memory allocation as uint values
+        public const uint MemAlloc1Value = 0x03B4;
+        public const uint MemAlloc2Value = 0x1000;
 
         // Asset type IDs
         public const byte RawFileAssetType = 0x23;     // 35

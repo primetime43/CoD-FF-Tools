@@ -1,4 +1,5 @@
 using System.Text;
+using FastFileLib.GameDefinitions;
 using FastFileLib.Models;
 
 namespace FastFileLib;
@@ -668,31 +669,17 @@ public static class FastFileConverter
     /// </summary>
     private static (uint blockSizeTemp, uint blockSizeVertex) GetMemoryAllocationValues(GameVersion gameVersion, Platform platform)
     {
-        // Values from Zone.md documentation
+        // Values from game definitions
         return gameVersion switch
         {
-            GameVersion.CoD4 => platform switch
-            {
-                Platform.PS3 => (0x0F70u, 0x0u),
-                Platform.Xbox360 => (0x0F70u, 0x0u),
-                Platform.PC => (0x0F70u, 0x0u),
-                _ => (0x0F70u, 0x0u)
-            },
+            GameVersion.CoD4 => (CoD4Definition.MemAlloc1Value, CoD4Definition.MemAlloc2Value),
             GameVersion.WaW => platform switch
             {
-                Platform.PS3 => (0x10B0u, 0x05F8F0u),
-                Platform.Xbox360 => (0x10B0u, 0x0u), // Xbox doesn't use BlockSizeVertex
-                Platform.PC => (0x10B0u, 0x05F8F0u),
-                _ => (0x10B0u, 0x05F8F0u)
+                Platform.Xbox360 => (CoD5Definition.Xbox360MemAlloc1Value, CoD5Definition.Xbox360MemAlloc2Value),
+                _ => (CoD5Definition.MemAlloc1Value, CoD5Definition.MemAlloc2Value)
             },
-            GameVersion.MW2 => platform switch
-            {
-                Platform.PS3 => (0x03B4u, 0x1000u),
-                Platform.Xbox360 => (0x03B4u, 0x0u),
-                Platform.PC => (0x03B4u, 0x1000u),
-                _ => (0x03B4u, 0x1000u)
-            },
-            _ => (0x10B0u, 0x05F8F0u) // Default to WaW PS3 values
+            GameVersion.MW2 => (MW2Definition.MemAlloc1Value, MW2Definition.MemAlloc2Value),
+            _ => (CoD5Definition.MemAlloc1Value, CoD5Definition.MemAlloc2Value) // Default to WaW PS3 values
         };
     }
 

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.Services;
+using FastFileLib.GameDefinitions;
 
 namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 {

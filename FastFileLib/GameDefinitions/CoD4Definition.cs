@@ -1,4 +1,4 @@
-namespace Call_of_Duty_FastFile_Editor.GameDefinitions
+namespace FastFileLib.GameDefinitions
 {
     /// <summary>
     /// Game-specific constants and definitions for Call of Duty 4: Modern Warfare.
@@ -19,6 +19,10 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         // Memory allocation values (for zone building)
         public static readonly byte[] MemAlloc1 = { 0x00, 0x00, 0x0F, 0x70 };
         public static readonly byte[] MemAlloc2 = { 0x00, 0x00, 0x00, 0x00 };
+
+        // Memory allocation as uint values
+        public const uint MemAlloc1Value = 0x0F70;
+        public const uint MemAlloc2Value = 0x0;
     }
 
     /// <summary>

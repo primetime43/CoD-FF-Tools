@@ -1,4 +1,5 @@
 using Call_of_Duty_FastFile_Editor.Models;
+using FastFileLib.GameDefinitions;
 
 namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 {
