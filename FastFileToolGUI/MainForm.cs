@@ -256,18 +256,28 @@ public partial class MainForm : Form
                 return;
             }
 
-            // Parse version (big-endian)
-            uint version = (uint)((versionBytes[0] << 24) | (versionBytes[1] << 16) | (versionBytes[2] << 8) | versionBytes[3]);
+            // Try big-endian first (console format)
+            uint versionBE = (uint)((versionBytes[0] << 24) | (versionBytes[1] << 16) | (versionBytes[2] << 8) | versionBytes[3]);
+            // Little-endian (PC format)
+            uint versionLE = (uint)(versionBytes[0] | (versionBytes[1] << 8) | (versionBytes[2] << 16) | (versionBytes[3] << 24));
 
             // Detect game and platform
             string game = "Unknown";
             string platform = "Unknown";
+            uint version = versionBE;
 
-            if (VersionMap.TryGetValue(version, out var info))
+            // Try big-endian first (console format)
+            if (VersionMap.TryGetValue(versionBE, out var info))
             {
                 game = info.Game;
-                // Determine specific platform based on signed status
                 platform = DetermineSpecificPlatform(info.Platforms, isSigned);
+            }
+            // If big-endian didn't match and file is unsigned, try little-endian (PC)
+            else if (!isSigned && VersionMap.TryGetValue(versionLE, out info))
+            {
+                version = versionLE;
+                game = info.Game;
+                platform = "PC";
             }
 
             // Build info string
