@@ -84,6 +84,7 @@ namespace Call_of_Duty_FastFile_Editor
             collision_Map_AssetTabPage = new TabPage();
             treeViewMapEnt = new TreeView();
             localizeTabPage = new TabPage();
+            localizeInstructionLabel = new Label();
             localizeListView = new ListView();
             menuFilesTabPage = new TabPage();
             menuFilesSplitContainer = new SplitContainer();
@@ -105,6 +106,7 @@ namespace Call_of_Duty_FastFile_Editor
             imagesTabPage = new TabPage();
             imagesListView = new ListView();
             stringTablesTabPage = new TabPage();
+            stringTablesInstructionLabel = new Label();
             stringTablesListView = new ListView();
             zoneFileTabPage = new TabPage();
             zoneInfoDataGridView = new DataGridView();
@@ -624,10 +626,11 @@ namespace Call_of_Duty_FastFile_Editor
             treeViewMapEnt.Size = new Size(307, 749);
             treeViewMapEnt.TabIndex = 2;
             treeViewMapEnt.MouseDown += treeView_MouseDownCopy;
-            // 
+            //
             // localizeTabPage
-            // 
+            //
             localizeTabPage.Controls.Add(localizeListView);
+            localizeTabPage.Controls.Add(localizeInstructionLabel);
             localizeTabPage.Location = new Point(4, 24);
             localizeTabPage.Name = "localizeTabPage";
             localizeTabPage.Padding = new Padding(3);
@@ -635,14 +638,27 @@ namespace Call_of_Duty_FastFile_Editor
             localizeTabPage.TabIndex = 6;
             localizeTabPage.Text = "Localize";
             localizeTabPage.UseVisualStyleBackColor = true;
-            // 
+            //
+            // localizeInstructionLabel
+            //
+            localizeInstructionLabel.AutoSize = true;
+            localizeInstructionLabel.Dock = DockStyle.Top;
+            localizeInstructionLabel.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            localizeInstructionLabel.ForeColor = SystemColors.GrayText;
+            localizeInstructionLabel.Location = new Point(3, 3);
+            localizeInstructionLabel.Name = "localizeInstructionLabel";
+            localizeInstructionLabel.Padding = new Padding(0, 4, 0, 4);
+            localizeInstructionLabel.Size = new Size(300, 23);
+            localizeInstructionLabel.TabIndex = 1;
+            localizeInstructionLabel.Text = "Double-click an item to edit its value.";
+            //
             // localizeListView
             //
             localizeListView.ContextMenuStrip = universalContextMenu;
             localizeListView.Dock = DockStyle.Fill;
-            localizeListView.Location = new Point(3, 3);
+            localizeListView.Location = new Point(3, 26);
             localizeListView.Name = "localizeListView";
-            localizeListView.Size = new Size(1436, 743);
+            localizeListView.Size = new Size(1436, 720);
             localizeListView.TabIndex = 0;
             localizeListView.UseCompatibleStateImageBehavior = false;
             localizeListView.MouseDown += listView_MouseDownCopy;
@@ -857,6 +873,7 @@ namespace Call_of_Duty_FastFile_Editor
             // stringTablesTabPage
             //
             stringTablesTabPage.Controls.Add(stringTablesListView);
+            stringTablesTabPage.Controls.Add(stringTablesInstructionLabel);
             stringTablesTabPage.Location = new Point(4, 24);
             stringTablesTabPage.Name = "stringTablesTabPage";
             stringTablesTabPage.Padding = new Padding(3);
@@ -865,20 +882,32 @@ namespace Call_of_Duty_FastFile_Editor
             stringTablesTabPage.Text = "String Tables";
             stringTablesTabPage.UseVisualStyleBackColor = true;
             //
+            // stringTablesInstructionLabel
+            //
+            stringTablesInstructionLabel.AutoSize = true;
+            stringTablesInstructionLabel.Dock = DockStyle.Top;
+            stringTablesInstructionLabel.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            stringTablesInstructionLabel.ForeColor = SystemColors.GrayText;
+            stringTablesInstructionLabel.Location = new Point(3, 3);
+            stringTablesInstructionLabel.Name = "stringTablesInstructionLabel";
+            stringTablesInstructionLabel.Padding = new Padding(0, 4, 0, 4);
+            stringTablesInstructionLabel.Size = new Size(350, 23);
+            stringTablesInstructionLabel.TabIndex = 1;
+            stringTablesInstructionLabel.Text = "Double-click a string table to view its contents.";
+            //
             // stringTablesListView
             //
             stringTablesListView.ContextMenuStrip = universalContextMenu;
             stringTablesListView.Dock = DockStyle.Fill;
             stringTablesListView.FullRowSelect = true;
-            stringTablesListView.Location = new Point(3, 3);
+            stringTablesListView.Location = new Point(3, 26);
             stringTablesListView.Name = "stringTablesListView";
-            stringTablesListView.Size = new Size(1436, 743);
+            stringTablesListView.Size = new Size(1436, 720);
             stringTablesListView.TabIndex = 0;
             stringTablesListView.UseCompatibleStateImageBehavior = false;
             stringTablesListView.View = View.Details;
             stringTablesListView.MouseDown += listView_MouseDownCopy;
             stringTablesListView.DoubleClick += stringTablesListView_DoubleClick;
-            filesTreeToolTip.SetToolTip(stringTablesListView, "Double-click a string table to view its contents.");
             //
             // zoneFileTabPage
             //
@@ -1021,8 +1050,10 @@ namespace Call_of_Duty_FastFile_Editor
         private TabPage imagesTabPage;
         private ListView imagesListView;
         private TabPage stringTablesTabPage;
+        private Label stringTablesInstructionLabel;
         private ListView stringTablesListView;
         private TabPage localizeTabPage;
+        private Label localizeInstructionLabel;
         private ListView localizeListView;
         private TabPage menuFilesTabPage;
         private SplitContainer menuFilesSplitContainer;
