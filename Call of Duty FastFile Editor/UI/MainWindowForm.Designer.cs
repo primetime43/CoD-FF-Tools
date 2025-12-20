@@ -56,6 +56,7 @@ namespace Call_of_Duty_FastFile_Editor
             rawFileToolsMenuItem = new ToolStripMenuItem();
             reloadRawFilesPatternMatchingToolStripMenuItem = new ToolStripMenuItem();
             increaseRawFileSizeToolStripMenuItem = new ToolStripMenuItem();
+            transferSpaceToolStripMenuItem = new ToolStripMenuItem();
             searchRawFileTxtMenuItem = new ToolStripMenuItem();
             injectFileToolStripMenuItem = new ToolStripMenuItem();
             extractAllRawFilesToolStripMenuItem = new ToolStripMenuItem();
@@ -368,10 +369,18 @@ namespace Call_of_Duty_FastFile_Editor
             //
             // rawFileToolsMenuItem
             //
-            rawFileToolsMenuItem.DropDownItems.AddRange(new ToolStripItem[] { injectFileToolStripMenuItem, extractAllRawFilesToolStripMenuItem, toolStripSeparator5, increaseRawFileSizeToolStripMenuItem, searchRawFileTxtMenuItem, reloadRawFilesPatternMatchingToolStripMenuItem });
+            rawFileToolsMenuItem.DropDownItems.AddRange(new ToolStripItem[] { injectFileToolStripMenuItem, extractAllRawFilesToolStripMenuItem, toolStripSeparator5, increaseRawFileSizeToolStripMenuItem, transferSpaceToolStripMenuItem, searchRawFileTxtMenuItem, reloadRawFilesPatternMatchingToolStripMenuItem });
             rawFileToolsMenuItem.Name = "rawFileToolsMenuItem";
             rawFileToolsMenuItem.Size = new Size(210, 24);
             rawFileToolsMenuItem.Text = "Raw Files";
+            //
+            // transferSpaceToolStripMenuItem
+            //
+            transferSpaceToolStripMenuItem.Name = "transferSpaceToolStripMenuItem";
+            transferSpaceToolStripMenuItem.Size = new Size(316, 24);
+            transferSpaceToolStripMenuItem.Text = "Transfer Space Between Files...";
+            transferSpaceToolStripMenuItem.ToolTipText = "Transfer allocated space from one raw file to another without losing content";
+            transferSpaceToolStripMenuItem.Click += transferSpaceToolStripMenuItem_Click;
             //
             // toolStripSeparator5
             //
@@ -387,11 +396,12 @@ namespace Call_of_Duty_FastFile_Editor
             reloadRawFilesPatternMatchingToolStripMenuItem.Click += reloadRawFilesPatternMatchingToolStripMenuItem_Click;
             // 
             // increaseRawFileSizeToolStripMenuItem
-            // 
+            //
             increaseRawFileSizeToolStripMenuItem.Name = "increaseRawFileSizeToolStripMenuItem";
             increaseRawFileSizeToolStripMenuItem.Size = new Size(316, 24);
             increaseRawFileSizeToolStripMenuItem.Text = "Increase Raw File Size";
-            // 
+            increaseRawFileSizeToolStripMenuItem.Click += increaseFileSizeToolStripMenuItem_Click;
+            //
             // searchRawFileTxtMenuItem
             // 
             searchRawFileTxtMenuItem.Name = "searchRawFileTxtMenuItem";
@@ -1037,6 +1047,7 @@ namespace Call_of_Duty_FastFile_Editor
         private TreeView treeViewMapEnt;
         private ToolStripMenuItem rawFileToolsMenuItem;
         private ToolStripMenuItem increaseRawFileSizeToolStripMenuItem;
+        private ToolStripMenuItem transferSpaceToolStripMenuItem;
         private TabPage assetPoolTabPage;
         private ListView assetPoolListView;
         private TabPage techSetsTabPage;

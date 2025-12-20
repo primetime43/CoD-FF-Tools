@@ -585,5 +585,204 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 Array.Reverse(bytes);
             return bytes;
         }
+
+        /// <summary>
+        /// Transfers allocated space from one raw file to another by modifying the zone in-place.
+        /// This preserves ALL assets in the zone, not just raw files and localized entries.
+        /// </summary>
+        /// <param name="zoneData">The original zone data.</param>
+        /// <param name="donor">The raw file giving up space.</param>
+        /// <param name="recipient">The raw file receiving space.</param>
+        /// <param name="bytesToTransfer">Number of bytes to transfer.</param>
+        /// <param name="allRawFiles">All raw file nodes for position tracking.</param>
+        /// <returns>Modified zone data, or null if transfer failed.</returns>
+        public static byte[]? TransferSpaceInPlace(
+            byte[] zoneData,
+            RawFileNode donor,
+            RawFileNode recipient,
+            int bytesToTransfer,
+            List<RawFileNode> allRawFiles)
+        {
+            if (zoneData == null || donor == null || recipient == null || allRawFiles == null)
+            {
+                Debug.WriteLine("[ZoneFileBuilder] TransferSpaceInPlace: Invalid parameters.");
+                return null;
+            }
+
+            // Validate transfer amount
+            int donorFreeSpace = donor.MaxSize - (donor.RawFileBytes?.Length ?? 0);
+            if (bytesToTransfer > donorFreeSpace)
+            {
+                Debug.WriteLine($"[ZoneFileBuilder] Transfer amount ({bytesToTransfer}) exceeds donor free space ({donorFreeSpace}).");
+                return null;
+            }
+
+            try
+            {
+                // Sort raw files by their position in the zone
+                var sortedFiles = allRawFiles.OrderBy(f => f.CodeStartPosition).ToList();
+
+                // Find positions of donor and recipient
+                int donorIndex = sortedFiles.FindIndex(f => f.FileName == donor.FileName);
+                int recipientIndex = sortedFiles.FindIndex(f => f.FileName == recipient.FileName);
+
+                if (donorIndex < 0 || recipientIndex < 0)
+                {
+                    Debug.WriteLine("[ZoneFileBuilder] Could not find donor or recipient in file list.");
+                    return null;
+                }
+
+                Debug.WriteLine($"[TransferSpaceInPlace] Donor '{donor.FileName}' at index {donorIndex}, position 0x{donor.CodeStartPosition:X}");
+                Debug.WriteLine($"[TransferSpaceInPlace] Recipient '{recipient.FileName}' at index {recipientIndex}, position 0x{recipient.CodeStartPosition:X}");
+                Debug.WriteLine($"[TransferSpaceInPlace] Transferring {bytesToTransfer} bytes");
+
+                // Create output buffer - same size as input since we're just moving space around
+                byte[] newZoneData = new byte[zoneData.Length];
+
+                // Calculate the positions where we need to make changes
+                // Donor's content ends at CodeStartPosition + MaxSize (plus null byte)
+                // Recipient's content ends at CodeStartPosition + MaxSize (plus null byte)
+
+                int donorContentEnd = donor.CodeStartPosition + donor.MaxSize; // End of donor's allocated space
+                int recipientContentEnd = recipient.CodeStartPosition + recipient.MaxSize; // End of recipient's allocated space
+
+                if (donorIndex < recipientIndex)
+                {
+                    // Donor is before recipient in the zone
+                    // 1. Copy everything up to donor's new end position
+                    // 2. Shift data between donor and recipient LEFT by bytesToTransfer
+                    // 3. Copy recipient with expanded size
+                    // 4. Copy everything after recipient
+
+                    int newDonorContentEnd = donorContentEnd - bytesToTransfer;
+
+                    // Copy everything before donor's content end change
+                    Array.Copy(zoneData, 0, newZoneData, 0, newDonorContentEnd);
+
+                    // Update donor's size in header (at StartOfFileHeader + 4)
+                    int newDonorSize = donor.MaxSize - bytesToTransfer;
+                    WriteBigEndianUInt32(newZoneData, donor.StartOfFileHeader + 4, (uint)newDonorSize);
+
+                    // Copy data from after donor's old end to recipient's content start, shifted left
+                    int shiftSourceStart = donorContentEnd;
+                    int shiftDestStart = newDonorContentEnd;
+                    int shiftLength = recipient.CodeStartPosition - donorContentEnd;
+
+                    if (shiftLength > 0)
+                    {
+                        Array.Copy(zoneData, shiftSourceStart, newZoneData, shiftDestStart, shiftLength);
+                    }
+
+                    // Calculate recipient's new position (shifted left)
+                    int newRecipientHeaderStart = recipient.StartOfFileHeader - bytesToTransfer;
+                    int newRecipientCodeStart = recipient.CodeStartPosition - bytesToTransfer;
+
+                    // Copy recipient's header and filename (shifted left)
+                    int recipientHeaderAndNameLen = recipient.CodeStartPosition - recipient.StartOfFileHeader;
+                    Array.Copy(zoneData, recipient.StartOfFileHeader, newZoneData, newRecipientHeaderStart, recipientHeaderAndNameLen);
+
+                    // Update recipient's size in header
+                    int newRecipientSize = recipient.MaxSize + bytesToTransfer;
+                    WriteBigEndianUInt32(newZoneData, newRecipientHeaderStart + 4, (uint)newRecipientSize);
+
+                    // Copy recipient's original content
+                    Array.Copy(zoneData, recipient.CodeStartPosition, newZoneData, newRecipientCodeStart, recipient.MaxSize);
+
+                    // Fill the extra space with nulls (the transferred bytes)
+                    int extraSpaceStart = newRecipientCodeStart + recipient.MaxSize;
+                    for (int i = 0; i < bytesToTransfer; i++)
+                    {
+                        newZoneData[extraSpaceStart + i] = 0x00;
+                    }
+
+                    // Copy null terminator
+                    newZoneData[extraSpaceStart + bytesToTransfer] = 0x00;
+
+                    // Copy everything after recipient (no shift needed, total size unchanged)
+                    int afterRecipientSrc = recipientContentEnd + 1; // +1 for null terminator
+                    int afterRecipientDst = extraSpaceStart + bytesToTransfer + 1;
+                    int afterRecipientLen = zoneData.Length - afterRecipientSrc;
+
+                    if (afterRecipientLen > 0 && afterRecipientDst + afterRecipientLen <= newZoneData.Length)
+                    {
+                        Array.Copy(zoneData, afterRecipientSrc, newZoneData, afterRecipientDst, afterRecipientLen);
+                    }
+                }
+                else
+                {
+                    // Recipient is before donor in the zone
+                    // 1. Copy everything up to recipient's content end
+                    // 2. Expand recipient's allocated area
+                    // 3. Shift data between recipient and donor RIGHT by bytesToTransfer
+                    // 4. Shrink donor's allocated area
+                    // 5. Copy everything after donor
+
+                    // Copy everything up to recipient's header
+                    Array.Copy(zoneData, 0, newZoneData, 0, recipient.StartOfFileHeader);
+
+                    // Copy recipient header with updated size
+                    int recipientHeaderLen = recipient.CodeStartPosition - recipient.StartOfFileHeader;
+                    Array.Copy(zoneData, recipient.StartOfFileHeader, newZoneData, recipient.StartOfFileHeader, recipientHeaderLen);
+
+                    int newRecipientSize = recipient.MaxSize + bytesToTransfer;
+                    WriteBigEndianUInt32(newZoneData, recipient.StartOfFileHeader + 4, (uint)newRecipientSize);
+
+                    // Copy recipient's original content
+                    Array.Copy(zoneData, recipient.CodeStartPosition, newZoneData, recipient.CodeStartPosition, recipient.MaxSize);
+
+                    // Add extra space (transferred bytes) as nulls
+                    int extraSpaceStart = recipient.CodeStartPosition + recipient.MaxSize;
+                    for (int i = 0; i < bytesToTransfer; i++)
+                    {
+                        newZoneData[extraSpaceStart + i] = 0x00;
+                    }
+                    newZoneData[extraSpaceStart + bytesToTransfer] = 0x00; // null terminator
+
+                    // Copy data between recipient and donor, shifted RIGHT
+                    int shiftSourceStart = recipientContentEnd + 1;
+                    int shiftDestStart = extraSpaceStart + bytesToTransfer + 1;
+                    int shiftLength = donor.StartOfFileHeader - (recipientContentEnd + 1);
+
+                    if (shiftLength > 0)
+                    {
+                        Array.Copy(zoneData, shiftSourceStart, newZoneData, shiftDestStart, shiftLength);
+                    }
+
+                    // Calculate donor's new position (shifted right)
+                    int newDonorHeaderStart = donor.StartOfFileHeader + bytesToTransfer;
+                    int newDonorCodeStart = donor.CodeStartPosition + bytesToTransfer;
+
+                    // Copy donor's header and filename (shifted right)
+                    int donorHeaderAndNameLen = donor.CodeStartPosition - donor.StartOfFileHeader;
+                    Array.Copy(zoneData, donor.StartOfFileHeader, newZoneData, newDonorHeaderStart, donorHeaderAndNameLen);
+
+                    // Update donor's size in header
+                    int newDonorSize = donor.MaxSize - bytesToTransfer;
+                    WriteBigEndianUInt32(newZoneData, newDonorHeaderStart + 4, (uint)newDonorSize);
+
+                    // Copy donor's content (only up to new size)
+                    Array.Copy(zoneData, donor.CodeStartPosition, newZoneData, newDonorCodeStart, newDonorSize);
+                    newZoneData[newDonorCodeStart + newDonorSize] = 0x00; // null terminator
+
+                    // Copy everything after donor (positions stay the same since total size unchanged)
+                    int afterDonorSrc = donorContentEnd + 1;
+                    int afterDonorDst = newDonorCodeStart + newDonorSize + 1;
+                    int afterDonorLen = zoneData.Length - afterDonorSrc;
+
+                    if (afterDonorLen > 0 && afterDonorDst + afterDonorLen <= newZoneData.Length)
+                    {
+                        Array.Copy(zoneData, afterDonorSrc, newZoneData, afterDonorDst, afterDonorLen);
+                    }
+                }
+
+                Debug.WriteLine($"[TransferSpaceInPlace] Transfer complete. Zone size: {newZoneData.Length} bytes");
+                return newZoneData;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ZoneFileBuilder] TransferSpaceInPlace failed: {ex.Message}\n{ex.StackTrace}");
+                return null;
+            }
+        }
     }
 }

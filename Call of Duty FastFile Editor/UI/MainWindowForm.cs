@@ -3464,6 +3464,23 @@ namespace Call_of_Duty_FastFile_Editor
             if (selectedNode == null)
                 return;
 
+            // Show warning about how this feature works
+            var warningResult = MessageBox.Show(
+                "WARNING: Increasing Raw File Size\n\n" +
+                "This operation will REBUILD the zone file from scratch. This means:\n\n" +
+                "  - Raw files will be preserved\n" +
+                "  - Localized entries will be preserved\n" +
+                "  - OTHER ASSETS WILL BE LOST (weapons, images, xanims, etc.)\n\n" +
+                "Alternative: Use 'Transfer Space Between Files' to move space from another\n" +
+                "raw file to this one. This preserves ALL assets.\n\n" +
+                "Do you want to continue with the rebuild method?",
+                "Increase File Size - Warning",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+
+            if (warningResult != DialogResult.Yes)
+                return;
+
             // Create the size adjust dialog and pass in the current file size.
             using (RawFileSizeAdjust sizeAdjustDialog = new RawFileSizeAdjust())
             {
@@ -3512,15 +3529,133 @@ namespace Call_of_Duty_FastFile_Editor
                         // Write the new zone data
                         File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
 
-                        MessageBox.Show($"File '{selectedNode.FileName}' size increased to {newSize} bytes successfully.\nZone file rebuilt.",
+                        // Recompress zone back to FF
+                        _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+
+                        MessageBox.Show($"File '{selectedNode.FileName}' size increased to {newSize} bytes successfully.\nZone file rebuilt and FF updated.",
                             "Size Increase Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                         RefreshZoneData();
                         ReloadAllRawFileNodesAndUI();
+
+                        // Clean up zone file if keep option is not checked
+                        if (!keepZoneFileToolStripMenuItem.Checked && File.Exists(_openedFastFile.ZoneFilePath))
+                        {
+                            try { File.Delete(_openedFastFile.ZoneFilePath); } catch { }
+                        }
                     }
                     catch (Exception ex)
                     {
                         MessageBox.Show($"Error increasing file size: {ex.Message}",
+                            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Opens the Space Transfer dialog to move allocated space between raw files.
+        /// </summary>
+        private void transferSpaceToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (_rawFileNodes == null || _rawFileNodes.Count == 0)
+            {
+                MessageBox.Show("No raw files are loaded.", "No Files", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            using (var transferForm = new SpaceTransferForm(_rawFileNodes))
+            {
+                if (transferForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    try
+                    {
+                        var donor = transferForm.SelectedDonor;
+                        var recipient = transferForm.SelectedRecipient;
+                        int bytesToTransfer = transferForm.BytesToTransfer;
+                        bool useInPlace = transferForm.UseInPlaceTransfer;
+
+                        // Store old values in case we need to revert
+                        int oldDonorSize = donor.MaxSize;
+                        int oldRecipientSize = recipient.MaxSize;
+                        byte[] currentRecipientContent = recipient.RawFileBytes ?? Array.Empty<byte>();
+
+                        byte[]? newZoneData;
+
+                        if (useInPlace)
+                        {
+                            // In-place transfer - preserves all assets
+                            byte[] currentZoneData = File.ReadAllBytes(_openedFastFile.ZoneFilePath);
+                            newZoneData = ZoneFileBuilder.TransferSpaceInPlace(
+                                currentZoneData,
+                                donor,
+                                recipient,
+                                bytesToTransfer,
+                                _rawFileNodes);
+                        }
+                        else
+                        {
+                            // Rebuild mode - only keeps raw files and localized entries
+                            // Update sizes first
+                            donor.MaxSize -= bytesToTransfer;
+                            recipient.MaxSize += bytesToTransfer;
+
+                            // Expand recipient's byte array to new size
+                            byte[] newRecipientContent = new byte[recipient.MaxSize];
+                            Array.Copy(currentRecipientContent, newRecipientContent, Math.Min(currentRecipientContent.Length, recipient.MaxSize));
+                            recipient.RawFileBytes = newRecipientContent;
+                            recipient.RawFileContent = System.Text.Encoding.Default.GetString(newRecipientContent);
+
+                            newZoneData = ZoneFileBuilder.BuildFreshZone(
+                                _rawFileNodes,
+                                _localizedEntries,
+                                _openedFastFile,
+                                Path.GetFileNameWithoutExtension(_openedFastFile.FastFileName));
+                        }
+
+                        if (newZoneData == null)
+                        {
+                            // Revert the changes if using rebuild mode
+                            if (!useInPlace)
+                            {
+                                donor.MaxSize = oldDonorSize;
+                                recipient.MaxSize = oldRecipientSize;
+                                recipient.RawFileBytes = currentRecipientContent;
+                                recipient.RawFileContent = System.Text.Encoding.Default.GetString(currentRecipientContent);
+                            }
+
+                            MessageBox.Show("Failed to transfer space. Changes have been reverted.",
+                                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            return;
+                        }
+
+                        // Write the new zone data
+                        File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
+
+                        // Recompress zone back to FF
+                        _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+
+                        string modeText = useInPlace ? "All assets preserved." : "Zone rebuilt (raw files and localized entries only).";
+
+                        MessageBox.Show(
+                            $"Space transfer complete!\n\n" +
+                            $"Donor '{Path.GetFileName(donor.FileName)}': {oldDonorSize:N0} -> {(useInPlace ? oldDonorSize - bytesToTransfer : donor.MaxSize):N0} bytes\n" +
+                            $"Recipient '{Path.GetFileName(recipient.FileName)}': {oldRecipientSize:N0} -> {(useInPlace ? oldRecipientSize + bytesToTransfer : recipient.MaxSize):N0} bytes\n\n" +
+                            modeText,
+                            "Transfer Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                        RefreshZoneData();
+                        ReloadAllRawFileNodesAndUI();
+
+                        // Clean up zone file if keep option is not checked
+                        if (!keepZoneFileToolStripMenuItem.Checked && File.Exists(_openedFastFile.ZoneFilePath))
+                        {
+                            try { File.Delete(_openedFastFile.ZoneFilePath); } catch { }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error transferring space: {ex.Message}",
                             "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }
@@ -4170,6 +4305,9 @@ namespace Call_of_Duty_FastFile_Editor
                 // Write the new zone data to disk
                 File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
 
+                // Recompress zone back to FF
+                _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+
                 // Remove from TreeView
                 filesTreeView.Nodes.Remove(filesTreeView.SelectedNode);
 
@@ -4178,6 +4316,12 @@ namespace Call_of_Duty_FastFile_Editor
 
                 // Reload to ensure everything is in sync
                 ReloadAllRawFileNodesAndUI();
+
+                // Clean up zone file if keep option is not checked
+                if (!keepZoneFileToolStripMenuItem.Checked && File.Exists(_openedFastFile.ZoneFilePath))
+                {
+                    try { File.Delete(_openedFastFile.ZoneFilePath); } catch { }
+                }
             }
             catch (Exception ex)
             {

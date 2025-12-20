@@ -19,6 +19,9 @@
     <Compile Update="UI\RenameDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="UI\SpaceTransferForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="UI\StringTableViewerForm.cs">
       <SubType>Form</SubType>
     </Compile>
