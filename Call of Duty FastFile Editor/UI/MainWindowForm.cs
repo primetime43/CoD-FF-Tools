@@ -207,10 +207,15 @@ namespace Call_of_Duty_FastFile_Editor
             if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
             {
                 var files = e.Data.GetData(DataFormats.FileDrop) as string[];
-                if (files?.Length == 1 && files[0].EndsWith(".ff", StringComparison.OrdinalIgnoreCase))
+                if (files?.Length == 1)
                 {
-                    e.Effect = DragDropEffects.Copy;
-                    return;
+                    string file = files[0];
+                    if (file.EndsWith(".ff", StringComparison.OrdinalIgnoreCase) ||
+                        file.EndsWith(".zone", StringComparison.OrdinalIgnoreCase))
+                    {
+                        e.Effect = DragDropEffects.Copy;
+                        return;
+                    }
                 }
             }
             e.Effect = DragDropEffects.None;
@@ -222,10 +227,15 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
 
             string filePath = files[0];
-            if (!filePath.EndsWith(".ff", StringComparison.OrdinalIgnoreCase))
-                return;
 
-            OpenFastFileAutoDetect(filePath);
+            if (filePath.EndsWith(".ff", StringComparison.OrdinalIgnoreCase))
+            {
+                OpenFastFileAutoDetect(filePath);
+            }
+            else if (filePath.EndsWith(".zone", StringComparison.OrdinalIgnoreCase))
+            {
+                OpenZoneFileFromPath(filePath);
+            }
         }
 
         /// <summary>
@@ -4335,11 +4345,6 @@ namespace Call_of_Duty_FastFile_Editor
 
         private void openZoneFileToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (_openedFastFile != null)
-            {
-                SaveCloseFastFileAndCleanUp();
-            }
-
             using var openFileDialog = new OpenFileDialog
             {
                 Title = "Select a Zone File",
@@ -4350,7 +4355,19 @@ namespace Call_of_Duty_FastFile_Editor
             if (openFileDialog.ShowDialog() != DialogResult.OK)
                 return;
 
-            string zonePath = openFileDialog.FileName;
+            OpenZoneFileFromPath(openFileDialog.FileName);
+        }
+
+        /// <summary>
+        /// Opens a zone file from the specified path.
+        /// </summary>
+        /// <param name="zonePath">Path to the .zone file</param>
+        private void OpenZoneFileFromPath(string zonePath)
+        {
+            if (_openedFastFile != null)
+            {
+                SaveCloseFastFileAndCleanUp();
+            }
 
             // Detect game version from zone file
             GameType? detectedType = FastFile.DetectGameTypeFromZone(zonePath);
