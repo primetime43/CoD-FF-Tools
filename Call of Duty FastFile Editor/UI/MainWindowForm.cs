@@ -461,23 +461,121 @@ namespace Call_of_Duty_FastFile_Editor
 
         /// <summary>
         /// Populates the TreeView with TreeNodes corresponding to RawFileNodes.
+        /// Groups files by folder and sorts alphabetically for better organization.
         /// </summary>
         private void LoadRawFilesTreeView()
         {
             // Clear existing nodes to avoid duplication
             filesTreeView.Nodes.Clear();
+            filesTreeView.BeginUpdate();
 
-            var treeNodes = _rawFileNodes.Select(node =>
+            try
             {
-                var treeNode = new TreeNode(node.FileName)
-                {
-                    Tag = node // Associate TreeNode with RawFileNode via Tag
-                };
-                return treeNode;
-            }).ToArray();
+                // Dictionary to hold folder nodes for quick lookup
+                var folderNodes = new Dictionary<string, TreeNode>(StringComparer.OrdinalIgnoreCase);
 
-            filesTreeView.Nodes.AddRange(treeNodes);
+                // Sort raw file nodes alphabetically by filename for display
+                var sortedNodes = _rawFileNodes.OrderBy(n => n.FileName, StringComparer.OrdinalIgnoreCase).ToList();
+
+                foreach (var rawFileNode in sortedNodes)
+                {
+                    var fileName = rawFileNode.FileName;
+                    var lastSlash = fileName.LastIndexOf('/');
+
+                    if (lastSlash > 0)
+                    {
+                        // File is in a folder - extract folder path and file name
+                        var folderPath = fileName.Substring(0, lastSlash);
+                        var displayName = fileName.Substring(lastSlash + 1);
+
+                        // Get or create the folder node hierarchy
+                        var parentNode = GetOrCreateFolderNode(folderNodes, folderPath, filesTreeView.Nodes);
+
+                        // Create file node under the folder
+                        var fileNode = new TreeNode(fileName) // Keep full path as node text for compatibility
+                        {
+                            Tag = rawFileNode
+                        };
+                        parentNode.Nodes.Add(fileNode);
+                    }
+                    else
+                    {
+                        // File is at root level
+                        var fileNode = new TreeNode(fileName)
+                        {
+                            Tag = rawFileNode
+                        };
+                        filesTreeView.Nodes.Add(fileNode);
+                    }
+                }
+
+                // Sort root-level nodes (folders first, then files, all alphabetically)
+                SortTreeNodes(filesTreeView.Nodes);
+            }
+            finally
+            {
+                filesTreeView.EndUpdate();
+            }
+
             UIManager.SetRawFileTreeNodeColors(filesTreeView);
+        }
+
+        /// <summary>
+        /// Gets or creates a folder node hierarchy for the given folder path.
+        /// </summary>
+        private TreeNode GetOrCreateFolderNode(Dictionary<string, TreeNode> folderNodes, string folderPath, TreeNodeCollection rootNodes)
+        {
+            if (folderNodes.TryGetValue(folderPath, out var existingNode))
+                return existingNode;
+
+            // Check if this folder has a parent folder
+            var lastSlash = folderPath.LastIndexOf('/');
+            TreeNodeCollection parentCollection;
+
+            if (lastSlash > 0)
+            {
+                var parentPath = folderPath.Substring(0, lastSlash);
+                var parentNode = GetOrCreateFolderNode(folderNodes, parentPath, rootNodes);
+                parentCollection = parentNode.Nodes;
+            }
+            else
+            {
+                parentCollection = rootNodes;
+            }
+
+            // Create the folder node
+            var folderName = lastSlash > 0 ? folderPath.Substring(lastSlash + 1) : folderPath;
+            var newFolderNode = new TreeNode(folderName)
+            {
+                Tag = null // Folder nodes don't have an associated RawFileNode
+            };
+            parentCollection.Add(newFolderNode);
+            folderNodes[folderPath] = newFolderNode;
+
+            return newFolderNode;
+        }
+
+        /// <summary>
+        /// Sorts tree nodes alphabetically with folders first, then files.
+        /// </summary>
+        private void SortTreeNodes(TreeNodeCollection nodes)
+        {
+            var nodeList = nodes.Cast<TreeNode>().ToList();
+
+            // Sort: folders (Tag == null) first, then files, both alphabetically
+            var sorted = nodeList
+                .OrderBy(n => n.Tag != null ? 1 : 0) // Folders first
+                .ThenBy(n => n.Text, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            nodes.Clear();
+            foreach (var node in sorted)
+            {
+                nodes.Add(node);
+                // Recursively sort child nodes
+                if (node.Nodes.Count > 0)
+                    SortTreeNodes(node.Nodes);
+            }
         }
 
         /// <summary>

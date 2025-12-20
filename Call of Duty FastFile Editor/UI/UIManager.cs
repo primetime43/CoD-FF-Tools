@@ -68,31 +68,43 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
         public static void SetRawFileTreeNodeColors(TreeView treeView)
         {
-            foreach (TreeNode node in treeView.Nodes)
+            SetNodeColorsRecursive(treeView.Nodes);
+        }
+
+        private static void SetNodeColorsRecursive(TreeNodeCollection nodes)
+        {
+            foreach (TreeNode node in nodes)
             {
+                // Apply colors based on file extension
                 if (node.Text.Contains(".cfg"))
                 {
                     node.ForeColor = Color.Black;
                 }
-                if (node.Text.Contains(".gsc"))
+                else if (node.Text.Contains(".gsc"))
                 {
                     node.ForeColor = Color.Blue;
                 }
-                if (node.Text.Contains(".atr"))
+                else if (node.Text.Contains(".atr"))
                 {
                     node.ForeColor = Color.Green;
                 }
-                if (node.Text.Contains(".vision"))
+                else if (node.Text.Contains(".vision"))
                 {
                     node.ForeColor = Color.DarkViolet;
                 }
-                if (node.Text.Contains(".rmb"))
+                else if (node.Text.Contains(".rmb"))
                 {
                     node.ForeColor = Color.Brown;
                 }
-                if (node.Text.Contains(".csc"))
+                else if (node.Text.Contains(".csc"))
                 {
                     node.ForeColor = Color.Red;
+                }
+
+                // Recursively process child nodes (files inside folders)
+                if (node.Nodes.Count > 0)
+                {
+                    SetNodeColorsRecursive(node.Nodes);
                 }
             }
         }
