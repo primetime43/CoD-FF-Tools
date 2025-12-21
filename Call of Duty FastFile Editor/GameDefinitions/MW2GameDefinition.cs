@@ -7,26 +7,87 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 {
     /// <summary>
     /// Game definition implementation for Call of Duty: Modern Warfare 2.
-    /// MW2 may have different rawfile structure compared to CoD4/CoD5.
+    /// Supports PS3, Xbox 360, and PC with platform-specific asset type IDs.
+    /// MW2 uses a different rawfile structure compared to CoD4/CoD5 (16-byte header with optional compression).
     /// </summary>
     public class MW2GameDefinition : GameDefinitionBase
     {
+        /// <summary>
+        /// Creates a MW2 game definition for PS3 (default).
+        /// </summary>
+        public MW2GameDefinition() : this(isXbox360: false, isPC: false) { }
+
+        /// <summary>
+        /// Creates a MW2 game definition for the specified platform.
+        /// </summary>
+        /// <param name="isXbox360">True for Xbox 360.</param>
+        /// <param name="isPC">True for PC.</param>
+        public MW2GameDefinition(bool isXbox360, bool isPC = false)
+        {
+            IsXbox360 = isXbox360;
+            IsPC = isPC;
+        }
+
         public override string GameName => MW2Definition.GameName;
-        public override string ShortName => "MW2";
+        public override string ShortName => IsPC ? "MW2 (PC)" : (IsXbox360 ? "MW2 (Xbox)" : "MW2");
         public override int VersionValue => MW2Definition.VersionValue;
         public override int PCVersionValue => MW2Definition.PCVersionValue;
         public override byte[] VersionBytes => MW2Definition.VersionBytes;
-        public override byte RawFileAssetType => MW2Definition.RawFileAssetType;
-        public override byte LocalizeAssetType => MW2Definition.LocalizeAssetType;
-        public override byte MenuFileAssetType => 0x19; // menufile type for MW2
-        public override byte XAnimAssetType => MW2Definition.XAnimAssetType;
-        public override byte StringTableAssetType => MW2Definition.StringTableAssetType;
+
+        // Platform-aware asset type IDs
+        // Xbox 360 doesn't have vertexshader (0x07), so all types >= 0x07 are shifted by -1 from PS3
+        // PC has both vertexshader (0x07) and vertexdecl (0x08), so types >= 0x09 are shifted by +1 from PS3
+        public override byte RawFileAssetType => IsPC
+            ? (byte)MW2AssetTypePC.rawfile
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.rawfile : (byte)MW2AssetTypePS3.rawfile);
+
+        public override byte LocalizeAssetType => IsPC
+            ? (byte)MW2AssetTypePC.localize
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.localize : (byte)MW2AssetTypePS3.localize);
+
+        public override byte MenuFileAssetType => IsPC
+            ? (byte)MW2AssetTypePC.menufile
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.menufile : (byte)MW2AssetTypePS3.menufile);
+
+        /// <summary>
+        /// MW2 has a separate 'menu' asset type for individual menu definitions (distinct from menufile/MenuList).
+        /// </summary>
+        public byte MenuAssetType => IsPC
+            ? (byte)MW2AssetTypePC.menu
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.menu : (byte)MW2AssetTypePS3.menu);
+
+        public override byte XAnimAssetType => IsPC
+            ? (byte)MW2AssetTypePC.xanim
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.xanim : (byte)MW2AssetTypePS3.xanim);
+
+        public override byte StringTableAssetType => IsPC
+            ? (byte)MW2AssetTypePC.stringtable
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.stringtable : (byte)MW2AssetTypePS3.stringtable);
+
+        public override byte WeaponAssetType => IsPC
+            ? (byte)MW2AssetTypePC.weapon
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.weapon : (byte)MW2AssetTypePS3.weapon);
+
+        public override byte ImageAssetType => IsPC
+            ? (byte)MW2AssetTypePC.image
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.image : (byte)MW2AssetTypePS3.image);
 
         public override string GetAssetTypeName(int assetType)
         {
-            if (Enum.IsDefined(typeof(MW2AssetType), assetType))
+            if (IsPC)
             {
-                return ((MW2AssetType)assetType).ToString();
+                if (Enum.IsDefined(typeof(MW2AssetTypePC), assetType))
+                    return ((MW2AssetTypePC)assetType).ToString();
+            }
+            else if (IsXbox360)
+            {
+                if (Enum.IsDefined(typeof(MW2AssetTypeXbox360), assetType))
+                    return ((MW2AssetTypeXbox360)assetType).ToString();
+            }
+            else
+            {
+                if (Enum.IsDefined(typeof(MW2AssetTypePS3), assetType))
+                    return ((MW2AssetTypePS3)assetType).ToString();
             }
             return $"unknown_0x{assetType:X2}";
         }
@@ -36,9 +97,17 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             return assetType == RawFileAssetType ||
                    assetType == LocalizeAssetType ||
                    assetType == MenuFileAssetType ||
+                   assetType == MenuAssetType ||  // Include 'menu' as supported to prevent it being treated as rawfile
                    assetType == XAnimAssetType ||
-                   assetType == StringTableAssetType;
+                   assetType == StringTableAssetType ||
+                   assetType == WeaponAssetType ||
+                   assetType == ImageAssetType;
         }
+
+        /// <summary>
+        /// Checks if the asset type is the 'menu' type (individual menu definitions, NOT menufile/MenuList).
+        /// </summary>
+        public bool IsMenuType(int assetType) => assetType == MenuAssetType;
 
         /// <summary>
         /// MW2 rawfile parsing with 16-byte header structure.
@@ -128,6 +197,15 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 if (fileName.Length < 3) return null;
             }
 
+            // IMPORTANT: Reject MenuList structures that look like rawfiles
+            // MenuList has a 12-byte header but could be misinterpreted as 16-byte with small values
+            // If the name ends with .menu and the "size" is small, this is a MenuList asset
+            if (fileName.EndsWith(".menu", StringComparison.OrdinalIgnoreCase) && len < 500)
+            {
+                Debug.WriteLine($"[MW2] Rejecting '{fileName}' as rawfile (16-byte) - likely a MenuList (len={len})");
+                return null;
+            }
+
             int nameByteCount = Encoding.ASCII.GetByteCount(fileName) + 1; // +1 for null terminator
             int fileDataOffset = fileNameOffset + nameByteCount;
 
@@ -194,6 +272,28 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 
             string fileName = ReadNullTerminatedString(zoneData, fileNameOffset);
             if (string.IsNullOrEmpty(fileName)) return null;
+
+            // IMPORTANT: Reject MenuList structures that look like rawfiles
+            // MenuList has the same 12-byte header: [FF FF FF FF] [menuCount] [FF FF FF FF] [name]
+            // If the name ends with .menu and the "size" (actually menuCount) is small,
+            // this is a MenuList asset, not a rawfile. MenuList assets should be handled by ParseMenuFile.
+            // Real .menu rawfiles (source scripts) are much larger than menu counts (typically 1-50).
+            if (fileName.EndsWith(".menu", StringComparison.OrdinalIgnoreCase) && dataLength < 500)
+            {
+                Debug.WriteLine($"[MW2] Rejecting '{fileName}' as rawfile - likely a MenuList (size={dataLength})");
+                return null;
+            }
+
+            // IMPORTANT: Also reject files ending with .txt that have suspiciously small sizes
+            // and look like they could be menu-related (e.g., "ui_mp/patch_mp_menus.txt")
+            // The 'menu' asset type data can have various names, not just .menu extension
+            if (fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) &&
+                fileName.Contains("menu", StringComparison.OrdinalIgnoreCase) &&
+                dataLength < 500)
+            {
+                Debug.WriteLine($"[MW2] Rejecting '{fileName}' as rawfile - likely a menu asset (size={dataLength})");
+                return null;
+            }
 
             var node = new RawFileNode
             {

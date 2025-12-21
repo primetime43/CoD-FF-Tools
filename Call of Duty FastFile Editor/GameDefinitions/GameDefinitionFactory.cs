@@ -24,17 +24,17 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         // Singleton instances for PS3 (default platform)
         private static readonly CoD4GameDefinition _cod4Ps3 = new();
         private static readonly CoD5GameDefinition _cod5Ps3 = new(isXbox360: false);
-        private static readonly MW2GameDefinition _mw2Ps3 = new();
+        private static readonly MW2GameDefinition _mw2Ps3 = new(isXbox360: false, isPC: false);
 
         // Singleton instances for Xbox 360 (different asset type IDs)
         private static readonly CoD4Xbox360GameDefinition _cod4Xbox = new();
         private static readonly CoD5GameDefinition _cod5Xbox = new(isXbox360: true);
-        private static readonly MW2GameDefinition _mw2Xbox = new(); // TODO: Add Xbox 360 support for MW2
+        private static readonly MW2GameDefinition _mw2Xbox = new(isXbox360: true, isPC: false);
 
         // Singleton instances for PC (little-endian, different asset type IDs)
         private static readonly CoD4PCGameDefinition _cod4PC = new();
         private static readonly CoD5PCGameDefinition _cod5PC = new();
-        // TODO: Add PC support for MW2
+        private static readonly MW2GameDefinition _mw2PC = new(isXbox360: false, isPC: true);
 
         /// <summary>
         /// Gets the appropriate game definition for the given FastFile.
@@ -103,7 +103,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 return platform switch
                 {
                     FastFilePlatform.Xbox360 => _mw2Xbox,
-                    FastFilePlatform.PC => _mw2Ps3, // TODO: Add MW2 PC support
+                    FastFilePlatform.PC => _mw2PC,
                     _ => _mw2Ps3
                 };
             }
@@ -174,7 +174,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 return platform switch
                 {
                     FastFilePlatform.Xbox360 => _mw2Xbox,
-                    FastFilePlatform.PC => _mw2Ps3, // TODO: Add MW2 PC support
+                    FastFilePlatform.PC => _mw2PC,
                     _ => _mw2Ps3
                 };
             }
@@ -224,5 +224,15 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         /// Gets the CoD5/WaW game definition for PC.
         /// </summary>
         public static IGameDefinition CoD5PC => _cod5PC;
+
+        /// <summary>
+        /// Gets the MW2 game definition for Xbox 360.
+        /// </summary>
+        public static IGameDefinition MW2Xbox360 => _mw2Xbox;
+
+        /// <summary>
+        /// Gets the MW2 game definition for PC.
+        /// </summary>
+        public static IGameDefinition MW2PC => _mw2PC;
     }
 }
