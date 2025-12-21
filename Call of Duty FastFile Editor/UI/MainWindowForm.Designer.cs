@@ -109,6 +109,7 @@ namespace Call_of_Duty_FastFile_Editor
             weaponsContextMenu = new ContextMenuStrip(components);
             editWeaponMenuItem = new ToolStripMenuItem();
             imagesTabPage = new TabPage();
+            imagesInstructionLabel = new Label();
             imagesListView = new ListView();
             stringTablesTabPage = new TabPage();
             stringTablesInstructionLabel = new Label();
@@ -900,6 +901,7 @@ namespace Call_of_Duty_FastFile_Editor
             // imagesTabPage
             //
             imagesTabPage.Controls.Add(imagesListView);
+            imagesTabPage.Controls.Add(imagesInstructionLabel);
             imagesTabPage.Location = new Point(4, 24);
             imagesTabPage.Name = "imagesTabPage";
             imagesTabPage.Padding = new Padding(3);
@@ -920,6 +922,19 @@ namespace Call_of_Duty_FastFile_Editor
             imagesListView.View = View.Details;
             imagesListView.MouseDown += listView_MouseDownCopy;
             imagesListView.DoubleClick += imagesListView_DoubleClick;
+            //
+            // imagesInstructionLabel
+            //
+            imagesInstructionLabel.AutoSize = true;
+            imagesInstructionLabel.Dock = DockStyle.Top;
+            imagesInstructionLabel.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            imagesInstructionLabel.ForeColor = SystemColors.GrayText;
+            imagesInstructionLabel.Location = new Point(3, 3);
+            imagesInstructionLabel.Name = "imagesInstructionLabel";
+            imagesInstructionLabel.Padding = new Padding(0, 4, 0, 4);
+            imagesInstructionLabel.Size = new Size(280, 23);
+            imagesInstructionLabel.TabIndex = 1;
+            imagesInstructionLabel.Text = "Double-click an image to preview it.";
             //
             // stringTablesTabPage
             //
@@ -1105,6 +1120,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ContextMenuStrip weaponsContextMenu;
         private ToolStripMenuItem editWeaponMenuItem;
         private TabPage imagesTabPage;
+        private Label imagesInstructionLabel;
         private ListView imagesListView;
         private TabPage stringTablesTabPage;
         private Label stringTablesInstructionLabel;
