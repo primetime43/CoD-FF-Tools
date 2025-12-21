@@ -648,11 +648,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     int stringTableSearchOffset = searchStartOffset;
                     int stringTablesParsed = 0;
 
+                    // MW2 uses 8-byte cells (string pointer + hash), CoD4/WaW use 4-byte cells
+                    int bytesPerCell = openedFastFile.IsMW2File ? 8 : 4;
+                    Debug.WriteLine($"[AssetRecordProcessor] Using {bytesPerCell} bytes per cell for {gameDefinition.ShortName} stringtables");
+
                     while (stringTablesParsed < remainingStringTables && stringTableSearchOffset < zoneData.Length)
                     {
                         // Use the existing pattern matching method from StringTable class
                         var stringTable = StringTable.FindSingleCsvStringTableWithPattern(
-                            openedFastFile.OpenedFastFileZone, stringTableSearchOffset);
+                            openedFastFile.OpenedFastFileZone, stringTableSearchOffset, bytesPerCell);
 
                         if (stringTable == null)
                         {

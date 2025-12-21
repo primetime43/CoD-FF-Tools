@@ -343,5 +343,147 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 return compressedData;
             }
         }
+
+        /// <summary>
+        /// MW2 StringTable parsing with 8-byte cell structure.
+        ///
+        /// MW2 uses a different StringTable structure than CoD4/WaW:
+        /// struct StringTableCell {
+        ///   const char *string;    // 4 bytes
+        ///   int hash;              // 4 bytes (31-multiplier hash for fast lookups)
+        /// };
+        /// struct StringTable {
+        ///   const char *name;      // 4 bytes (FF FF FF FF if inline)
+        ///   int columnCount;       // 4 bytes
+        ///   int rowCount;          // 4 bytes
+        ///   StringTableCell *strings;  // 4 bytes (FF FF FF FF if inline)
+        /// };
+        ///
+        /// Key difference: Each cell is 8 bytes (string pointer + hash) instead of 4 bytes.
+        /// Reference: https://codresearch.dev/index.php/StringTable_Asset#Modern_Warfare_2
+        /// </summary>
+        public override StringTable? ParseStringTable(byte[] zoneData, int offset)
+        {
+            Debug.WriteLine($"[MW2] ParseStringTable at offset 0x{offset:X}");
+
+            if (offset + 16 > zoneData.Length)
+            {
+                Debug.WriteLine($"[MW2] Not enough data for StringTable header at 0x{offset:X}");
+                return null;
+            }
+
+            // Read the 16-byte header
+            uint namePointer = ReadUInt32BE(zoneData, offset);
+            int columnCount = (int)ReadUInt32BE(zoneData, offset + 4);
+            int rowCount = (int)ReadUInt32BE(zoneData, offset + 8);
+            uint valuesPointer = ReadUInt32BE(zoneData, offset + 12);
+
+            Debug.WriteLine($"[MW2] StringTable Header: namePtr=0x{namePointer:X}, cols={columnCount}, rows={rowCount}, valuesPtr=0x{valuesPointer:X}");
+
+            // Name pointer must be inline (FF FF FF FF) for embedded data
+            if (namePointer != 0xFFFFFFFF)
+            {
+                Debug.WriteLine($"[MW2] StringTable name pointer not inline (0x{namePointer:X}), skipping.");
+                return null;
+            }
+
+            // Validate row/column counts are reasonable
+            if (columnCount <= 0 || columnCount > 1000 || rowCount <= 0 || rowCount > 100000)
+            {
+                Debug.WriteLine($"[MW2] StringTable invalid dimensions: {columnCount} x {rowCount}");
+                return null;
+            }
+
+            int cellCount = rowCount * columnCount;
+
+            // Table name follows the 16-byte header (null-terminated string)
+            int tableNameOffset = offset + 16;
+            string tableName = ReadNullTerminatedString(zoneData, tableNameOffset);
+
+            if (string.IsNullOrEmpty(tableName))
+            {
+                Debug.WriteLine($"[MW2] StringTable empty table name at 0x{tableNameOffset:X}");
+                return null;
+            }
+
+            // Validate table name looks like a CSV path
+            if (!tableName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+            {
+                Debug.WriteLine($"[MW2] StringTable name doesn't end with .csv: '{tableName}'");
+                return null;
+            }
+
+            Debug.WriteLine($"[MW2] StringTable name: '{tableName}'");
+
+            // Calculate where the header ends (after the name string + null terminator)
+            int headerLength = 16 + tableName.Length + 1;
+
+            // Values pointer should also be inline
+            if (valuesPointer != 0xFFFFFFFF)
+            {
+                Debug.WriteLine($"[MW2] StringTable values pointer not inline (0x{valuesPointer:X})");
+                // Continue anyway - some tables may have external values
+            }
+
+            // Cell data block follows the header
+            // MW2 DIFFERENCE: Each cell is 8 bytes (4-byte string pointer + 4-byte hash)
+            // CoD4/WaW use 4-byte cells (just string pointer)
+            int cellDataBlockOffset = offset + headerLength;
+            int bytesPerCell = 8; // MW2 uses 8-byte cells (string pointer + hash)
+
+            // Ensure enough data for cell pointers
+            if (cellDataBlockOffset + (cellCount * bytesPerCell) > zoneData.Length)
+            {
+                Debug.WriteLine($"[MW2] Not enough data for cell pointers at 0x{cellDataBlockOffset:X}");
+                return null;
+            }
+
+            // String data follows the cell pointer/hash array
+            int stringBlockOffset = cellDataBlockOffset + (cellCount * bytesPerCell);
+
+            // Read all cell strings
+            var cells = new List<(int Offset, string Text)>();
+            int currentStringOffset = stringBlockOffset;
+            int dataStartPos = stringBlockOffset;
+
+            for (int i = 0; i < cellCount && currentStringOffset < zoneData.Length; i++)
+            {
+                // Check for next asset marker (FF FF FF FF at 4-byte boundary after multiple cells)
+                if (i > 0 && currentStringOffset + 4 <= zoneData.Length)
+                {
+                    uint marker = ReadUInt32BE(zoneData, currentStringOffset);
+                    if (marker == 0xFFFFFFFF)
+                    {
+                        Debug.WriteLine($"[MW2] StringTable hit next asset marker at 0x{currentStringOffset:X}");
+                        break;
+                    }
+                }
+
+                int cellOffset = currentStringOffset;
+                string cellValue = ReadNullTerminatedString(zoneData, currentStringOffset);
+                cells.Add((cellOffset, cellValue));
+                currentStringOffset += cellValue.Length + 1; // +1 for null terminator
+            }
+
+            Debug.WriteLine($"[MW2] StringTable read {cells.Count} strings (expected {cellCount} cells)");
+
+            var stringTable = new StringTable
+            {
+                TableName = tableName,
+                ColumnCount = columnCount,
+                RowCount = rowCount,
+                ColumnCountOffset = offset + 4,
+                RowCountOffset = offset + 8,
+                TableNameOffset = tableNameOffset,
+                Cells = cells,
+                StartOfFileHeader = offset,
+                EndOfFileHeader = offset + headerLength,
+                DataStartPosition = dataStartPos,
+                DataEndPosition = currentStringOffset,
+                AdditionalData = $"MW2 structure-based parse (8-byte cells)"
+            };
+
+            return stringTable;
+        }
     }
 }

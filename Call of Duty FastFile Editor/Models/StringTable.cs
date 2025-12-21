@@ -57,7 +57,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
 
         /// <summary>
         /// Scans the zone file for string table entries that look like:
-        /// 
+        ///
         ///   [ rowCount (4 bytes, big-endian) ]
         ///   [ columnCount (4 bytes, big-endian) ]
         ///   [ 0xFF FF FF FF ]
@@ -66,7 +66,10 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// This is more robust than scanning for ".csv" first.
         /// TEMP EVENTUALLY DELETE
         /// </summary>
-        public static StringTable? FindSingleCsvStringTableWithPattern(ZoneFile zone, int startingOffset)
+        /// <param name="zone">The zone file to search.</param>
+        /// <param name="startingOffset">Offset to start searching from.</param>
+        /// <param name="bytesPerCell">Bytes per cell: 4 for CoD4/WaW, 8 for MW2 (string pointer + hash).</param>
+        public static StringTable? FindSingleCsvStringTableWithPattern(ZoneFile zone, int startingOffset, int bytesPerCell = 4)
         {
             byte[] zoneBytes = zone.Data;
             if (startingOffset < 0 || startingOffset >= zoneBytes.Length)
@@ -165,7 +168,8 @@ namespace Call_of_Duty_FastFile_Editor.Models
                         : endOfHeader;
                     Debug.WriteLine($"[FindSingleCsvStringTableWithPattern] Using cellDataBlockOffset = 0x{cellDataBlockOffset:X}");
 
-                    int cellBytesNeeded = cellCount * 4;
+                    int cellBytesNeeded = cellCount * bytesPerCell;
+                    Debug.WriteLine($"[FindSingleCsvStringTableWithPattern] Using {bytesPerCell} bytes per cell, cellBytesNeeded = {cellBytesNeeded}");
                     if (cellDataBlockOffset + cellBytesNeeded > zoneBytes.Length)
                     {
                         Debug.WriteLine($"[FindSingleCsvStringTableWithPattern] Not enough data for cell block at 0x{cellDataBlockOffset:X}.");
