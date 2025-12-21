@@ -348,7 +348,12 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 }
                 else if (_isMW2)
                 {
-                    record.AssetType_MW2 = (MW2AssetType)assetTypeInt;
+                    if (_isPC)
+                        record.AssetType_MW2_PC = (MW2AssetTypePC)assetTypeInt;
+                    else if (_isXbox360)
+                        record.AssetType_MW2_Xbox360 = (MW2AssetTypeXbox360)assetTypeInt;
+                    else
+                        record.AssetType_MW2 = (MW2AssetTypePS3)assetTypeInt;
                 }
 
                 records.Add(record);

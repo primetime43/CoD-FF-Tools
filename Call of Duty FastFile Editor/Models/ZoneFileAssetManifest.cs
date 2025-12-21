@@ -21,7 +21,9 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public CoD4AssetTypePS3 AssetType_COD4 { get; set; }
         public CoD4AssetTypeXbox360 AssetType_COD4_Xbox360 { get; set; }
         public CoD4AssetTypePC AssetType_COD4_PC { get; set; }
-        public MW2AssetType AssetType_MW2 { get; set; }
+        public MW2AssetTypePS3 AssetType_MW2 { get; set; }
+        public MW2AssetTypeXbox360 AssetType_MW2_Xbox360 { get; set; }
+        public MW2AssetTypePC AssetType_MW2_PC { get; set; }
         public int HeaderStartOffset { get; set; }
         /// <summary>
         /// The offset where the header ends before the data. (Includes the null terminator)

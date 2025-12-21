@@ -51,12 +51,30 @@ namespace Call_of_Duty_FastFile_Editor.Services
         };
 
         /// <summary>
-        /// Supported asset types for MW2.
+        /// Supported asset types for MW2 (PS3).
         /// </summary>
-        private static readonly HashSet<MW2AssetType> SupportedTypesMW2 = new HashSet<MW2AssetType>
+        private static readonly HashSet<MW2AssetTypePS3> SupportedTypesMW2 = new HashSet<MW2AssetTypePS3>
         {
-            MW2AssetType.rawfile,
-            MW2AssetType.localize
+            MW2AssetTypePS3.rawfile,
+            MW2AssetTypePS3.localize
+        };
+
+        /// <summary>
+        /// Supported asset types for MW2 (Xbox 360).
+        /// </summary>
+        private static readonly HashSet<MW2AssetTypeXbox360> SupportedTypesMW2Xbox360 = new HashSet<MW2AssetTypeXbox360>
+        {
+            MW2AssetTypeXbox360.rawfile,
+            MW2AssetTypeXbox360.localize
+        };
+
+        /// <summary>
+        /// Supported asset types for MW2 (PC).
+        /// </summary>
+        private static readonly HashSet<MW2AssetTypePC> SupportedTypesMW2PC = new HashSet<MW2AssetTypePC>
+        {
+            MW2AssetTypePC.rawfile,
+            MW2AssetTypePC.localize
         };
 
         /// <summary>
@@ -77,7 +95,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     return false;
                 if (fastFile.IsCod5File && !fastFile.IsPC && !fastFile.IsXbox360 && !SupportedTypesCOD5.Contains(record.AssetType_COD5))
                     return false;
-                if (fastFile.IsMW2File && !SupportedTypesMW2.Contains(record.AssetType_MW2))
+                if (fastFile.IsMW2File && fastFile.IsPC && !SupportedTypesMW2PC.Contains(record.AssetType_MW2_PC))
+                    return false;
+                if (fastFile.IsMW2File && fastFile.IsXbox360 && !SupportedTypesMW2Xbox360.Contains(record.AssetType_MW2_Xbox360))
+                    return false;
+                if (fastFile.IsMW2File && !fastFile.IsPC && !fastFile.IsXbox360 && !SupportedTypesMW2.Contains(record.AssetType_MW2))
                     return false;
             }
             return true;
@@ -105,6 +127,10 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     isSupported = SupportedTypesCOD5Xbox360.Contains(record.AssetType_COD5_Xbox360);
                 else if (fastFile.IsCod5File)
                     isSupported = SupportedTypesCOD5.Contains(record.AssetType_COD5);
+                else if (fastFile.IsMW2File && fastFile.IsPC)
+                    isSupported = SupportedTypesMW2PC.Contains(record.AssetType_MW2_PC);
+                else if (fastFile.IsMW2File && fastFile.IsXbox360)
+                    isSupported = SupportedTypesMW2Xbox360.Contains(record.AssetType_MW2_Xbox360);
                 else if (fastFile.IsMW2File)
                     isSupported = SupportedTypesMW2.Contains(record.AssetType_MW2);
 
@@ -149,6 +175,16 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 {
                     isSupported = SupportedTypesCOD5.Contains(record.AssetType_COD5);
                     typeName = record.AssetType_COD5.ToString();
+                }
+                else if (fastFile.IsMW2File && fastFile.IsPC)
+                {
+                    isSupported = SupportedTypesMW2PC.Contains(record.AssetType_MW2_PC);
+                    typeName = record.AssetType_MW2_PC.ToString();
+                }
+                else if (fastFile.IsMW2File && fastFile.IsXbox360)
+                {
+                    isSupported = SupportedTypesMW2Xbox360.Contains(record.AssetType_MW2_Xbox360);
+                    typeName = record.AssetType_MW2_Xbox360.ToString();
                 }
                 else if (fastFile.IsMW2File)
                 {
