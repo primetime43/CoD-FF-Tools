@@ -123,6 +123,11 @@ namespace Call_of_Duty_FastFile_Editor
         private Panel _loadingPanel;
         private Label _loadingLabel;
 
+        /// <summary>
+        /// Flag to prevent concurrent file loading operations.
+        /// </summary>
+        private bool _isLoading = false;
+
         public MainWindowForm(IRawFileService rawFileService)
         {
             InitializeComponent();
@@ -183,27 +188,61 @@ namespace Call_of_Duty_FastFile_Editor
         }
 
         /// <summary>
-        /// Shows the loading indicator with an optional message.
+        /// Shows the loading indicator with an optional message and disables UI interactions.
         /// </summary>
         private void ShowLoading(string message = "Loading...")
         {
+            _isLoading = true;
             _loadingLabel.Text = message;
             _loadingPanel.Visible = true;
+            SetUIEnabled(false);
             Application.DoEvents(); // Force UI update
         }
 
         /// <summary>
-        /// Hides the loading indicator.
+        /// Hides the loading indicator and re-enables UI interactions.
         /// </summary>
         private void HideLoading()
         {
             _loadingPanel.Visible = false;
+            SetUIEnabled(true);
+            _isLoading = false;
+        }
+
+        /// <summary>
+        /// Enables or disables UI elements during loading.
+        /// </summary>
+        private void SetUIEnabled(bool enabled)
+        {
+            // Disable/enable menu bar
+            menuStripTopToolbar.Enabled = enabled;
+
+            // Disable/enable main content
+            splitContainer1.Enabled = enabled;
+        }
+
+        /// <summary>
+        /// Runs an action on the UI thread, invoking if necessary.
+        /// </summary>
+        private void RunOnUIThread(Action action)
+        {
+            if (InvokeRequired)
+                Invoke(action);
+            else
+                action();
         }
 
         #region Drag and Drop Support
 
         private void MainWindowForm_DragEnter(object sender, DragEventArgs e)
         {
+            // Don't accept drops while loading
+            if (_isLoading)
+            {
+                e.Effect = DragDropEffects.None;
+                return;
+            }
+
             if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true)
             {
                 var files = e.Data.GetData(DataFormats.FileDrop) as string[];
@@ -221,8 +260,12 @@ namespace Call_of_Duty_FastFile_Editor
             e.Effect = DragDropEffects.None;
         }
 
-        private void MainWindowForm_DragDrop(object sender, DragEventArgs e)
+        private async void MainWindowForm_DragDrop(object sender, DragEventArgs e)
         {
+            // Don't process drops while loading
+            if (_isLoading)
+                return;
+
             if (e.Data?.GetData(DataFormats.FileDrop) is not string[] files || files.Length == 0)
                 return;
 
@@ -230,11 +273,11 @@ namespace Call_of_Duty_FastFile_Editor
 
             if (filePath.EndsWith(".ff", StringComparison.OrdinalIgnoreCase))
             {
-                OpenFastFileAutoDetect(filePath);
+                await OpenFastFileAutoDetectAsync(filePath);
             }
             else if (filePath.EndsWith(".zone", StringComparison.OrdinalIgnoreCase))
             {
-                OpenZoneFileFromPath(filePath);
+                await OpenZoneFileFromPathAsync(filePath);
             }
         }
 
@@ -346,6 +389,164 @@ namespace Call_of_Duty_FastFile_Editor
             EnableUI_Elements();
         }
 
+        /// <summary>
+        /// Opens a FastFile asynchronously to prevent UI lockup.
+        /// </summary>
+        /// <param name="filePath">Path to the .ff file</param>
+        private async Task OpenFastFileAutoDetectAsync(string filePath)
+        {
+            if (_isLoading)
+                return;
+
+            if (_openedFastFile != null)
+            {
+                SaveCloseFastFileAndCleanUp();
+            }
+
+            // Create a backup of the original FastFile before any modifications
+            CreateBackupIfNeeded(filePath);
+
+            try
+            {
+                _openedFastFile = new FastFile(filePath);
+                UIManager.UpdateLoadedFileNameStatusStrip(loadedFileNameStatusLabel, _openedFastFile);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to read FastFile header: {ex.Message}", "Header Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (!_openedFastFile.IsValid)
+            {
+                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid .ff file!\n\nSupported: CoD4, WaW (CoD5), MW2", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                return;
+            }
+
+            // Determine game name for display
+            string gameName = _openedFastFile.IsCod4File ? "CoD4" :
+                              _openedFastFile.IsCod5File ? "WaW (CoD5)" :
+                              _openedFastFile.IsMW2File ? "MW2" : "Unknown";
+
+            try
+            {
+                // Show the opened FF path in the program's title text
+                this.SetProgramTitle(_openedFastFile.FfFilePath);
+
+                // Show loading indicator while decompressing
+                ShowLoading($"Decompressing {gameName} FastFile...");
+
+                // Assign the correct handler for the opened file
+                _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
+
+                // Decompress the Fast File on a background thread
+                await Task.Run(() =>
+                {
+                    _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
+                });
+
+                // Update loading message (ensure UI thread)
+                RunOnUIThread(() => ShowLoading($"Loading {gameName} zone file..."));
+
+                // Load & parse that zone on a background thread
+                await Task.Run(() =>
+                {
+                    _openedFastFile.LoadZone();
+                });
+
+                // Get tag count for the dialog (may access zone data)
+                int tagCount = 0;
+                RunOnUIThread(() =>
+                {
+                    tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
+                    HideLoading();
+                });
+
+                // Show asset selection dialog
+                bool loadRawFiles = true;
+                bool loadLocalizedEntries = true;
+                bool loadTags = true;
+
+                using (var assetDialog = new AssetSelectionDialog(
+                    _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
+                    _openedFastFile,
+                    tagCount))
+                {
+                    if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
+                    {
+                        SaveCloseFastFileAndCleanUp();
+                        return;
+                    }
+                    loadRawFiles = assetDialog.LoadRawFiles;
+                    loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
+                    loadTags = assetDialog.LoadTags;
+                }
+
+                // Show loading indicator while parsing assets
+                RunOnUIThread(() => ShowLoading($"Parsing {gameName} zone assets..."));
+
+                // Parse asset records on a background thread
+                await Task.Run(() =>
+                {
+                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
+                });
+            }
+            catch (Exception ex)
+            {
+                RunOnUIThread(() => HideLoading());
+                MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            try
+            {
+                // Load UI on UI thread
+                RunOnUIThread(() =>
+                {
+                    ShowLoading("Loading data to UI...");
+                    LoadZoneDataToUI();
+                    HideLoading();
+                    EnableUI_Elements();
+                });
+            }
+            catch (Exception ex)
+            {
+                RunOnUIThread(() => HideLoading());
+                MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+        }
+
+        /// <summary>
+        /// Opens a zone file asynchronously.
+        /// </summary>
+        private async Task OpenZoneFileFromPathAsync(string filePath)
+        {
+            if (_isLoading)
+                return;
+
+            // For zone files, we can call the sync version wrapped in Task.Run
+            // since the zone loading is the main heavy operation
+            ShowLoading("Loading zone file...");
+
+            try
+            {
+                await Task.Run(() =>
+                {
+                    // Use Invoke to call the sync method on the UI thread where needed
+                    this.Invoke(() => OpenZoneFileFromPath(filePath));
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to open zone file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                HideLoading();
+            }
+        }
+
         #endregion
 
         #region Right Click Context Menu initialization
@@ -407,26 +608,13 @@ namespace Call_of_Duty_FastFile_Editor
             // also store updated records
             _zoneAssetRecords = _processResult.UpdatedRecords;
 
-            // Parse and populate tags if selected
-            if (loadTags)
-            {
-                PopulateTags();
-                // Ensure tags tab is visible
-                if (!mainTabControl.TabPages.Contains(tagsTabPage))
-                {
-                    mainTabControl.TabPages.Insert(2, tagsTabPage); // Insert after Asset Pool and Raw Files
-                }
-            }
-            else
-            {
-                _tags = null;
-                // Hide tags tab
-                if (mainTabControl.TabPages.Contains(tagsTabPage))
-                {
-                    mainTabControl.TabPages.Remove(tagsTabPage);
-                }
-            }
+            // Note: Tag parsing and UI updates moved to LoadZoneDataToUI to avoid cross-thread issues
+            // when LoadAssetRecordsData runs on a background thread
+            _loadTags = loadTags;
         }
+
+        // Flag to track if tags should be loaded (set by LoadAssetRecordsData, used by LoadZoneDataToUI)
+        private bool _loadTags = true;
 
         /// <summary>
         /// Loads all parsed zone data into the UI components for display.
@@ -451,6 +639,26 @@ namespace Call_of_Duty_FastFile_Editor
             PopulateImages();
             PopulateStringTables();
             PopulateCollision_Map_Asset_StringData();
+
+            // Handle tags tab based on loadTags flag (set by LoadAssetRecordsData)
+            if (_loadTags)
+            {
+                PopulateTags();
+                // Ensure tags tab is visible
+                if (!mainTabControl.TabPages.Contains(tagsTabPage))
+                {
+                    mainTabControl.TabPages.Insert(2, tagsTabPage); // Insert after Asset Pool and Raw Files
+                }
+            }
+            else
+            {
+                _tags = null;
+                // Hide tags tab
+                if (mainTabControl.TabPages.Contains(tagsTabPage))
+                {
+                    mainTabControl.TabPages.Remove(tagsTabPage);
+                }
+            }
         }
 
         /// <summary>
@@ -3871,337 +4079,52 @@ namespace Call_of_Duty_FastFile_Editor
             }
         }
 
-        private void COD5ToolStripMenuItem_Click(object sender, EventArgs e)
+        private async void COD5ToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (_openedFastFile != null)
-            {
-                SaveCloseFastFileAndCleanUp();
-            }
+            if (_isLoading) return;
 
-            OpenFileDialog openFileDialog = new OpenFileDialog
+            using var openFileDialog = new OpenFileDialog
             {
                 Title = "Select a COD5 Fast File",
                 Filter = "Fast Files (*.ff)|*.ff"
             };
 
             if (openFileDialog.ShowDialog() != DialogResult.OK)
-            {
                 return;
-            }
 
-            // Create a backup of the original FastFile before any modifications
-            CreateBackupIfNeeded(openFileDialog.FileName);
-
-            try
-            {
-                _openedFastFile = new FastFile(openFileDialog.FileName);
-                UIManager.UpdateLoadedFileNameStatusStrip(loadedFileNameStatusLabel, _openedFastFile);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to read FastFile header: {ex.Message}", "Header Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            if (_openedFastFile.IsValid)
-            {
-                try
-                {
-                    // Assign the correct handler for the opened file
-                    _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
-                    // Show the opened FF path in the program's title text
-                    this.SetProgramTitle(_openedFastFile.FfFilePath);
-
-                    // Decompress the Fast File to get the zone file
-                    _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
-
-                    // Load & parse that zone in one go
-                    _openedFastFile.LoadZone();
-
-                    // Get tag count for the dialog
-                    int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
-
-                    // Show asset selection dialog
-                    bool loadRawFiles = true;
-                    bool loadLocalizedEntries = true;
-                    bool loadTags = true;
-
-                    using (var assetDialog = new AssetSelectionDialog(
-                        _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
-                        _openedFastFile,
-                        tagCount))
-                    {
-                        if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
-                        {
-                            SaveCloseFastFileAndCleanUp();
-                            return;
-                        }
-                        loadRawFiles = assetDialog.LoadRawFiles;
-                        loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
-                        loadTags = assetDialog.LoadTags;
-                    }
-
-                    // Show loading indicator while parsing assets
-                    ShowLoading("Parsing zone assets...");
-
-                    // Here is where the asset records actual data is parsed throughout the zone
-                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
-                }
-                catch (Exception ex)
-                {
-                    HideLoading();
-                    MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                try
-                {
-                    // Update loading message
-                    ShowLoading("Loading data to UI...");
-
-                    // Load all the parsed data from the zone file to the UI
-                    LoadZoneDataToUI();
-                }
-                catch (Exception ex)
-                {
-                    HideLoading();
-                    MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-                finally
-                {
-                    HideLoading();
-                }
-            }
-            else
-            {
-                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid PS3 .ff!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
-                return;
-            }
-            EnableUI_Elements();
+            await OpenFastFileAutoDetectAsync(openFileDialog.FileName);
         }
 
-        private void cOD4ToolStripMenuItem_Click(object sender, EventArgs e)
+        private async void cOD4ToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (_openedFastFile != null)
-            {
-                SaveCloseFastFileAndCleanUp();
-            }
+            if (_isLoading) return;
 
-            OpenFileDialog openFileDialog = new OpenFileDialog
+            using var openFileDialog = new OpenFileDialog
             {
                 Title = "Select a COD4 Fast File",
                 Filter = "Fast Files (*.ff)|*.ff"
             };
 
             if (openFileDialog.ShowDialog() != DialogResult.OK)
-            {
                 return;
-            }
 
-            // Create a backup of the original FastFile before any modifications
-            CreateBackupIfNeeded(openFileDialog.FileName);
-
-            try
-            {
-                _openedFastFile = new FastFile(openFileDialog.FileName);
-                UIManager.UpdateLoadedFileNameStatusStrip(loadedFileNameStatusLabel, _openedFastFile);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to read FastFile header: {ex.Message}", "Header Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            if (_openedFastFile.IsValid)
-            {
-                try
-                {
-                    // Assign the correct handler for the opened file
-                    _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
-                    // Show the opened FF path in the program's title text
-                    this.SetProgramTitle(_openedFastFile.FfFilePath);
-
-                    // Decompress the Fast File to get the zone file
-                    _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
-
-                    // Load & parse that zone in one go
-                    _openedFastFile.LoadZone();
-
-                    // Get tag count for the dialog
-                    int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
-
-                    // Show asset selection dialog
-                    bool loadRawFiles = true;
-                    bool loadLocalizedEntries = true;
-                    bool loadTags = true;
-
-                    using (var assetDialog = new AssetSelectionDialog(
-                        _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
-                        _openedFastFile,
-                        tagCount))
-                    {
-                        if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
-                        {
-                            SaveCloseFastFileAndCleanUp();
-                            return;
-                        }
-                        loadRawFiles = assetDialog.LoadRawFiles;
-                        loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
-                        loadTags = assetDialog.LoadTags;
-                    }
-
-                    // Show loading indicator while parsing assets
-                    ShowLoading("Parsing zone assets...");
-
-                    // Here is where the asset records actual data is parsed throughout the zone
-                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
-                }
-                catch (Exception ex)
-                {
-                    HideLoading();
-                    MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                try
-                {
-                    // Update loading message
-                    ShowLoading("Loading data to UI...");
-
-                    // Load all the parsed data from the zone file to the UI
-                    LoadZoneDataToUI();
-                }
-                catch (Exception ex)
-                {
-                    HideLoading();
-                    MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-                finally
-                {
-                    HideLoading();
-                }
-            }
-            else
-            {
-                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid PS3 .ff!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
-                return;
-            }
-            EnableUI_Elements();
+            await OpenFastFileAutoDetectAsync(openFileDialog.FileName);
         }
 
-        private void mW2ToolStripMenuItem_Click(object sender, EventArgs e)
+        private async void mW2ToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (_openedFastFile != null)
-            {
-                SaveCloseFastFileAndCleanUp();
-            }
+            if (_isLoading) return;
 
-            OpenFileDialog openFileDialog = new OpenFileDialog
+            using var openFileDialog = new OpenFileDialog
             {
                 Title = "Select a MW2 Fast File",
                 Filter = "Fast Files (*.ff)|*.ff"
             };
 
             if (openFileDialog.ShowDialog() != DialogResult.OK)
-            {
                 return;
-            }
 
-            // Create a backup of the original FastFile before any modifications
-            CreateBackupIfNeeded(openFileDialog.FileName);
-
-            try
-            {
-                _openedFastFile = new FastFile(openFileDialog.FileName);
-                UIManager.UpdateLoadedFileNameStatusStrip(loadedFileNameStatusLabel, _openedFastFile);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to read FastFile header: {ex.Message}", "Header Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            if (_openedFastFile.IsValid)
-            {
-                try
-                {
-                    // Assign the correct handler for the opened file
-                    _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
-                    // Show the opened FF path in the program's title text
-                    this.SetProgramTitle(_openedFastFile.FfFilePath);
-
-                    // Decompress the Fast File to get the zone file
-                    _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
-
-                    // Load & parse that zone in one go
-                    _openedFastFile.LoadZone();
-
-                    // Get tag count for the dialog
-                    int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
-
-                    // Show asset selection dialog
-                    bool loadRawFiles = true;
-                    bool loadLocalizedEntries = true;
-                    bool loadTags = true;
-
-                    using (var assetDialog = new AssetSelectionDialog(
-                        _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
-                        _openedFastFile,
-                        tagCount))
-                    {
-                        if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
-                        {
-                            SaveCloseFastFileAndCleanUp();
-                            return;
-                        }
-                        loadRawFiles = assetDialog.LoadRawFiles;
-                        loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
-                        loadTags = assetDialog.LoadTags;
-                    }
-
-                    // Show loading indicator while parsing assets
-                    ShowLoading("Parsing zone assets...");
-
-                    // Here is where the asset records actual data is parsed throughout the zone
-                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
-                }
-                catch (Exception ex)
-                {
-                    HideLoading();
-                    MessageBox.Show($"Failed to parse zone: {ex.Message}", "Zone Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-
-                try
-                {
-                    // Update loading message
-                    ShowLoading("Loading data to UI...");
-
-                    // Load all the parsed data from the zone file to the UI
-                    LoadZoneDataToUI();
-                }
-                catch (Exception ex)
-                {
-                    HideLoading();
-                    MessageBox.Show($"Loading data failed: {ex.Message}", "Data Loading Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    return;
-                }
-                finally
-                {
-                    HideLoading();
-                }
-            }
-            else
-            {
-                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid PS3 MW2 .ff!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
-                return;
-            }
-            EnableUI_Elements();
+            await OpenFastFileAutoDetectAsync(openFileDialog.FileName);
         }
 
         // There's a lot of duplicate code around this issue. This needs revisited & fixed/cleaned up
