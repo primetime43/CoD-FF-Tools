@@ -4127,6 +4127,17 @@ namespace Call_of_Duty_FastFile_Editor
             await OpenFastFileAutoDetectAsync(openFileDialog.FileName);
         }
 
+        private async void openFromFolderToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (_isLoading) return;
+
+            using var folderPicker = new FolderFastFilePickerDialog();
+            if (folderPicker.ShowDialog(this) == DialogResult.OK && !string.IsNullOrEmpty(folderPicker.SelectedFilePath))
+            {
+                await OpenFastFileAutoDetectAsync(folderPicker.SelectedFilePath);
+            }
+        }
+
         // There's a lot of duplicate code around this issue. This needs revisited & fixed/cleaned up
         private void ReloadAllRawFileNodesAndUI()
         {

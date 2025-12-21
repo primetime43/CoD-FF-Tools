@@ -32,6 +32,7 @@ namespace Call_of_Duty_FastFile_Editor
             fileToolStripMenuItem = new ToolStripMenuItem();
             openFastFileToolStripMenuItem = new ToolStripMenuItem();
             openZoneFileToolStripMenuItem = new ToolStripMenuItem();
+            openFromFolderToolStripMenuItem = new ToolStripMenuItem();
             COD5ToolStripMenuItem = new ToolStripMenuItem();
             cOD4ToolStripMenuItem = new ToolStripMenuItem();
             mW2ToolStripMenuItem = new ToolStripMenuItem();
@@ -219,7 +220,7 @@ namespace Call_of_Duty_FastFile_Editor
             // 
             // fileToolStripMenuItem
             // 
-            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openFastFileToolStripMenuItem, openZoneFileToolStripMenuItem, toolStripSeparator3, saveFastFileToolStripMenuItem, saveFastFileAsToolStripMenuItem, toolStripSeparator4, toolStripMenuItem1, exitToolStripMenuItem });
+            fileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { openFastFileToolStripMenuItem, openZoneFileToolStripMenuItem, openFromFolderToolStripMenuItem, toolStripSeparator3, saveFastFileToolStripMenuItem, saveFastFileAsToolStripMenuItem, toolStripSeparator4, toolStripMenuItem1, exitToolStripMenuItem });
             fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             fileToolStripMenuItem.Size = new Size(44, 24);
             fileToolStripMenuItem.Text = "File";
@@ -238,6 +239,14 @@ namespace Call_of_Duty_FastFile_Editor
             openZoneFileToolStripMenuItem.Text = "Open Zone File...";
             openZoneFileToolStripMenuItem.ToolTipText = "Open a decompressed zone file directly";
             openZoneFileToolStripMenuItem.Click += openZoneFileToolStripMenuItem_Click;
+            //
+            // openFromFolderToolStripMenuItem
+            //
+            openFromFolderToolStripMenuItem.Name = "openFromFolderToolStripMenuItem";
+            openFromFolderToolStripMenuItem.Size = new Size(286, 24);
+            openFromFolderToolStripMenuItem.Text = "Open from Folder...";
+            openFromFolderToolStripMenuItem.ToolTipText = "Browse a folder and select a FastFile to open";
+            openFromFolderToolStripMenuItem.Click += openFromFolderToolStripMenuItem_Click;
             //
             // COD5ToolStripMenuItem
             // 
@@ -1146,6 +1155,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripSeparator toolStripSeparator2;
         private ToolStripMenuItem compressZoneToFFToolStripMenuItem;
         private ToolStripMenuItem openZoneFileToolStripMenuItem;
+        private ToolStripMenuItem openFromFolderToolStripMenuItem;
         private ToolStripMenuItem keepZoneFileToolStripMenuItem;
     }
 }
