@@ -1063,6 +1063,21 @@ namespace Call_of_Duty_FastFile_Editor
         }
 
         /// <summary>
+        /// Formats/beautifies the code in the editor with proper indentation and line breaks.
+        /// </summary>
+        private void formatCodeToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                textEditorControlEx1.Text = CodeFormatter.FormatCode(textEditorControlEx1.Text);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to format code: {ex.Message}", "Format Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
         /// Checks the syntax of the code in the editor.
         /// </summary>
         private void checkSyntaxToolStripMenuItem_Click(object sender, EventArgs e)

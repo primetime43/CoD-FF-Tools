@@ -46,6 +46,7 @@ namespace Call_of_Duty_FastFile_Editor
             toolStripSeparator4 = new ToolStripSeparator();
             toolStripSeparator5 = new ToolStripSeparator();
             compressCodeToolStripMenuItem = new ToolStripMenuItem();
+            formatCodeToolStripMenuItem = new ToolStripMenuItem();
             removeCommentsToolStripMenuItem = new ToolStripMenuItem();
             checkSyntaxToolStripMenuItem = new ToolStripMenuItem();
             toolsToolStripMenuItem = new ToolStripMenuItem();
@@ -291,7 +292,7 @@ namespace Call_of_Duty_FastFile_Editor
             // 
             // editToolStripMenuItem
             // 
-            editToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { renameRawFileToolStripMenuItem, toolStripSeparator1, compressCodeToolStripMenuItem, removeCommentsToolStripMenuItem, checkSyntaxToolStripMenuItem });
+            editToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { renameRawFileToolStripMenuItem, toolStripSeparator1, compressCodeToolStripMenuItem, formatCodeToolStripMenuItem, removeCommentsToolStripMenuItem, checkSyntaxToolStripMenuItem });
             editToolStripMenuItem.Name = "editToolStripMenuItem";
             editToolStripMenuItem.Size = new Size(47, 24);
             editToolStripMenuItem.Text = "Edit";
@@ -311,12 +312,19 @@ namespace Call_of_Duty_FastFile_Editor
             toolStripSeparator1.Size = new Size(211, 6);
             // 
             // compressCodeToolStripMenuItem
-            // 
+            //
             compressCodeToolStripMenuItem.Name = "compressCodeToolStripMenuItem";
             compressCodeToolStripMenuItem.Size = new Size(214, 24);
             compressCodeToolStripMenuItem.Text = "Compress Code";
             compressCodeToolStripMenuItem.Click += compressCodeToolStripMenuItem_Click;
-            // 
+            //
+            // formatCodeToolStripMenuItem
+            //
+            formatCodeToolStripMenuItem.Name = "formatCodeToolStripMenuItem";
+            formatCodeToolStripMenuItem.Size = new Size(214, 24);
+            formatCodeToolStripMenuItem.Text = "Format Code";
+            formatCodeToolStripMenuItem.Click += formatCodeToolStripMenuItem_Click;
+            //
             // removeCommentsToolStripMenuItem
             // 
             removeCommentsToolStripMenuItem.Name = "removeCommentsToolStripMenuItem";
@@ -1021,6 +1029,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripSeparator toolStripSeparator4;
         private ToolStripSeparator toolStripSeparator5;
         private ToolStripMenuItem compressCodeToolStripMenuItem;
+        private ToolStripMenuItem formatCodeToolStripMenuItem;
         private ToolStripMenuItem removeCommentsToolStripMenuItem;
         private ToolStripMenuItem checkSyntaxToolStripMenuItem;
         private ToolStripMenuItem searchRawFileTxtMenuItem;
