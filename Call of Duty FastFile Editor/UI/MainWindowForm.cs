@@ -2075,6 +2075,89 @@ namespace Call_of_Duty_FastFile_Editor
         }
 
         /// <summary>
+        /// Opens the weapon editor when a weapon is double-clicked.
+        /// </summary>
+        private void weaponsListView_DoubleClick(object? sender, EventArgs e)
+        {
+            EditSelectedWeapon();
+        }
+
+        /// <summary>
+        /// Opens the weapon editor from the context menu.
+        /// </summary>
+        private void editWeaponMenuItem_Click(object? sender, EventArgs e)
+        {
+            EditSelectedWeapon();
+        }
+
+        /// <summary>
+        /// Opens the weapon editor dialog for the selected weapon.
+        /// </summary>
+        private void EditSelectedWeapon()
+        {
+            if (weaponsListView.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select a weapon to edit.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var selectedItem = weaponsListView.SelectedItems[0];
+            var weapon = selectedItem.Tag as WeaponAsset;
+            if (weapon == null)
+            {
+                MessageBox.Show("Could not get weapon data.", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Check if weapon data is valid (Damage >= 0 indicates successful parsing)
+            if (weapon.Damage < 0)
+            {
+                MessageBox.Show($"Weapon '{weapon.InternalName}' could not be fully parsed.\n" +
+                               "Editing is not available for weapons with incomplete data.",
+                               "Cannot Edit", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Open the weapon editor dialog
+            byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
+            using (var editorForm = new WeaponEditorForm(weapon, zoneData))
+            {
+                if (editorForm.ShowDialog(this) == DialogResult.OK && editorForm.ChangesSaved)
+                {
+                    // Update the ListView item with new values
+                    UpdateWeaponListViewItem(selectedItem, weapon);
+
+                    // Mark as modified
+                    _hasUnsavedChanges = true;
+
+                    MessageBox.Show($"Weapon '{weapon.InternalName}' updated successfully.\n\n" +
+                                   "Note: Changes are in memory. Use File > Save to write to disk.",
+                                   "Weapon Updated", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Updates a ListView item with the weapon's current values.
+        /// </summary>
+        private void UpdateWeaponListViewItem(ListViewItem item, WeaponAsset weapon)
+        {
+            item.SubItems[0].Text = weapon.InternalName;
+            item.SubItems[1].Text = weapon.DisplayName;
+            item.SubItems[2].Text = weapon.WeapType.ToString();
+            item.SubItems[3].Text = weapon.WeapClass.ToString();
+            item.SubItems[4].Text = weapon.FireType.ToString();
+            item.SubItems[5].Text = weapon.PenetrateType.ToString();
+            item.SubItems[6].Text = weapon.ImpactType.ToString();
+            item.SubItems[7].Text = weapon.InventoryType.ToString();
+            item.SubItems[8].Text = weapon.Damage.ToString();
+            item.SubItems[9].Text = weapon.ClipSize.ToString();
+            item.SubItems[10].Text = weapon.MaxAmmo.ToString();
+        }
+
+        /// <summary>
         /// Populates the String Tables tab with parsed StringTable assets.
         /// </summary>
         private void PopulateStringTables()

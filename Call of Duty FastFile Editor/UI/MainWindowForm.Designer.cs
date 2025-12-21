@@ -104,7 +104,10 @@ namespace Call_of_Duty_FastFile_Editor
             xAnimsContextMenu = new ContextMenuStrip(components);
             exportXAnimMenuItem = new ToolStripMenuItem();
             weaponsTabPage = new TabPage();
+            weaponsInstructionLabel = new Label();
             weaponsListView = new ListView();
+            weaponsContextMenu = new ContextMenuStrip(components);
+            editWeaponMenuItem = new ToolStripMenuItem();
             imagesTabPage = new TabPage();
             imagesListView = new ListView();
             stringTablesTabPage = new TabPage();
@@ -136,6 +139,7 @@ namespace Call_of_Duty_FastFile_Editor
             techSetsTabPage.SuspendLayout();
             xAnimsTabPage.SuspendLayout();
             xAnimsContextMenu.SuspendLayout();
+            weaponsContextMenu.SuspendLayout();
             weaponsTabPage.SuspendLayout();
             imagesTabPage.SuspendLayout();
             stringTablesTabPage.SuspendLayout();
@@ -841,9 +845,23 @@ namespace Call_of_Duty_FastFile_Editor
             exportXAnimMenuItem.Text = "Export XAnim Data...";
             exportXAnimMenuItem.Click += exportXAnimMenuItem_Click;
             //
+            // weaponsContextMenu
+            //
+            weaponsContextMenu.Items.AddRange(new ToolStripItem[] { editWeaponMenuItem });
+            weaponsContextMenu.Name = "weaponsContextMenu";
+            weaponsContextMenu.Size = new Size(180, 26);
+            //
+            // editWeaponMenuItem
+            //
+            editWeaponMenuItem.Name = "editWeaponMenuItem";
+            editWeaponMenuItem.Size = new Size(179, 22);
+            editWeaponMenuItem.Text = "Edit Weapon...";
+            editWeaponMenuItem.Click += editWeaponMenuItem_Click;
+            //
             // weaponsTabPage
             //
             weaponsTabPage.Controls.Add(weaponsListView);
+            weaponsTabPage.Controls.Add(weaponsInstructionLabel);
             weaponsTabPage.Location = new Point(4, 24);
             weaponsTabPage.Name = "weaponsTabPage";
             weaponsTabPage.Padding = new Padding(3);
@@ -852,16 +870,31 @@ namespace Call_of_Duty_FastFile_Editor
             weaponsTabPage.Text = "Weapons";
             weaponsTabPage.UseVisualStyleBackColor = true;
             //
+            // weaponsInstructionLabel
+            //
+            weaponsInstructionLabel.AutoSize = true;
+            weaponsInstructionLabel.Dock = DockStyle.Top;
+            weaponsInstructionLabel.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            weaponsInstructionLabel.ForeColor = SystemColors.GrayText;
+            weaponsInstructionLabel.Location = new Point(3, 3);
+            weaponsInstructionLabel.Name = "weaponsInstructionLabel";
+            weaponsInstructionLabel.Padding = new Padding(0, 4, 0, 4);
+            weaponsInstructionLabel.Size = new Size(400, 23);
+            weaponsInstructionLabel.TabIndex = 1;
+            weaponsInstructionLabel.Text = "Double-click a weapon or right-click and select 'Edit Weapon...' to modify values.";
+            //
             // weaponsListView
             //
+            weaponsListView.ContextMenuStrip = weaponsContextMenu;
             weaponsListView.Dock = DockStyle.Fill;
             weaponsListView.FullRowSelect = true;
-            weaponsListView.Location = new Point(3, 3);
+            weaponsListView.Location = new Point(3, 26);
             weaponsListView.Name = "weaponsListView";
-            weaponsListView.Size = new Size(1436, 743);
+            weaponsListView.Size = new Size(1436, 720);
             weaponsListView.TabIndex = 0;
             weaponsListView.UseCompatibleStateImageBehavior = false;
             weaponsListView.View = View.Details;
+            weaponsListView.DoubleClick += weaponsListView_DoubleClick;
             weaponsListView.MouseDown += listView_MouseDownCopy;
             //
             // imagesTabPage
@@ -989,6 +1022,7 @@ namespace Call_of_Duty_FastFile_Editor
             techSetsTabPage.ResumeLayout(false);
             xAnimsTabPage.ResumeLayout(false);
             xAnimsContextMenu.ResumeLayout(false);
+            weaponsContextMenu.ResumeLayout(false);
             weaponsTabPage.ResumeLayout(false);
             imagesTabPage.ResumeLayout(false);
             stringTablesTabPage.ResumeLayout(false);
@@ -1066,7 +1100,10 @@ namespace Call_of_Duty_FastFile_Editor
         private ContextMenuStrip xAnimsContextMenu;
         private ToolStripMenuItem exportXAnimMenuItem;
         private TabPage weaponsTabPage;
+        private Label weaponsInstructionLabel;
         private ListView weaponsListView;
+        private ContextMenuStrip weaponsContextMenu;
+        private ToolStripMenuItem editWeaponMenuItem;
         private TabPage imagesTabPage;
         private ListView imagesListView;
         private TabPage stringTablesTabPage;
