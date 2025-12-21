@@ -14,11 +14,12 @@ namespace Call_of_Duty_FastFile_Editor.UI
         private readonly int _alignmentAdjust;
 
         // Field offsets from header start (WaW/CoD5)
-        private const int OFFSET_PENETRATE_TYPE = 0x140;
-        private const int OFFSET_IMPACT_TYPE = 0x148;
-        private const int OFFSET_FIRE_TYPE = 0x14C;
-        private const int OFFSET_WEAP_CLASS = 0x150;
-        private const int OFFSET_INVENTORY_TYPE = 0x158;
+        // Based on WeaponDef structure from codresearch.dev/Weapon_Asset_(WaW)
+        private const int OFFSET_WEAP_CLASS = 0x148;
+        private const int OFFSET_PENETRATE_TYPE = 0x14C;
+        private const int OFFSET_IMPACT_TYPE = 0x150;
+        private const int OFFSET_INVENTORY_TYPE = 0x154;
+        private const int OFFSET_FIRE_TYPE = 0x158;
         private const int OFFSET_DAMAGE = 0x3EC;
         private const int OFFSET_MAX_AMMO = 0x404;
         private const int OFFSET_CLIP_SIZE = 0x408;

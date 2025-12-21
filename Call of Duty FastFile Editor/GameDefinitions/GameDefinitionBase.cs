@@ -737,21 +737,21 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             Debug.WriteLine($"[{ShortName}] Weapon '{internalName}' parsed at 0x{offset:X}, display='{displayName}'");
 
             // Parse numeric fields using verified offsets (adjusted for alignment)
-            // Offsets verified from hex analysis of WaW PS3 zone files:
-            // 0x140: penetrateType (0=None, 1=Small, 2=Medium, 3=Large, 4=Heavy, 6=Rifle)
-            // 0x148: impactType (0=None, 1=Bullet_Small, 2=Bullet_Large, 3=Shotgun)
-            // 0x14C: fireType (0=FullAuto, 1=SingleShot, 2=Burst2, 3=Burst3, etc.)
-            // 0x150: weapClass (0=Rifle, 1=SMG, 2=MG, 3=Spread, 4=Pistol, etc.)
-            // 0x158: inventoryType (0=Primary, 1=Offhand)
+            // Based on WeaponDef structure from codresearch.dev/Weapon_Asset_(WaW):
+            // 0x148: weapClass (0=Rifle, 1=MG, 2=SMG, 3=Spread, 4=Pistol, etc.)
+            // 0x14C: penetrateType (0=None, 1=Small, 2=Medium, 3=Large)
+            // 0x150: impactType (0=None, 1=Bullet_Small, 2=Bullet_Large, 3=Bullet_AP, 4=Shotgun)
+            // 0x154: inventoryType (0=Primary, 1=Offhand)
+            // 0x158: fireType (0=FullAuto, 1=SingleShot, 2=Burst2, 3=Burst3, etc.)
             // 0x3EC: damage
             // 0x404: maxAmmo
             // 0x408: clipSize
 
-            int penetrateTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x140);
-            int impactTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x148);
-            int fireTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x14C);
-            int weapClassVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x150);
-            int inventoryTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x158);
+            int weapClassVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x148);
+            int penetrateTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x14C);
+            int impactTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x150);
+            int inventoryTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x154);
+            int fireTypeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x158);
             int damageVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x3EC);
             int maxAmmoVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x404);
             int clipSizeVal = (int)ReadUInt32BE(zoneData, adjustedOffset + 0x408);
