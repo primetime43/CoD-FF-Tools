@@ -28,9 +28,15 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private readonly bool _isXbox360;
         private readonly bool _isPC;
         private readonly bool _isBigEndian;
+        private readonly int _headerSize;
 
-        // Header size: 13 fields * 4 bytes = 52 bytes (0x34)
-        private const int HEADER_SIZE = 0x34;
+        // Platform-specific header sizes:
+        // Xbox 360: XFile (32 bytes = 6 blocks) + XAssetList (16 bytes) = 48 bytes (0x30)
+        // PS3: XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
+        // PC: XFile (40 bytes = 8 blocks) + XAssetList (16 bytes) = 56 bytes (0x38)
+        private const int HEADER_SIZE_XBOX360 = 0x30;
+        private const int HEADER_SIZE_PS3 = 0x34;
+        private const int HEADER_SIZE_PC = 0x38;
 
         public StructureBasedZoneParser(ZoneFile zone)
         {
@@ -42,6 +48,16 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             _isXbox360 = zone.ParentFastFile?.IsXbox360 ?? false;
             _isPC = zone.ParentFastFile?.IsPC ?? false;
             _isBigEndian = !_isPC; // PC uses little-endian, consoles use big-endian
+
+            // Set header size based on platform
+            if (_isXbox360)
+                _headerSize = HEADER_SIZE_XBOX360;
+            else if (_isPC)
+                _headerSize = HEADER_SIZE_PC;
+            else
+                _headerSize = HEADER_SIZE_PS3;
+
+            Debug.WriteLine($"[StructureParser] Platform: {(_isXbox360 ? "Xbox 360" : (_isPC ? "PC" : "PS3"))}, Header size: 0x{_headerSize:X}");
         }
 
         /// <summary>
@@ -53,23 +69,28 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             try
             {
                 int expectedTagCount = (int)_zone.ScriptStringCount;
+                int expectedAssetCount = (int)_zone.AssetCount;
                 int tagSectionStart;
                 int tagSectionEnd;
                 List<ZoneAsset_TagEntry> tags;
+
+                Debug.WriteLine($"[StructureParser] Expected tags: {expectedTagCount}, Expected assets: {expectedAssetCount}");
+                Debug.WriteLine($"[StructureParser] IsXbox360={_isXbox360}, IsPC={_isPC}, IsBigEndian={_isBigEndian}");
 
                 // Step 1: Handle tags
                 if (expectedTagCount == 0)
                 {
                     // No tags - asset pool starts right after header
-                    tagSectionStart = HEADER_SIZE;
-                    tagSectionEnd = HEADER_SIZE;
+                    tagSectionStart = _headerSize;
+                    tagSectionEnd = _headerSize;
                     tags = new List<ZoneAsset_TagEntry>();
-                    Debug.WriteLine("[StructureParser] No tags expected, starting asset pool at header end");
+                    Debug.WriteLine($"[StructureParser] No tags expected, starting asset pool at header end (0x{_headerSize:X})");
                 }
                 else
                 {
                     // Find where script strings (tags) start
                     tagSectionStart = FindTagSectionStart();
+                    Debug.WriteLine($"[StructureParser] FindTagSectionStart returned 0x{tagSectionStart:X}");
                     if (tagSectionStart < 0)
                     {
                         Debug.WriteLine("[StructureParser] Could not find tag section start");
@@ -78,6 +99,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
                     // Step 2: Read exactly ScriptStringCount tags
                     (tags, tagSectionEnd) = ReadTags(tagSectionStart, expectedTagCount);
+                    Debug.WriteLine($"[StructureParser] ReadTags: got {tags.Count} tags, endOffset=0x{tagSectionEnd:X}");
 
                     if (tags.Count != expectedTagCount)
                     {
@@ -144,7 +166,6 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 }
 
                 // Step 4: Read exactly AssetCount asset records
-                int expectedAssetCount = (int)_zone.AssetCount;
                 var (records, assetPoolEnd) = ReadAssetRecords(assetPoolStart, expectedAssetCount);
 
                 if (records.Count != expectedAssetCount)
@@ -177,7 +198,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private int FindTagSectionStart()
         {
             // Start after the header
-            int offset = HEADER_SIZE;
+            int offset = _headerSize;
 
             // Skip any initial zeros or FF padding
             while (offset < _data.Length)
@@ -221,16 +242,27 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 // Skip any null padding between tags
                 while (offset < _data.Length && _data[offset] == 0x00)
                 {
-                    // Check if we've hit the asset pool (00 00 00 XX FF FF FF FF pattern)
+                    // Check if we've hit the asset pool - Format A (00 00 00 XX FF FF FF FF pattern)
                     if (offset + 8 <= _data.Length &&
                         _data[offset + 1] == 0x00 && _data[offset + 2] == 0x00 &&
                         _data[offset + 4] == 0xFF && _data[offset + 5] == 0xFF &&
                         _data[offset + 6] == 0xFF && _data[offset + 7] == 0xFF)
                     {
-                        Debug.WriteLine($"[ReadTags] Hit asset pool at 0x{offset:X} after {tags.Count} tags");
+                        Debug.WriteLine($"[ReadTags] Hit Format A asset pool at 0x{offset:X} after {tags.Count} tags");
                         return (tags, offset);
                     }
                     offset++;
+                }
+
+                // Also check for Format B asset pool (FF FF FF FF 00 00 00 XX) used by Xbox 360
+                if (offset + 8 <= _data.Length &&
+                    _data[offset] == 0xFF && _data[offset + 1] == 0xFF &&
+                    _data[offset + 2] == 0xFF && _data[offset + 3] == 0xFF &&
+                    _data[offset + 4] == 0x00 && _data[offset + 5] == 0x00 &&
+                    _data[offset + 6] == 0x00)
+                {
+                    Debug.WriteLine($"[ReadTags] Hit Format B asset pool at 0x{offset:X} after {tags.Count} tags");
+                    return (tags, offset);
                 }
 
                 if (offset >= _data.Length)

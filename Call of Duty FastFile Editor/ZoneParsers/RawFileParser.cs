@@ -13,8 +13,9 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     {
         #region Structure Parsing
         /// <summary>
-        /// Parses a raw file at the given offset using the console 12-byte header format:
-        /// [marker][len][marker][name][data]
+        /// Parses a raw file at the given offset.
+        /// Supports both 12-byte header (CoD4/WaW): [marker][len][marker][name][data]
+        /// And 16-byte header (MW2): [marker][compressedLen][len][marker][name][compressed data]
         /// NOTE: PC parsing is not currently supported - AssetRecordProcessor returns early for PC files.
         /// </summary>
         public static RawFileNode ExtractSingleRawFileNodeNoPattern(FastFile openedFastFile, int offset)
@@ -27,16 +28,14 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
             Debug.WriteLine($"[ExtractSingleRawFileNodeNoPattern] Read file '{openedFastFile.ZoneFilePath}' ({fileData.Length} bytes).");
 
-            // Console uses 12-byte header
-            const int headerSize = 12;
-
-            if (offset > fileData.Length - headerSize)
+            // Need at least 16 bytes to check for MW2 format
+            if (offset > fileData.Length - 16)
             {
-                Debug.WriteLine($"[RawFile] Not enough bytes remaining for a {headerSize}-byte header at offset 0x{offset:X}.");
+                Debug.WriteLine($"[RawFile] Not enough bytes remaining for header at offset 0x{offset:X}.");
                 return null;
             }
 
-            // Console 12-byte header: [marker][len][marker]
+            // Check first marker
             uint marker1 = Utilities.ReadUInt32BigEndian(fileData, offset);
             if (marker1 != 0xFFFFFFFF)
             {
@@ -44,34 +43,63 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 return null;
             }
 
-            int dataLength = (int)Utilities.ReadUInt32BigEndian(fileData, offset + 4);
+            // Read first size field
+            int size1 = (int)Utilities.ReadUInt32BigEndian(fileData, offset + 4);
 
-            uint marker2 = Utilities.ReadUInt32BigEndian(fileData, offset + 8);
-            if (marker2 != 0xFFFFFFFF)
+            // Check if this is MW2 16-byte header or CoD4/WaW 12-byte header
+            // MW2: [marker][compressedLen][len][marker] - second marker at offset+12
+            // CoD4/WaW: [marker][len][marker] - second marker at offset+8
+            uint potentialMarker12 = Utilities.ReadUInt32BigEndian(fileData, offset + 8);
+            uint potentialMarker16 = Utilities.ReadUInt32BigEndian(fileData, offset + 12);
+
+            int compressedLen = 0;
+            int dataLength;
+            int headerSize;
+            int fileNameOffset;
+            bool isMW2Format = false;
+
+            if (potentialMarker12 == 0xFFFFFFFF)
             {
-                Debug.WriteLine($"[RawFile] Unexpected second marker at offset 0x{offset + 8:X}: 0x{marker2:X}.");
+                // CoD4/WaW 12-byte format: [marker][len][marker]
+                headerSize = 12;
+                dataLength = size1;
+                fileNameOffset = offset + 12;
+                Debug.WriteLine($"[RawFile] Detected 12-byte header format (CoD4/WaW). dataLength={dataLength}");
+            }
+            else if (potentialMarker16 == 0xFFFFFFFF)
+            {
+                // MW2 16-byte format: [marker][compressedLen][len][marker]
+                headerSize = 16;
+                compressedLen = size1;
+                dataLength = (int)Utilities.ReadUInt32BigEndian(fileData, offset + 8);
+                fileNameOffset = offset + 16;
+                isMW2Format = true;
+                Debug.WriteLine($"[RawFile] Detected 16-byte header format (MW2). compressedLen={compressedLen}, dataLength={dataLength}");
+            }
+            else
+            {
+                Debug.WriteLine($"[RawFile] No valid marker found at offset+8 (0x{potentialMarker12:X}) or offset+12 (0x{potentialMarker16:X}).");
                 return null;
             }
 
-            int fileNameOffset = offset + 12;
-
-            if (dataLength == 0)
+            if (dataLength == 0 && compressedLen == 0)
             {
-                Debug.WriteLine($"[RawFile] dataLength is 0. Probably not a rawfile. Returning null.");
+                Debug.WriteLine($"[RawFile] Both dataLength and compressedLen are 0. Probably not a rawfile. Returning null.");
                 return null;
             }
 
-            // Validate size is reasonable - rawfiles are scripts/configs, not multi-megabyte assets
+            // Validate size is reasonable
             const int MAX_RAWFILE_SIZE = 5 * 1024 * 1024;
-            if (dataLength > MAX_RAWFILE_SIZE || dataLength < 0)
+            int effectiveSize = isMW2Format && compressedLen > 0 ? compressedLen : dataLength;
+            if (effectiveSize > MAX_RAWFILE_SIZE || effectiveSize < 0)
             {
-                Debug.WriteLine($"[RawFile] dataLength {dataLength} (0x{dataLength:X}) is unreasonably large. Not a valid rawfile.");
+                Debug.WriteLine($"[RawFile] effectiveSize {effectiveSize} (0x{effectiveSize:X}) is unreasonably large. Not a valid rawfile.");
                 return null;
             }
 
             // Record the start of the header and file size
             node.StartOfFileHeader = offset;
-            node.MaxSize = dataLength;
+            node.MaxSize = dataLength; // Uncompressed size
             node.HeaderSize = headerSize;
 
             string inlineName = Utilities.ReadNullTerminatedString(fileData, fileNameOffset);
@@ -89,20 +117,55 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             int nameByteCount = inlineName.Length + 1;
             int fileDataOffset = fileNameOffset + nameByteCount;
 
-            // Ensure there's enough data for the file data
-            if (fileDataOffset + dataLength <= fileData.Length)
-            {
-                byte[] rawBytes = new byte[dataLength];
-                Array.Copy(fileData, fileDataOffset, rawBytes, 0, dataLength);
+            // For MW2, use compressedLen for reading data; for others use dataLength
+            int bytesToRead = isMW2Format && compressedLen > 0 ? compressedLen : dataLength;
 
-                node.RawFileBytes = rawBytes;
-                node.RawFileContent = Encoding.UTF8.GetString(rawBytes);
-                node.RawFileEndPosition = fileDataOffset + dataLength + 1;
+            // Ensure there's enough data for the file data
+            if (fileDataOffset + bytesToRead <= fileData.Length)
+            {
+                byte[] rawBytes = new byte[bytesToRead];
+                Array.Copy(fileData, fileDataOffset, rawBytes, 0, bytesToRead);
+
+                // Check if the raw file data is zlib compressed
+                // Zlib header: 0x78 followed by compression level (0x01, 0x5E, 0x9C, or 0xDA)
+                bool isZlibCompressed = rawBytes.Length >= 2 && rawBytes[0] == 0x78 &&
+                    (rawBytes[1] == 0x01 || rawBytes[1] == 0x5E || rawBytes[1] == 0x9C || rawBytes[1] == 0xDA);
+
+                if (isZlibCompressed)
+                {
+                    Debug.WriteLine($"[RawFile] Detected zlib-compressed raw file data. Attempting decompression...");
+                    try
+                    {
+                        using var inputStream = new MemoryStream(rawBytes);
+                        using var zlibStream = new ZLibStream(inputStream, CompressionMode.Decompress);
+                        using var outputStream = new MemoryStream();
+                        zlibStream.CopyTo(outputStream);
+                        byte[] decompressedBytes = outputStream.ToArray();
+
+                        node.RawFileBytes = decompressedBytes;
+                        node.RawFileContent = Encoding.UTF8.GetString(decompressedBytes);
+                        node.AdditionalData = $"Decompressed: {bytesToRead} -> {decompressedBytes.Length} bytes";
+                        Debug.WriteLine($"[RawFile] Decompressed {bytesToRead} -> {decompressedBytes.Length} bytes.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[RawFile] Zlib decompression failed: {ex.Message}. Using raw data.");
+                        node.RawFileBytes = rawBytes;
+                        node.RawFileContent = Encoding.UTF8.GetString(rawBytes);
+                        node.AdditionalData = $"Decompression failed: {ex.Message}";
+                    }
+                }
+                else
+                {
+                    node.RawFileBytes = rawBytes;
+                    node.RawFileContent = Encoding.UTF8.GetString(rawBytes);
+                }
+                node.RawFileEndPosition = fileDataOffset + bytesToRead + 1;
                 Debug.WriteLine($"[RawFile] Inline file data read: {rawBytes.Length} bytes.");
             }
             else
             {
-                Debug.WriteLine($"[RawFile] Data length {dataLength} exceeds available file data; skipping file data read.");
+                Debug.WriteLine($"[RawFile] Data length {bytesToRead} exceeds available file data; skipping file data read.");
                 node.RawFileBytes = new byte[0];
                 node.RawFileContent = string.Empty;
             }
@@ -250,7 +313,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         public static RawFileNode ExtractSingleRawFileNodeWithPattern(byte[] fileData, int startOffset, IGameDefinition gameDefinition)
         {
             // For non-MW2 games, use the standard pattern matching
-            if (gameDefinition.ShortName != "MW2")
+            // MW2 can have ShortName "MW2", "MW2 (Xbox)", or "MW2 (PC)"
+            if (!gameDefinition.ShortName.StartsWith("MW2"))
             {
                 return ExtractSingleRawFileNodeWithPattern(fileData, startOffset);
             }

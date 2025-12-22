@@ -240,76 +240,53 @@ public static class FastFileProcessor
     }
 
     /// <summary>
-    /// Try to decompress Xbox 360 signed files with concatenated zlib streams.
-    /// These files have 0x4000 bytes of signature data after the 12-byte header,
-    /// followed by multiple zlib streams (with full headers, no length prefixes).
+    /// Try to decompress Xbox 360 signed files.
+    /// These files have an auth header followed by a single zlib-compressed stream.
+    /// The key is to find the first valid zlib header and decompress as a single stream,
+    /// ignoring false positive 0x78 XX patterns within the compressed data.
     /// </summary>
     private static int TryDecompressSignedXbox360(BinaryReader br, BinaryWriter bw)
     {
-        // Xbox 360 signed files: 12 byte header + 0x4000 signature + zlib streams
-        const int SignatureSize = 0x4000;
-        const int HeaderSize = 12;
+        br.BaseStream.Position = 0;
+        byte[] fileData = br.ReadBytes((int)br.BaseStream.Length);
 
-        br.BaseStream.Position = HeaderSize + SignatureSize;
-
-        if (br.BaseStream.Position >= br.BaseStream.Length)
-            return 0;
-
-        int blockCount = 0;
-        byte[] fileData = new byte[br.BaseStream.Length - br.BaseStream.Position];
-        br.Read(fileData, 0, fileData.Length);
-
-        int offset = 0;
-        while (offset < fileData.Length - 2)
+        // Find the first zlib header in the file
+        int zlibOffset = -1;
+        for (int i = 0; i < fileData.Length - 2; i++)
         {
-            // Look for zlib header (78 9C, 78 DA, 78 01, 78 5E)
-            if (fileData[offset] != 0x78)
+            if (fileData[i] == 0x78 &&
+                (fileData[i + 1] == 0x9C || fileData[i + 1] == 0xDA ||
+                 fileData[i + 1] == 0x01 || fileData[i + 1] == 0x5E))
             {
-                offset++;
-                continue;
-            }
-
-            byte level = fileData[offset + 1];
-            if (level != 0x9C && level != 0xDA && level != 0x01 && level != 0x5E)
-            {
-                offset++;
-                continue;
-            }
-
-            // Found zlib header - try to decompress from this point
-            try
-            {
-                using var input = new MemoryStream(fileData, offset, fileData.Length - offset);
-                using var output = new MemoryStream();
-                using (var zlib = new ZLibStream(input, CompressionMode.Decompress))
-                {
-                    zlib.CopyTo(output);
-                }
-
-                byte[] decompressed = output.ToArray();
-                if (decompressed.Length > 0)
-                {
-                    bw.Write(decompressed);
-                    blockCount++;
-
-                    // Move offset past the compressed data we just read
-                    // The ZLibStream consumed some bytes - calculate how many
-                    long consumed = input.Position;
-                    offset += (int)consumed;
-                }
-                else
-                {
-                    offset++;
-                }
-            }
-            catch
-            {
-                // Not a valid zlib stream at this position, skip
-                offset++;
+                zlibOffset = i;
+                break;
             }
         }
 
-        return blockCount;
+        if (zlibOffset < 0)
+        {
+            System.Diagnostics.Debug.WriteLine("[FastFileProcessor] No zlib header found in Xbox 360 signed file");
+            return 0;
+        }
+
+        System.Diagnostics.Debug.WriteLine($"[FastFileProcessor] Found zlib header at 0x{zlibOffset:X}");
+
+        // Decompress as a single continuous stream from the first zlib header
+        try
+        {
+            using var input = new MemoryStream(fileData, zlibOffset, fileData.Length - zlibOffset);
+            using (var zlib = new ZLibStream(input, CompressionMode.Decompress))
+            {
+                zlib.CopyTo(bw.BaseStream);
+            }
+            System.Diagnostics.Debug.WriteLine($"[FastFileProcessor] Xbox 360 single zlib stream succeeded from offset 0x{zlibOffset:X}, output size: {bw.BaseStream.Length}");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[FastFileProcessor] Xbox 360 zlib decompression failed: {ex.Message}");
+            return 0;
+        }
     }
 
     /// <summary>

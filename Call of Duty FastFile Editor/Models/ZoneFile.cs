@@ -78,25 +78,58 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public int TagSectionStartOffset { get; set; }
         public int TagSectionEndOffset { get; set; }
 
-        // Mapping of property names to their offsets (pulled from the Constants).
-        private readonly Dictionary<string, int> _headerFieldOffsets = new Dictionary<string, int>
+        /// <summary>
+        /// Gets header field offsets based on platform.
+        /// Xbox 360 has 6 block sizes, PS3 has 7, PC has 8.
+        /// This affects where XAssetList fields are located.
+        /// </summary>
+        private Dictionary<string, int> GetHeaderFieldOffsets()
         {
-            // XFile structure
-            { "ZoneSize", ZoneFileHeaderConstants.ZoneSizeOffset },
-            { "ExternalSize", ZoneFileHeaderConstants.ExternalSizeOffset },
-            { "BlockSizeTemp", ZoneFileHeaderConstants.BlockSizeTempOffset },
-            { "BlockSizePhysical", ZoneFileHeaderConstants.BlockSizePhysicalOffset },
-            { "BlockSizeRuntime", ZoneFileHeaderConstants.BlockSizeRuntimeOffset },
-            { "BlockSizeVirtual", ZoneFileHeaderConstants.BlockSizeVirtualOffset },
-            { "BlockSizeLarge", ZoneFileHeaderConstants.BlockSizeLargeOffset },
-            { "BlockSizeCallback", ZoneFileHeaderConstants.BlockSizeCallbackOffset },
-            { "BlockSizeVertex", ZoneFileHeaderConstants.BlockSizeVertexOffset },
-            // XAssetList structure
-            { "ScriptStringCount", ZoneFileHeaderConstants.ScriptStringCountOffset },
-            { "ScriptStringsPtr", ZoneFileHeaderConstants.ScriptStringsPtrOffset },
-            { "AssetCount", ZoneFileHeaderConstants.AssetCountOffset },
-            { "AssetsPtr", ZoneFileHeaderConstants.AssetsPtrOffset }
-        };
+            bool isXbox360 = ParentFastFile?.IsXbox360 ?? false;
+            bool isPC = ParentFastFile?.IsPC ?? false;
+
+            var offsets = new Dictionary<string, int>
+            {
+                // XFile structure (common)
+                { "ZoneSize", ZoneFileHeaderConstants.ZoneSizeOffset },
+                { "ExternalSize", ZoneFileHeaderConstants.ExternalSizeOffset },
+                { "BlockSizeTemp", ZoneFileHeaderConstants.BlockSizeTempOffset },
+                { "BlockSizePhysical", ZoneFileHeaderConstants.BlockSizePhysicalOffset },
+                { "BlockSizeRuntime", ZoneFileHeaderConstants.BlockSizeRuntimeOffset },
+                { "BlockSizeVirtual", ZoneFileHeaderConstants.BlockSizeVirtualOffset },
+                { "BlockSizeLarge", ZoneFileHeaderConstants.BlockSizeLargeOffset },
+                { "BlockSizeCallback", ZoneFileHeaderConstants.BlockSizeCallbackOffset },
+                { "BlockSizeVertex", ZoneFileHeaderConstants.BlockSizeVertexOffset }
+            };
+
+            // XAssetList structure - offsets depend on platform
+            if (isXbox360)
+            {
+                // Xbox 360: 6 blocks = 32 bytes XFile header
+                offsets["ScriptStringCount"] = ZoneFileHeaderConstants.Xbox360_ScriptStringCountOffset;
+                offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.Xbox360_ScriptStringsPtrOffset;
+                offsets["AssetCount"] = ZoneFileHeaderConstants.Xbox360_AssetCountOffset;
+                offsets["AssetsPtr"] = ZoneFileHeaderConstants.Xbox360_AssetsPtrOffset;
+            }
+            else if (isPC)
+            {
+                // PC: 8 blocks = 40 bytes XFile header
+                offsets["ScriptStringCount"] = ZoneFileHeaderConstants.PC_ScriptStringCountOffset;
+                offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.PC_ScriptStringsPtrOffset;
+                offsets["AssetCount"] = ZoneFileHeaderConstants.PC_AssetCountOffset;
+                offsets["AssetsPtr"] = ZoneFileHeaderConstants.PC_AssetsPtrOffset;
+            }
+            else
+            {
+                // PS3: 7 blocks = 36 bytes XFile header (default)
+                offsets["ScriptStringCount"] = ZoneFileHeaderConstants.ScriptStringCountOffset;
+                offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.ScriptStringsPtrOffset;
+                offsets["AssetCount"] = ZoneFileHeaderConstants.AssetCountOffset;
+                offsets["AssetsPtr"] = ZoneFileHeaderConstants.AssetsPtrOffset;
+            }
+
+            return offsets;
+        }
 
         /// <summary>Reloads Data from disk.</summary>
         public void LoadData() => Data = File.ReadAllBytes(FilePath);
@@ -127,11 +160,12 @@ namespace Call_of_Duty_FastFile_Editor.Models
         }
 
         /// <summary>
-        /// For UI: “0x…” hex offset of any header field.
+        /// For UI: "0x…" hex offset of any header field.
         /// </summary>
         public string GetZoneOffset(string zoneName)
         {
-            if (_headerFieldOffsets.TryGetValue(zoneName, out int offset))
+            var offsets = GetHeaderFieldOffsets();
+            if (offsets.TryGetValue(zoneName, out int offset))
             {
                 return $"0x{offset:X2}";
             }
@@ -146,11 +180,13 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// </summary>
         public void ReadHeaderFields()
         {
+            var offsets = GetHeaderFieldOffsets();
+
             // Read every header field into a Dictionary<string,uint>
-            HeaderFieldValues = _headerFieldOffsets
+            HeaderFieldValues = offsets
                 .ToDictionary(
                     kvp => kvp.Key,
-                    kvp => ReadField(kvp.Key)
+                    kvp => ReadField(kvp.Key, offsets)
                 );
 
             // Populate XFile structure properties
@@ -169,15 +205,18 @@ namespace Call_of_Duty_FastFile_Editor.Models
             ScriptStringsPtr = HeaderFieldValues[nameof(ScriptStringsPtr)];
             AssetCount = HeaderFieldValues[nameof(AssetCount)];
             AssetsPtr = HeaderFieldValues[nameof(AssetsPtr)];
+
+            Debug.WriteLine($"[ZoneFile] Platform: {(ParentFastFile?.IsXbox360 == true ? "Xbox 360" : (ParentFastFile?.IsPC == true ? "PC" : "PS3"))}");
+            Debug.WriteLine($"[ZoneFile] ScriptStringCount: {ScriptStringCount}, AssetCount: {AssetCount}");
         }
 
         /// <summary>
         /// Helper that looks up the offset for a header‑field name and reads a uint from Data.
         /// Uses big-endian for console, little-endian for PC.
         /// </summary>
-        private uint ReadField(string name)
+        private uint ReadField(string name, Dictionary<string, int> offsets)
         {
-            int offset = _headerFieldOffsets[name];
+            int offset = offsets[name];
             bool isBigEndian = !(ParentFastFile?.IsPC ?? false);
             return Utilities.ReadUInt32AtOffset(offset, this, isBigEndian);
         }

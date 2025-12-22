@@ -28,7 +28,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
         {
             // Get the appropriate game definition for this FastFile
             IGameDefinition gameDefinition = GameDefinitionFactory.GetDefinition(openedFastFile);
-            Debug.WriteLine($"[AssetRecordProcessor] Using game definition: {gameDefinition.ShortName}");
+            Debug.WriteLine($"[AssetRecordProcessor] Using {gameDefinition.ShortName} ({gameDefinition.Platform}), {zoneAssetRecords.Count} asset records");
 
             // Create the result container.
             AssetRecordCollection result = new AssetRecordCollection();
@@ -43,7 +43,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
             }
 
             // Keep track of the index and end offset of the last successfully parsed asset record.
-            int indexOfLastAssetRecordParsed = 0;
+            // Initialize to -1 to indicate no record has been parsed yet
+            int indexOfLastAssetRecordParsed = -1;
             int previousRecordEndOffset = 0;
             string assetRecordMethod = string.Empty;
             int structureParsingStoppedAtIndex = -1;
@@ -939,6 +940,10 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 return (int)record.AssetType_COD5_Xbox360;
             if (fastFile.IsCod5File)
                 return (int)record.AssetType_COD5;
+            if (fastFile.IsMW2File && fastFile.IsPC)
+                return (int)record.AssetType_MW2_PC;
+            if (fastFile.IsMW2File && fastFile.IsXbox360)
+                return (int)record.AssetType_MW2_Xbox360;
             if (fastFile.IsMW2File)
                 return (int)record.AssetType_MW2;
             return 0;
@@ -954,7 +959,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
             int previousRecordEndOffset,
             int indexOfLastParsed)
         {
-            if (currentIndex == 0)
+            // If this is the first record or no record has been parsed yet, start after the asset pool
+            if (currentIndex == 0 || indexOfLastParsed < 0)
             {
                 return fastFile.OpenedFastFileZone.AssetPoolEndOffset;
             }
@@ -962,9 +968,14 @@ namespace Call_of_Duty_FastFile_Editor.Services
             {
                 return previousRecordEndOffset;
             }
-            else
+            else if (indexOfLastParsed >= 0 && records[indexOfLastParsed].AssetRecordEndOffset > 0)
             {
                 return records[indexOfLastParsed].AssetRecordEndOffset;
+            }
+            else
+            {
+                // Fallback to asset pool end
+                return fastFile.OpenedFastFileZone.AssetPoolEndOffset;
             }
         }
 
