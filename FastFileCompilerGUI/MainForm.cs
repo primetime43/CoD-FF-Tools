@@ -23,7 +23,7 @@ public partial class MainForm : Form
         using var dialog = new OpenFileDialog
         {
             Title = "Select Existing FastFile to Load",
-            Filter = "FastFile (*.ff)|*.ff|All Files (*.*)|*.*"
+            Filter = "FastFile (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*"
         };
 
         if (dialog.ShowDialog() != DialogResult.OK) return;
@@ -507,7 +507,7 @@ public partial class MainForm : Form
         using var dialog = new SaveFileDialog
         {
             Title = "Save FastFile",
-            Filter = "FastFile (*.ff)|*.ff",
+            Filter = "FastFile (*.ff;*.ffm)|*.ff;*.ffm",
             FileName = textBoxZoneName.Text + ".ff"
         };
 

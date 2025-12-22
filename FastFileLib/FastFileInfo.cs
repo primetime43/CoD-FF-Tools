@@ -43,6 +43,7 @@ public class FastFileInfo
     public const uint WaW_Wii_Version = (uint)CoD5Definition.WiiVersionValue;
     public const uint MW2_Console_Version = (uint)MW2Definition.VersionValue;
     public const uint MW2_PC_Version = (uint)MW2Definition.PCVersionValue;
+    public const uint MW2_DevBuild_Version = (uint)MW2Definition.DevBuildVersionValue;
 
     /// <summary>
     /// Reads FastFile header information from a file.
@@ -162,6 +163,13 @@ public class FastFileInfo
                 info.GameName = "MW2";
                 info.Studio = "Infinity Ward";
                 info.Platforms = new[] { "PC" };
+                info.HeaderSize = -1; // Variable, needs to be calculated
+                break;
+            case MW2_DevBuild_Version:
+                info.GameVersion = GameVersion.MW2;
+                info.GameName = "MW2 (Dev Build)";
+                info.Studio = "Infinity Ward";
+                info.Platforms = new[] { "Xbox 360" };
                 info.HeaderSize = -1; // Variable, needs to be calculated
                 break;
             default:

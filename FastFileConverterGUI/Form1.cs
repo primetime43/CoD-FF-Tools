@@ -298,7 +298,7 @@ public partial class Form1 : Form
         using var dialog = new OpenFileDialog
         {
             Title = "Select FastFile",
-            Filter = "FastFiles (*.ff)|*.ff|All Files (*.*)|*.*",
+            Filter = "FastFiles (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*",
             FilterIndex = 1
         };
 
@@ -400,7 +400,7 @@ public partial class Form1 : Form
         using var dialog = new SaveFileDialog
         {
             Title = "Save Converted FastFile",
-            Filter = "FastFiles (*.ff)|*.ff|All Files (*.*)|*.*",
+            Filter = "FastFiles (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*",
             FilterIndex = 1,
             FileName = Path.GetFileName(_outputPathTextBox.Text)
         };

@@ -11,6 +11,7 @@ namespace FastFileLib.GameDefinitions
         // Version values
         public const int VersionValue = 0x10D;         // PS3/Xbox 360 (269)
         public const int PCVersionValue = 0x114;       // PC (276)
+        public const int DevBuildVersionValue = 0xFD;   // Pre-release dev build (253)
         public static readonly byte[] VersionBytes = { 0x00, 0x00, 0x01, 0x0D };
         public static readonly byte[] PCVersionBytes = { 0x00, 0x00, 0x01, 0x14 };
 

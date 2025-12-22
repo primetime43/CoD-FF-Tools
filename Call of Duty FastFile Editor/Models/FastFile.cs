@@ -34,7 +34,13 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public bool IsCod5File => OpenedFastFileHeader.IsCod5File;
         public bool IsMW2File => OpenedFastFileHeader.IsMW2File;
         public bool IsSigned => OpenedFastFileHeader.IsSigned;
-        public bool IsXbox360 => OpenedFastFileHeader.IsSigned; // Signed files are Xbox 360
+
+        /// <summary>
+        /// Indicates if this FastFile is from Xbox 360.
+        /// Signed files are Xbox 360, and dev build FFM files (version 0xFD) are also Xbox 360.
+        /// </summary>
+        public bool IsXbox360 => OpenedFastFileHeader.IsSigned ||
+                                  OpenedFastFileHeader.GameVersion == FastFileLib.GameDefinitions.MW2Definition.DevBuildVersionValue;
 
         /// <summary>
         /// Indicates if this FastFile is from a PC version.
@@ -341,7 +347,8 @@ namespace Call_of_Duty_FastFile_Editor.Models
                             IsWii = true;
                     }
                     else if (GameVersion == MW2Definition.VersionValue ||
-                             GameVersion == MW2Definition.PCVersionValue)
+                             GameVersion == MW2Definition.PCVersionValue ||
+                             GameVersion == MW2Definition.DevBuildVersionValue)
                     {
                         IsMW2File = true;
                         IsValid = true;
@@ -376,7 +383,8 @@ namespace Call_of_Duty_FastFile_Editor.Models
                     IsPC = true;
                 }
                 else if (GameVersion == MW2Definition.VersionValue ||
-                         GameVersion == MW2Definition.PCVersionValue)
+                         GameVersion == MW2Definition.PCVersionValue ||
+                         GameVersion == MW2Definition.DevBuildVersionValue)
                 {
                     IsMW2File = true;
                     IsValid = true;

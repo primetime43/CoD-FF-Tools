@@ -250,6 +250,7 @@ namespace Call_of_Duty_FastFile_Editor
                 {
                     string file = files[0];
                     if (file.EndsWith(".ff", StringComparison.OrdinalIgnoreCase) ||
+                        file.EndsWith(".ffm", StringComparison.OrdinalIgnoreCase) ||
                         file.EndsWith(".zone", StringComparison.OrdinalIgnoreCase))
                     {
                         e.Effect = DragDropEffects.Copy;
@@ -271,7 +272,8 @@ namespace Call_of_Duty_FastFile_Editor
 
             string filePath = files[0];
 
-            if (filePath.EndsWith(".ff", StringComparison.OrdinalIgnoreCase))
+            if (filePath.EndsWith(".ff", StringComparison.OrdinalIgnoreCase) ||
+                filePath.EndsWith(".ffm", StringComparison.OrdinalIgnoreCase))
             {
                 await OpenFastFileAutoDetectAsync(filePath);
             }
@@ -1106,7 +1108,7 @@ namespace Call_of_Duty_FastFile_Editor
 
             using (var saveFileDialog = new SaveFileDialog())
             {
-                saveFileDialog.Filter = "Fast Files (*.ff)|*.ff|All Files (*.*)|*.*";
+                saveFileDialog.Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*";
                 saveFileDialog.Title = "Save Fast File As";
 
                 if (saveFileDialog.ShowDialog() == DialogResult.OK)
@@ -4090,7 +4092,7 @@ namespace Call_of_Duty_FastFile_Editor
             using var openFileDialog = new OpenFileDialog
             {
                 Title = "Select a COD5 Fast File",
-                Filter = "Fast Files (*.ff)|*.ff"
+                Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm"
             };
 
             if (openFileDialog.ShowDialog() != DialogResult.OK)
@@ -4106,7 +4108,7 @@ namespace Call_of_Duty_FastFile_Editor
             using var openFileDialog = new OpenFileDialog
             {
                 Title = "Select a COD4 Fast File",
-                Filter = "Fast Files (*.ff)|*.ff"
+                Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm"
             };
 
             if (openFileDialog.ShowDialog() != DialogResult.OK)
@@ -4122,7 +4124,7 @@ namespace Call_of_Duty_FastFile_Editor
             using var openFileDialog = new OpenFileDialog
             {
                 Title = "Select a MW2 Fast File",
-                Filter = "Fast Files (*.ff)|*.ff"
+                Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm"
             };
 
             if (openFileDialog.ShowDialog() != DialogResult.OK)
@@ -4270,7 +4272,7 @@ namespace Call_of_Duty_FastFile_Editor
             using var saveFileDialog = new SaveFileDialog
             {
                 Title = "Save FastFile As",
-                Filter = "FastFile (*.ff)|*.ff|All Files (*.*)|*.*",
+                Filter = "FastFile (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*",
                 FilterIndex = 1,
                 FileName = defaultFileName,
                 InitialDirectory = Path.GetDirectoryName(zonePath)

@@ -16,16 +16,17 @@ namespace Call_of_Duty_FastFile_Editor.IO
 
         /// <summary>
         /// Decompresses MW2 FastFile, handling the extended header.
-        /// For Xbox 360 signed files, uses FastFileProcessor which handles XBlock format.
+        /// For Xbox 360 signed files or dev build FFM files, uses FastFileProcessor.
         /// </summary>
         public override void Decompress(string inputFilePath, string outputFilePath)
         {
-            // Check if this is a signed Xbox 360 file - if so, use FastFileProcessor
+            // Check if this is a signed Xbox 360 file or dev build FFM - if so, use FastFileProcessor
             var fileInfo = FastFileInfo.FromFile(inputFilePath);
-            if (fileInfo.IsSigned)
+            if (fileInfo.IsSigned || fileInfo.Version == MW2Definition.DevBuildVersionValue)
             {
                 // Xbox 360 signed files have XBlock structure with hash blocks
-                // Use FastFileProcessor which handles this format
+                // Dev build FFM files have a large metadata header before compressed data
+                // Use FastFileProcessor which handles these formats
                 FastFileProcessor.Decompress(inputFilePath, outputFilePath);
                 return;
             }

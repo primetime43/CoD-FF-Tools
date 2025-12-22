@@ -169,7 +169,9 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             }
 
             // MW2
-            if (versionValue == MW2Definition.VersionValue || versionValue == MW2Definition.PCVersionValue)
+            if (versionValue == MW2Definition.VersionValue ||
+                versionValue == MW2Definition.PCVersionValue ||
+                versionValue == MW2Definition.DevBuildVersionValue)
             {
                 return platform switch
                 {

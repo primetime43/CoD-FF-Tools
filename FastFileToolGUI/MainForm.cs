@@ -46,7 +46,7 @@ public partial class MainForm : Form
         using var ofd = new OpenFileDialog
         {
             Title = "Select FastFile to Extract",
-            Filter = "FastFiles (*.ff)|*.ff|All Files (*.*)|*.*"
+            Filter = "FastFiles (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*"
         };
 
         if (ofd.ShowDialog() == DialogResult.OK)
@@ -130,7 +130,7 @@ public partial class MainForm : Form
         using var sfd = new SaveFileDialog
         {
             Title = "Save FastFile As",
-            Filter = "FastFiles (*.ff)|*.ff|All Files (*.*)|*.*",
+            Filter = "FastFiles (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*",
             FileName = Path.GetFileName(packOutputTextBox.Text)
         };
 
