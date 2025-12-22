@@ -168,6 +168,15 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         XAnimParts? ParseXAnim(byte[] zoneData, int offset);
 
         /// <summary>
+        /// Extracts bone names for an XAnimParts asset by reading script string indices
+        /// and resolving them via the TagCollection.
+        /// </summary>
+        /// <param name="xanim">The XAnimParts to extract bone names for.</param>
+        /// <param name="zoneData">The zone file data.</param>
+        /// <param name="tags">The TagCollection containing script strings.</param>
+        void ExtractBoneNames(XAnimParts xanim, byte[] zoneData, TagCollection? tags);
+
+        /// <summary>
         /// Parses a stringtable asset from the zone data at the given offset.
         /// </summary>
         /// <param name="zoneData">The zone file data.</param>

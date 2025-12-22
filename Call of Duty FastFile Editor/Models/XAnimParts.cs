@@ -143,6 +143,57 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// </summary>
         public string AdditionalData { get; set; } = string.Empty;
 
+        /// <summary>
+        /// List of bone names used by this animation.
+        /// Resolved from script string indices.
+        /// </summary>
+        public List<string> BoneNames { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Offset of the names pointer in the zone file (for debugging).
+        /// </summary>
+        public int NamesPointerOffset { get; set; }
+
+        /// <summary>
+        /// Offset where the animation data starts (after bone name indices).
+        /// </summary>
+        public int DataStartOffset { get; set; }
+
+        /// <summary>
+        /// Offset of the dataByte array in the zone file.
+        /// </summary>
+        public int DataByteOffset { get; set; }
+
+        /// <summary>
+        /// Offset of the dataShort array in the zone file.
+        /// </summary>
+        public int DataShortOffset { get; set; }
+
+        /// <summary>
+        /// Offset of the dataInt array in the zone file.
+        /// </summary>
+        public int DataIntOffset { get; set; }
+
+        /// <summary>
+        /// Offset of the indices data in the zone file.
+        /// </summary>
+        public int IndicesOffset { get; set; }
+
+        /// <summary>
+        /// Offset of notify data in the zone file.
+        /// </summary>
+        public int NotifyOffset { get; set; }
+
+        /// <summary>
+        /// Offset of delta part data in the zone file.
+        /// </summary>
+        public int DeltaPartOffset { get; set; }
+
+        /// <summary>
+        /// Whether animation data offsets have been calculated.
+        /// </summary>
+        public bool HasDataOffsets { get; set; }
+
         private int CalculateTotalBoneCount()
         {
             int total = 0;

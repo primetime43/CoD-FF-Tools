@@ -104,6 +104,8 @@ namespace Call_of_Duty_FastFile_Editor
             xAnimsListView = new ListView();
             xAnimsContextMenu = new ContextMenuStrip(components);
             exportXAnimMenuItem = new ToolStripMenuItem();
+            exportXAnimToSEAnimMenuItem = new ToolStripMenuItem();
+            exportXAnimToBVHMenuItem = new ToolStripMenuItem();
             weaponsTabPage = new TabPage();
             weaponsInstructionLabel = new Label();
             weaponsListView = new ListView();
@@ -844,9 +846,9 @@ namespace Call_of_Duty_FastFile_Editor
             //
             // xAnimsContextMenu
             //
-            xAnimsContextMenu.Items.AddRange(new ToolStripItem[] { exportXAnimMenuItem });
+            xAnimsContextMenu.Items.AddRange(new ToolStripItem[] { exportXAnimMenuItem, exportXAnimToSEAnimMenuItem, exportXAnimToBVHMenuItem });
             xAnimsContextMenu.Name = "xAnimsContextMenu";
-            xAnimsContextMenu.Size = new Size(180, 26);
+            xAnimsContextMenu.Size = new Size(180, 70);
             //
             // exportXAnimMenuItem
             //
@@ -854,6 +856,20 @@ namespace Call_of_Duty_FastFile_Editor
             exportXAnimMenuItem.Size = new Size(179, 22);
             exportXAnimMenuItem.Text = "Export XAnim Data...";
             exportXAnimMenuItem.Click += exportXAnimMenuItem_Click;
+            //
+            // exportXAnimToSEAnimMenuItem
+            //
+            exportXAnimToSEAnimMenuItem.Name = "exportXAnimToSEAnimMenuItem";
+            exportXAnimToSEAnimMenuItem.Size = new Size(179, 22);
+            exportXAnimToSEAnimMenuItem.Text = "Export to SEAnim...";
+            exportXAnimToSEAnimMenuItem.Click += exportXAnimToSEAnimMenuItem_Click;
+            //
+            // exportXAnimToBVHMenuItem
+            //
+            exportXAnimToBVHMenuItem.Name = "exportXAnimToBVHMenuItem";
+            exportXAnimToBVHMenuItem.Size = new Size(179, 22);
+            exportXAnimToBVHMenuItem.Text = "Export to BVH...";
+            exportXAnimToBVHMenuItem.Click += exportXAnimToBVHMenuItem_Click;
             //
             // weaponsContextMenu
             //
@@ -1123,6 +1139,8 @@ namespace Call_of_Duty_FastFile_Editor
         private ListView xAnimsListView;
         private ContextMenuStrip xAnimsContextMenu;
         private ToolStripMenuItem exportXAnimMenuItem;
+        private ToolStripMenuItem exportXAnimToSEAnimMenuItem;
+        private ToolStripMenuItem exportXAnimToBVHMenuItem;
         private TabPage weaponsTabPage;
         private Label weaponsInstructionLabel;
         private ListView weaponsListView;

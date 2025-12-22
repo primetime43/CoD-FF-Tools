@@ -634,13 +634,9 @@ namespace Call_of_Duty_FastFile_Editor
             PopulateLocalizeAssets();
             PopulateMenuFiles();
             PopulateTechSets();
-            PopulateXAnims();
-            PopulateWeapons();
-            PopulateImages();
-            PopulateStringTables();
-            PopulateCollision_Map_Asset_StringData();
 
             // Handle tags tab based on loadTags flag (set by LoadAssetRecordsData)
+            // Tags must be populated BEFORE XAnims so bone names can be resolved
             if (_loadTags)
             {
                 PopulateTags();
@@ -659,6 +655,12 @@ namespace Call_of_Duty_FastFile_Editor
                     mainTabControl.TabPages.Remove(tagsTabPage);
                 }
             }
+
+            PopulateXAnims();
+            PopulateWeapons();
+            PopulateImages();
+            PopulateStringTables();
+            PopulateCollision_Map_Asset_StringData();
         }
 
         /// <summary>
@@ -2014,6 +2016,17 @@ namespace Call_of_Duty_FastFile_Editor
                 mainTabControl.TabPages.Add(xAnimsTabPage);
             }
 
+            // Extract bone names for each XAnim if tags are available
+            if (_tags != null && _openedFastFile?.OpenedFastFileZone?.Data != null)
+            {
+                var gameDefinition = GameDefinitions.GameDefinitionFactory.GetDefinition(_openedFastFile);
+                byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
+                foreach (var xanim in _xanims)
+                {
+                    gameDefinition.ExtractBoneNames(xanim, zoneData, _tags);
+                }
+            }
+
             // Clear any existing items and columns.
             xAnimsListView.Items.Clear();
             xAnimsListView.Columns.Clear();
@@ -2062,6 +2075,47 @@ namespace Call_of_Duty_FastFile_Editor
 
             // Auto-resize columns to fit header size.
             xAnimsListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
+
+            // Wire up double-click to show bone names
+            xAnimsListView.DoubleClick -= XAnimsListView_DoubleClick;
+            xAnimsListView.DoubleClick += XAnimsListView_DoubleClick;
+        }
+
+        private void XAnimsListView_DoubleClick(object? sender, EventArgs e)
+        {
+            if (xAnimsListView.SelectedItems.Count == 0)
+                return;
+
+            var selectedItem = xAnimsListView.SelectedItems[0];
+            var xanim = selectedItem.Tag as XAnimParts;
+            if (xanim == null)
+                return;
+
+            // Build bone names display
+            string boneInfo;
+            if (xanim.BoneNames.Count > 0)
+            {
+                boneInfo = $"Bone Names ({xanim.BoneNames.Count}):\n\n" +
+                           string.Join("\n", xanim.BoneNames.Select((name, i) => $"  {i}: {name}"));
+            }
+            else
+            {
+                boneInfo = "No bone names available.\n\n" +
+                           "This may be because:\n" +
+                           "- Tags were not loaded (check 'Load Tags' option)\n" +
+                           "- The animation has no bones\n" +
+                           "- Bone name extraction is not supported for this game";
+            }
+
+            string info = $"Animation: {xanim.Name}\n\n" +
+                          $"Frames: {xanim.NumFrames}\n" +
+                          $"Framerate: {(float.IsNaN(xanim.Framerate) ? "N/A" : $"{xanim.Framerate:F1} fps")}\n" +
+                          $"Duration: {(float.IsNaN(xanim.Duration) ? "N/A" : $"{xanim.Duration:F2}s")}\n" +
+                          $"Loops: {(xanim.IsLooping ? "Yes" : "No")}\n" +
+                          $"Has Delta: {(xanim.HasDelta ? "Yes" : "No")}\n\n" +
+                          boneInfo;
+
+            MessageBox.Show(info, "XAnim Details", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void PopulateWeapons()
@@ -2276,6 +2330,140 @@ namespace Call_of_Duty_FastFile_Editor
                     catch (Exception ex)
                     {
                         MessageBox.Show($"Failed to export XAnim: {ex.Message}", "Export Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Exports the selected XAnim to SEAnim format for use in Blender/Maya.
+        /// </summary>
+        private void exportXAnimToSEAnimMenuItem_Click(object? sender, EventArgs e)
+        {
+            if (xAnimsListView.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select an XAnim to export.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var selectedItem = xAnimsListView.SelectedItems[0];
+            var xanim = selectedItem.Tag as XAnimParts;
+            if (xanim == null)
+            {
+                MessageBox.Show("Could not get XAnim data.", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Check if bone names are available
+            if (xanim.BoneNames.Count == 0)
+            {
+                var result = MessageBox.Show(
+                    "No bone names were extracted for this animation.\n\n" +
+                    "This may be because:\n" +
+                    "- Tags were not loaded (use 'Load Tags' option when opening)\n" +
+                    "- Bone name extraction is not supported for this game\n\n" +
+                    "The exported SEAnim will have a placeholder 'root' bone.\n\n" +
+                    "Continue anyway?",
+                    "No Bone Names",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+
+                if (result != DialogResult.Yes)
+                    return;
+            }
+
+            // Clean up name for filename
+            string safeName = xanim.Name ?? "xanim";
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                safeName = safeName.Replace(c, '_');
+            }
+
+            using (SaveFileDialog saveDialog = new SaveFileDialog())
+            {
+                saveDialog.Title = "Export to SEAnim";
+                saveDialog.Filter = "SEAnim Animation (*.seanim)|*.seanim|All Files (*.*)|*.*";
+                saveDialog.FileName = $"{safeName}.seanim";
+
+                if (saveDialog.ShowDialog() == DialogResult.OK)
+                {
+                    // Get zone data for keyframe extraction
+                    byte[]? zoneData = _openedFastFile?.OpenedFastFileZone?.Data;
+
+                    if (Export.SEAnimExporter.Export(xanim, saveDialog.FileName, zoneData, out string? error))
+                    {
+                        MessageBox.Show(
+                            $"XAnim '{xanim.Name}' exported to SEAnim successfully.\n\n" +
+                            $"Bones: {(xanim.BoneNames.Count > 0 ? xanim.BoneNames.Count : 1)}\n" +
+                            $"Frames: {xanim.NumFrames}\n" +
+                            $"Framerate: {(float.IsNaN(xanim.Framerate) ? "30.0" : xanim.Framerate.ToString("F1"))} fps\n\n" +
+                            "Note: Animation keyframe data has been extracted.\n" +
+                            "Open in Blender/Maya with SETools plugin.",
+                            "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Failed to export SEAnim: {error ?? "Unknown error"}", "Export Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Exports the selected XAnim to BVH format for use in Blender.
+        /// </summary>
+        private void exportXAnimToBVHMenuItem_Click(object? sender, EventArgs e)
+        {
+            if (xAnimsListView.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select an XAnim to export.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var selectedItem = xAnimsListView.SelectedItems[0];
+            var xanim = selectedItem.Tag as XAnimParts;
+            if (xanim == null)
+            {
+                MessageBox.Show("Could not get XAnim data.", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Clean up name for filename
+            string safeName = xanim.Name ?? "xanim";
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                safeName = safeName.Replace(c, '_');
+            }
+
+            using (SaveFileDialog saveDialog = new SaveFileDialog())
+            {
+                saveDialog.Title = "Export to BVH";
+                saveDialog.Filter = "BVH Motion Capture (*.bvh)|*.bvh|All Files (*.*)|*.*";
+                saveDialog.FileName = $"{safeName}.bvh";
+
+                if (saveDialog.ShowDialog() == DialogResult.OK)
+                {
+                    // Get zone data for keyframe extraction
+                    byte[]? zoneData = _openedFastFile?.OpenedFastFileZone?.Data;
+
+                    if (Export.BVHExporter.Export(xanim, saveDialog.FileName, zoneData, out string? error))
+                    {
+                        MessageBox.Show(
+                            $"XAnim '{xanim.Name}' exported to BVH successfully.\n\n" +
+                            $"Bones: {(xanim.BoneNames.Count > 0 ? xanim.BoneNames.Count : 1)}\n" +
+                            $"Frames: {xanim.NumFrames}\n" +
+                            $"Framerate: {(float.IsNaN(xanim.Framerate) ? "30.0" : xanim.Framerate.ToString("F1"))} fps\n\n" +
+                            "Import in Blender: File → Import → Motion Capture (.bvh)",
+                            "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    else
+                    {
+                        MessageBox.Show($"Failed to export BVH: {error ?? "Unknown error"}", "Export Error",
                             MessageBoxButtons.OK, MessageBoxIcon.Error);
                     }
                 }

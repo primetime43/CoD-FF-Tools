@@ -11,6 +11,24 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// So this includes the last tag + the 0x00 terminator.
         /// </summary>
         public int TagSectionEndOffset { get; set; }
+
+        /// <summary>
+        /// Gets a tag string by its script string index.
+        /// Script strings are indexed sequentially starting at 0.
+        /// </summary>
+        /// <param name="index">The script string index (0-based).</param>
+        /// <returns>The tag string, or null if index is out of range.</returns>
+        public string? GetTagByIndex(int index)
+        {
+            if (index < 0 || index >= TagEntries.Count)
+                return null;
+            return TagEntries[index].Tag;
+        }
+
+        /// <summary>
+        /// Gets the total number of tags in this collection.
+        /// </summary>
+        public int Count => TagEntries.Count;
     }
 
     public class ZoneAsset_TagEntry

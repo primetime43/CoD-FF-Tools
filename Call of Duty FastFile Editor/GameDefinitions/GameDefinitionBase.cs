@@ -431,6 +431,10 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             int dataStartOffset = nameOffset + name.Length + 1;
             int endOffset = FindNextAssetHeader(zoneData, dataStartOffset, offset);
 
+            // Read names pointer at offset 0x34
+            uint namesPointer = ReadUInt32BE(zoneData, offset + 0x34);
+            int namesPointerOffset = offset + 0x34;
+
             return new XAnimParts
             {
                 Name = name,
@@ -451,8 +455,116 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 Frequency = frequency,
                 StartOffset = offset,
                 EndOffset = endOffset,
+                NamesPointerOffset = namesPointerOffset,
                 AdditionalData = $"{ShortName} structure-based parse; {numframes} frames at {framerate:F1} fps"
             };
+        }
+
+        /// <summary>
+        /// Extracts bone names for an XAnimParts asset by reading script string indices
+        /// and resolving them via the TagCollection.
+        /// Call this after both XAnims and Tags have been loaded.
+        /// </summary>
+        /// <param name="xanim">The XAnimParts to extract bone names for.</param>
+        /// <param name="zoneData">The zone file data.</param>
+        /// <param name="tags">The TagCollection containing script strings.</param>
+        public virtual void ExtractBoneNames(XAnimParts xanim, byte[] zoneData, TagCollection? tags)
+        {
+            if (xanim == null || zoneData == null || tags == null || tags.Count == 0)
+                return;
+
+            int totalBones = xanim.TotalBoneCount;
+            if (totalBones <= 0 || totalBones > 500) // Sanity check
+                return;
+
+            // Read the names pointer at the stored offset
+            if (xanim.NamesPointerOffset <= 0 || xanim.NamesPointerOffset + 4 > zoneData.Length)
+                return;
+
+            uint namesPointer = ReadUInt32BE(zoneData, xanim.NamesPointerOffset);
+
+            // Determine where the bone name indices are located
+            int indicesOffset;
+            if (namesPointer == 0xFFFFFFFF)
+            {
+                // Inline data - indices follow after all pointer fields
+                // Pointers are at 0x34-0x57 (9 pointers * 4 bytes = 36 bytes)
+                // So indices would start at offset + 0x58, but that's where the name string is
+                // Actually, the name string is found via search, so indices likely come after pointers
+                // Let me search for the indices after the name string
+                indicesOffset = xanim.StartOffset + xanim.Name.Length + 0x58 + 1; // After name string + null
+
+                // Actually, looking at the structure more carefully:
+                // The script string indices (bone names) are typically stored AFTER the animation name
+                // and before the actual animation data arrays
+                // Let's try reading from right after the name
+                int nameEndOffset = FindNameEndOffset(zoneData, xanim.StartOffset);
+                if (nameEndOffset > 0)
+                {
+                    indicesOffset = nameEndOffset + 1; // +1 for null terminator
+                }
+            }
+            else if (namesPointer == 0x00000000)
+            {
+                // No bone names
+                return;
+            }
+            else
+            {
+                // External pointer - this would need zone memory mapping to resolve
+                // For now, skip external pointers
+                Debug.WriteLine($"[{ShortName}] XAnim '{xanim.Name}': External names pointer 0x{namesPointer:X8} not supported");
+                return;
+            }
+
+            // Read bone name indices (each is a 2-byte script string index)
+            if (indicesOffset + (totalBones * 2) > zoneData.Length)
+            {
+                Debug.WriteLine($"[{ShortName}] XAnim '{xanim.Name}': Not enough data for {totalBones} bone indices at 0x{indicesOffset:X}");
+                return;
+            }
+
+            xanim.BoneNames.Clear();
+            for (int i = 0; i < totalBones; i++)
+            {
+                ushort scriptStringIndex = ReadUInt16BE(zoneData, indicesOffset + (i * 2));
+                string? boneName = tags.GetTagByIndex(scriptStringIndex);
+
+                if (!string.IsNullOrEmpty(boneName))
+                {
+                    xanim.BoneNames.Add(boneName);
+                }
+                else
+                {
+                    xanim.BoneNames.Add($"bone_{scriptStringIndex}"); // Fallback name
+                }
+            }
+
+            Debug.WriteLine($"[{ShortName}] XAnim '{xanim.Name}': Extracted {xanim.BoneNames.Count} bone names");
+        }
+
+        /// <summary>
+        /// Finds the end offset of the animation name string within the XAnim header.
+        /// </summary>
+        private int FindNameEndOffset(byte[] zoneData, int headerOffset)
+        {
+            // Search for the name starting from offset + 0x34
+            for (int searchStart = headerOffset + 0x34; searchStart < headerOffset + 256 && searchStart < zoneData.Length - 10; searchStart++)
+            {
+                if (zoneData[searchStart] == 0xFF || zoneData[searchStart] == 0x00)
+                    continue;
+
+                byte b = zoneData[searchStart];
+                if ((b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b == '@' || b == '_' || (b >= '0' && b <= '9'))
+                {
+                    // Found start of name, now find the null terminator
+                    int end = searchStart;
+                    while (end < zoneData.Length && zoneData[end] != 0x00)
+                        end++;
+                    return end;
+                }
+            }
+            return -1;
         }
 
         /// <summary>
