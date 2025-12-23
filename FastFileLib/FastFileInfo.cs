@@ -281,6 +281,175 @@ public class FastFileInfo
         return $"{size:0.##} {sizes[order]}";
     }
 
+    #region Zone Detection Utilities
+
+    /// <summary>
+    /// Detects the game type from a zone file by reading the MemAlloc1 value at offset 0x08.
+    /// </summary>
+    /// <param name="zonePath">Path to the zone file</param>
+    /// <returns>Detected game version, or Unknown if detection failed</returns>
+    public static GameVersion DetectGameFromZone(string zonePath)
+    {
+        try
+        {
+            byte[] header = new byte[12];
+            using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
+            {
+                if (fs.Read(header, 0, 12) < 12)
+                    return GameVersion.Unknown;
+            }
+
+            return DetectGameFromZoneData(header);
+        }
+        catch
+        {
+            return GameVersion.Unknown;
+        }
+    }
+
+    /// <summary>
+    /// Detects the game type from zone data by reading the MemAlloc1 value at offset 0x08.
+    /// </summary>
+    /// <param name="zoneData">The zone file data (at least 12 bytes)</param>
+    /// <returns>Detected game version, or Unknown if detection failed</returns>
+    public static GameVersion DetectGameFromZoneData(byte[] zoneData)
+    {
+        if (zoneData == null || zoneData.Length < 12)
+            return GameVersion.Unknown;
+
+        // MemAlloc1 is at offset 0x08, try big-endian first (console)
+        uint memAlloc1BE = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
+        uint memAlloc1LE = (uint)(zoneData[8] | (zoneData[9] << 8) | (zoneData[10] << 16) | (zoneData[11] << 24));
+
+        // Check big-endian values first (console)
+        return memAlloc1BE switch
+        {
+            CoD5Definition.MemAlloc1Value => GameVersion.WaW,           // 0x10B0 - WaW PS3
+            CoD5Definition.Xbox360MemAlloc1Value => GameVersion.WaW,    // 0x0A90 - WaW Xbox 360
+            CoD4Definition.MemAlloc1Value => GameVersion.CoD4,          // 0x0F70 - CoD4
+            MW2Definition.MemAlloc1Value => GameVersion.MW2,            // 0x03B4 - MW2
+            _ => memAlloc1LE switch
+            {
+                // Check little-endian values (PC)
+                CoD5Definition.MemAlloc1Value => GameVersion.WaW,
+                CoD4Definition.MemAlloc1Value => GameVersion.CoD4,
+                MW2Definition.MemAlloc1Value => GameVersion.MW2,
+                _ => GameVersion.Unknown
+            }
+        };
+    }
+
+    /// <summary>
+    /// Detects if a zone file is from a PC version by checking endianness.
+    /// PC files use little-endian byte order, while PS3/Xbox use big-endian.
+    /// </summary>
+    /// <param name="zonePath">Path to the zone file</param>
+    /// <returns>True if the zone appears to be PC (little-endian), false otherwise</returns>
+    public static bool IsZonePC(string zonePath)
+    {
+        try
+        {
+            byte[] header = new byte[12];
+            using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
+            {
+                if (fs.Read(header, 0, 12) < 12)
+                    return false;
+            }
+
+            return IsZoneDataPC(header);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Detects if zone data is from a PC version by checking endianness.
+    /// PC files use little-endian byte order, while PS3/Xbox use big-endian.
+    /// </summary>
+    /// <param name="zoneData">The zone file data (at least 12 bytes)</param>
+    /// <returns>True if the zone appears to be PC (little-endian), false otherwise</returns>
+    public static bool IsZoneDataPC(byte[] zoneData)
+    {
+        if (zoneData == null || zoneData.Length < 12)
+            return false;
+
+        // Read MemAlloc1 at offset 0x08 as both big-endian and little-endian
+        uint memAlloc1BE = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
+        uint memAlloc1LE = (uint)(zoneData[8] | (zoneData[9] << 8) | (zoneData[10] << 16) | (zoneData[11] << 24));
+
+        // Known console MemAlloc1 values (big-endian)
+        uint[] consoleValues = {
+            CoD5Definition.MemAlloc1Value,        // 0x10B0 - WaW PS3
+            CoD5Definition.Xbox360MemAlloc1Value, // 0x0A90 - WaW Xbox 360
+            CoD4Definition.MemAlloc1Value,        // 0x0F70 - CoD4
+            MW2Definition.MemAlloc1Value          // 0x03B4 - MW2
+        };
+
+        // If we read as BE and get a known console value, it's console (not PC)
+        foreach (var val in consoleValues)
+        {
+            if (memAlloc1BE == val)
+                return false; // Big-endian match = console
+        }
+
+        // Known PC MemAlloc1 values - same numeric values but stored as little-endian
+        // If we read as LE and get a known value, it's PC
+        foreach (var val in consoleValues)
+        {
+            if (memAlloc1LE == val)
+                return true; // Little-endian match = PC
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Detects if a zone file is from Xbox 360 by checking the MemAlloc1 value.
+    /// Xbox 360 WaW uses different MemAlloc values than PS3.
+    /// </summary>
+    /// <param name="zonePath">Path to the zone file</param>
+    /// <returns>True if the zone appears to be Xbox 360, false otherwise</returns>
+    public static bool IsZoneXbox360(string zonePath)
+    {
+        try
+        {
+            byte[] header = new byte[12];
+            using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
+            {
+                if (fs.Read(header, 0, 12) < 12)
+                    return false;
+            }
+
+            return IsZoneDataXbox360(header);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Detects if zone data is from Xbox 360 by checking the MemAlloc1 value.
+    /// Xbox 360 WaW uses different MemAlloc values than PS3.
+    /// </summary>
+    /// <param name="zoneData">The zone file data (at least 12 bytes)</param>
+    /// <returns>True if the zone appears to be Xbox 360, false otherwise</returns>
+    public static bool IsZoneDataXbox360(byte[] zoneData)
+    {
+        if (zoneData == null || zoneData.Length < 12)
+            return false;
+
+        // Read MemAlloc1 at offset 0x08 as big-endian
+        uint memAlloc1BE = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
+
+        // Xbox 360 WaW uses 0x0A90, PS3 uses 0x10B0
+        return memAlloc1BE == CoD5Definition.Xbox360MemAlloc1Value;
+    }
+
+    #endregion
+
     /// <summary>
     /// Extracts the zone name from a file path by matching known zone name patterns.
     /// </summary>

@@ -119,111 +119,50 @@ namespace Call_of_Duty_FastFile_Editor.Models
 
         /// <summary>
         /// Detects the game type from a zone file by reading the MemAlloc1 value at offset 0x08.
+        /// Uses centralized detection from FastFileLib.
         /// </summary>
         /// <param name="zonePath">Path to the zone file</param>
         /// <returns>Detected game type, or null if detection failed</returns>
         public static GameType? DetectGameTypeFromZone(string zonePath)
         {
-            try
-            {
-                byte[] header = new byte[12];
-                using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
-                {
-                    if (fs.Read(header, 0, 12) < 12)
-                        return null;
-                }
+            var gameVersion = FastFileInfo.DetectGameFromZone(zonePath);
+            return ConvertGameVersion(gameVersion);
+        }
 
-                // MemAlloc1 is at offset 0x08, big-endian
-                uint memAlloc1 = (uint)((header[8] << 24) | (header[9] << 16) | (header[10] << 8) | header[11]);
-
-                return memAlloc1 switch
-                {
-                    0x000010B0 => GameType.CoD5,  // WaW
-                    0x00000F70 => GameType.CoD4,  // CoD4
-                    0x000003B4 => GameType.MW2,   // MW2
-                    _ => null
-                };
-            }
-            catch
+        /// <summary>
+        /// Converts FastFileLib.GameVersion to Editor GameType.
+        /// </summary>
+        private static GameType? ConvertGameVersion(FastFileLib.GameVersion gameVersion)
+        {
+            return gameVersion switch
             {
-                return null;
-            }
+                FastFileLib.GameVersion.CoD4 => GameType.CoD4,
+                FastFileLib.GameVersion.WaW => GameType.CoD5,
+                FastFileLib.GameVersion.MW2 => GameType.MW2,
+                _ => null
+            };
         }
 
         /// <summary>
         /// Detects if a zone file is from a PC version by checking endianness.
-        /// PC files use little-endian byte order, while PS3/Xbox use big-endian.
+        /// Uses centralized detection from FastFileLib.
         /// </summary>
         /// <param name="zonePath">Path to the zone file</param>
         /// <returns>True if the zone appears to be PC (little-endian), false otherwise</returns>
         public static bool DetectPCFromZone(string zonePath)
         {
-            try
-            {
-                byte[] header = new byte[12];
-                using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
-                {
-                    if (fs.Read(header, 0, 12) < 12)
-                        return false;
-                }
-
-                // Read MemAlloc1 at offset 0x08 as both big-endian and little-endian
-                uint memAlloc1BE = (uint)((header[8] << 24) | (header[9] << 16) | (header[10] << 8) | header[11]);
-                uint memAlloc1LE = (uint)(header[8] | (header[9] << 8) | (header[10] << 16) | (header[11] << 24));
-
-                // Known WaW MemAlloc1 values
-                // PS3/Xbox BE: 0x000010B0 or 0x00000A90
-                // PC LE: The same numeric value (0x10B0) but stored as LE bytes
-
-                // If we read as BE and get a known console value, it's console
-                if (memAlloc1BE == 0x000010B0 || memAlloc1BE == 0x00000A90 ||
-                    memAlloc1BE == 0x00000F70 || memAlloc1BE == 0x000003B4)
-                {
-                    return false; // Big-endian = console
-                }
-
-                // If we read as LE and get a known value, it's PC
-                if (memAlloc1LE == 0x000010B0 || memAlloc1LE == 0x00000F70 || memAlloc1LE == 0x000003B4)
-                {
-                    return true; // Little-endian = PC
-                }
-
-                return false;
-            }
-            catch
-            {
-                return false;
-            }
+            return FastFileInfo.IsZonePC(zonePath);
         }
 
         /// <summary>
         /// Detects if zone data (byte array) is from a PC version by checking endianness.
+        /// Uses centralized detection from FastFileLib.
         /// </summary>
         /// <param name="zoneData">The zone file data</param>
         /// <returns>True if the zone appears to be PC (little-endian), false otherwise</returns>
         public static bool DetectPCFromZoneData(byte[] zoneData)
         {
-            if (zoneData == null || zoneData.Length < 12)
-                return false;
-
-            // Read MemAlloc1 at offset 0x08 as both big-endian and little-endian
-            uint memAlloc1BE = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
-            uint memAlloc1LE = (uint)(zoneData[8] | (zoneData[9] << 8) | (zoneData[10] << 16) | (zoneData[11] << 24));
-
-            // If we read as BE and get a known console value, it's console
-            if (memAlloc1BE == 0x000010B0 || memAlloc1BE == 0x00000A90 ||
-                memAlloc1BE == 0x00000F70 || memAlloc1BE == 0x000003B4)
-            {
-                return false; // Big-endian = console
-            }
-
-            // If we read as LE and get a known value, it's PC
-            if (memAlloc1LE == 0x000010B0 || memAlloc1LE == 0x00000F70 || memAlloc1LE == 0x000003B4)
-            {
-                return true; // Little-endian = PC
-            }
-
-            return false;
+            return FastFileInfo.IsZoneDataPC(zoneData);
         }
 
         /// <summary>
