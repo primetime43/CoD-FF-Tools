@@ -2447,37 +2447,79 @@ namespace Call_of_Duty_FastFile_Editor
         }
 
         /// <summary>
-        /// Stores the parsed map entity data for the collision map viewer.
+        /// Stores the parsed collision map data for the viewer.
         /// </summary>
         private MapEntsData _mapEntsData;
+        private ClipMapAsset _clipMapAsset;
         private TreeView _collisionEntityTreeView;
         private ListView _collisionPropertyListView;
+        private ListView _collisionMaterialsListView;
         private TextBox _collisionSearchTextBox;
+        private TextBox _collisionMaterialSearchTextBox;
         private Label _collisionStatusLabel;
+        private Label _collisionMaterialStatusLabel;
+        private TabControl _collisionSubTabControl;
 
         private void PopulateCollision_Map_Asset_StringData()
         {
-            // Parse map entity data using the new ClipMapParser
-            _mapEntsData = ClipMapParser.ParseMapEnts(_openedFastFile.OpenedFastFileZone);
+            // Parse full collision map data using the new ClipMapParser
+            bool isPC = _openedFastFile?.IsPC ?? false;
+            _clipMapAsset = ClipMapParser.ParseClipMap(_openedFastFile.OpenedFastFileZone, isPC);
+            _mapEntsData = _clipMapAsset?.MapEnts;
 
-            if (_mapEntsData == null || _mapEntsData.Entities.Count == 0)
+            // Check if we have any data to show
+            bool hasEntities = _mapEntsData?.Entities?.Count > 0;
+            bool hasMaterials = _clipMapAsset?.Materials?.Count > 0;
+
+            if (!hasEntities && !hasMaterials)
             {
                 // Hide the tab page if there's no data to show
                 mainTabControl.TabPages.Remove(collision_Map_AssetTabPage);
                 return;
             }
 
-            // Update tab text to show entity count
-            collision_Map_AssetTabPage.Text = $"Collision Map Data ({_mapEntsData.Entities.Count} entities)";
+            // Update tab text to show summary
+            int entityCount = _mapEntsData?.Entities?.Count ?? 0;
+            int materialCount = _clipMapAsset?.Materials?.Count ?? 0;
+            collision_Map_AssetTabPage.Text = $"Collision Map ({entityCount} entities, {materialCount} materials)";
 
             // Clear existing controls and build the UI
             collision_Map_AssetTabPage.Controls.Clear();
             BuildCollisionMapUI();
             PopulateCollisionEntityTree();
+            PopulateCollisionMaterialsList();
             UpdateCollisionStatus();
         }
 
         private void BuildCollisionMapUI()
+        {
+            // Create a sub-TabControl for different collision map data types
+            _collisionSubTabControl = new TabControl
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Point(6, 3)
+            };
+
+            // === Entities Tab ===
+            var entitiesTab = new TabPage("Map Entities");
+            BuildEntitiesTabUI(entitiesTab);
+            _collisionSubTabControl.TabPages.Add(entitiesTab);
+
+            // === Materials Tab ===
+            var materialsTab = new TabPage("Collision Materials");
+            BuildMaterialsTabUI(materialsTab);
+            _collisionSubTabControl.TabPages.Add(materialsTab);
+
+            // === Summary Tab ===
+            var summaryTab = new TabPage("Summary");
+            BuildSummaryTabUI(summaryTab);
+            _collisionSubTabControl.TabPages.Add(summaryTab);
+
+            // Add the sub-tab control to the main collision tab
+            collision_Map_AssetTabPage.Controls.Add(_collisionSubTabControl);
+        }
+
+        private void BuildEntitiesTabUI(TabPage tab)
         {
             // Create toolbar panel
             var toolbarPanel = new Panel { Dock = DockStyle.Top, Height = 30 };
@@ -2508,7 +2550,8 @@ namespace Call_of_Duty_FastFile_Editor
             {
                 Dock = DockStyle.Fill,
                 HideSelection = false,
-                ShowNodeToolTips = true
+                ShowNodeToolTips = true,
+                Scrollable = true // Enable both vertical and horizontal scrolling
             };
             _collisionEntityTreeView.AfterSelect += CollisionEntityTreeView_AfterSelect;
 
@@ -2521,35 +2564,245 @@ namespace Call_of_Duty_FastFile_Editor
                 GridLines = true
             };
             _collisionPropertyListView.Columns.Add("Property", 150);
-            _collisionPropertyListView.Columns.Add("Value", -2); // -2 = auto-fill remaining width
+            _collisionPropertyListView.Columns.Add("Value", -2);
 
-            // Create split container
+            // Create split container with 40% for tree, 60% for properties
             var splitContainer = new SplitContainer
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Vertical,
                 SplitterWidth = 4,
-                FixedPanel = FixedPanel.Panel1,
-                Panel1MinSize = 50,
-                Panel2MinSize = 50
+                FixedPanel = FixedPanel.None,
+                Panel1MinSize = 100,
+                Panel2MinSize = 100,
+                SplitterIncrement = 1
             };
 
             splitContainer.Panel1.Controls.Add(_collisionEntityTreeView);
             splitContainer.Panel2.Controls.Add(_collisionPropertyListView);
 
             // Add controls to tab in correct order
-            collision_Map_AssetTabPage.Controls.Add(splitContainer);
-            collision_Map_AssetTabPage.Controls.Add(_collisionStatusLabel);
-            collision_Map_AssetTabPage.Controls.Add(toolbarPanel);
+            tab.Controls.Add(splitContainer);
+            tab.Controls.Add(_collisionStatusLabel);
+            tab.Controls.Add(toolbarPanel);
 
-            // Set splitter distance after adding to form (use try-catch in case width isn't set yet)
-            try
+            // Use SplitterMoved to ensure minimum is respected, set initial distance on first paint
+            bool initialized = false;
+            splitContainer.Paint += (s, e) =>
             {
-                int desiredWidth = 280;
-                if (splitContainer.Width > desiredWidth + splitContainer.Panel2MinSize)
-                    splitContainer.SplitterDistance = desiredWidth;
+                if (!initialized && splitContainer.Width > 250)
+                {
+                    initialized = true;
+                    try { splitContainer.SplitterDistance = (int)(splitContainer.Width * 0.4); }
+                    catch { }
+                }
+            };
+        }
+
+        private void BuildMaterialsTabUI(TabPage tab)
+        {
+            // Create toolbar panel
+            var toolbarPanel = new Panel { Dock = DockStyle.Top, Height = 30 };
+
+            var exportMaterialsBtn = new Button { Text = "Export Materials", Location = new Point(5, 3), AutoSize = true };
+            exportMaterialsBtn.Click += CollisionExportMaterials_Click;
+
+            var searchLabel = new Label { Text = "Search:", Location = new Point(130, 7), AutoSize = true };
+            _collisionMaterialSearchTextBox = new TextBox { Location = new Point(180, 4), Width = 200 };
+            _collisionMaterialSearchTextBox.TextChanged += CollisionMaterialSearchTextBox_TextChanged;
+
+            toolbarPanel.Controls.AddRange(new Control[] { exportMaterialsBtn, searchLabel, _collisionMaterialSearchTextBox });
+
+            // Create status label
+            _collisionMaterialStatusLabel = new Label { Dock = DockStyle.Bottom, Height = 22, TextAlign = ContentAlignment.MiddleLeft, BorderStyle = BorderStyle.Fixed3D };
+
+            // Materials list view
+            _collisionMaterialsListView = new ListView
+            {
+                Dock = DockStyle.Fill,
+                View = View.Details,
+                FullRowSelect = true,
+                GridLines = true
+            };
+            _collisionMaterialsListView.Columns.Add("Material Name", 250);
+            _collisionMaterialsListView.Columns.Add("Surface Type", 150);
+            _collisionMaterialsListView.Columns.Add("Content Flags", 200);
+            _collisionMaterialsListView.Columns.Add("Surface Flags (Hex)", 120);
+            _collisionMaterialsListView.Columns.Add("Content Flags (Hex)", 120);
+            _collisionMaterialsListView.Columns.Add("Offset", 80);
+
+            // Add controls
+            tab.Controls.Add(_collisionMaterialsListView);
+            tab.Controls.Add(_collisionMaterialStatusLabel);
+            tab.Controls.Add(toolbarPanel);
+        }
+
+        private void BuildSummaryTabUI(TabPage tab)
+        {
+            var summaryTextBox = new TextBox
+            {
+                Dock = DockStyle.Fill,
+                Multiline = true,
+                ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical,
+                Font = new Font("Consolas", 10f),
+                BackColor = SystemColors.Window
+            };
+
+            // Build summary text
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("=== Collision Map Summary ===");
+            sb.AppendLine();
+
+            if (_mapEntsData != null)
+            {
+                sb.AppendLine("--- Map Entities ---");
+                sb.AppendLine($"  Total Entities: {_mapEntsData.Entities.Count:N0}");
+                sb.AppendLine($"  Data Size: {_mapEntsData.DataSize:N0} bytes");
+                sb.AppendLine($"  Data Offset: 0x{_mapEntsData.DataStartOffset:X}");
+                sb.AppendLine();
+
+                // Entity type breakdown
+                var entityGroups = _mapEntsData.Entities.GroupBy(e => e.ClassName).OrderByDescending(g => g.Count()).ToList();
+                sb.AppendLine("  Entity Types:");
+                foreach (var group in entityGroups.Take(20))
+                {
+                    sb.AppendLine($"    {group.Key}: {group.Count()}");
+                }
+                if (entityGroups.Count > 20)
+                    sb.AppendLine($"    ... and {entityGroups.Count - 20} more types");
+                sb.AppendLine();
             }
-            catch { /* Ignore if splitter can't be set yet */ }
+
+            if (_clipMapAsset?.Materials != null && _clipMapAsset.Materials.Count > 0)
+            {
+                sb.AppendLine("--- Collision Materials ---");
+                sb.AppendLine($"  Total Materials: {_clipMapAsset.Materials.Count:N0}");
+                sb.AppendLine();
+
+                // Surface type breakdown
+                var surfaceGroups = _clipMapAsset.Materials
+                    .GroupBy(m => m.SurfaceFlagsDescription.Split('|')[0].Trim())
+                    .OrderByDescending(g => g.Count())
+                    .ToList();
+                sb.AppendLine("  Surface Types:");
+                foreach (var group in surfaceGroups.Take(15))
+                {
+                    sb.AppendLine($"    {group.Key}: {group.Count()}");
+                }
+                sb.AppendLine();
+
+                // Content flags breakdown
+                var contentGroups = _clipMapAsset.Materials
+                    .Where(m => m.ContentFlags != 0)
+                    .GroupBy(m => m.ContentFlagsDescription)
+                    .OrderByDescending(g => g.Count())
+                    .ToList();
+                if (contentGroups.Count > 0)
+                {
+                    sb.AppendLine("  Content Flag Combinations:");
+                    foreach (var group in contentGroups.Take(10))
+                    {
+                        sb.AppendLine($"    {group.Key}: {group.Count()}");
+                    }
+                }
+            }
+
+            summaryTextBox.Text = sb.ToString();
+            tab.Controls.Add(summaryTextBox);
+        }
+
+        private void PopulateCollisionMaterialsList(string searchFilter = null)
+        {
+            if (_collisionMaterialsListView == null || _clipMapAsset?.Materials == null) return;
+
+            _collisionMaterialsListView.BeginUpdate();
+            _collisionMaterialsListView.Items.Clear();
+
+            IEnumerable<ClipMapMaterial> materials = _clipMapAsset.Materials;
+
+            // Apply search filter if provided
+            if (!string.IsNullOrWhiteSpace(searchFilter))
+            {
+                string filter = searchFilter.ToLowerInvariant();
+                materials = materials.Where(m =>
+                    m.Name.ToLowerInvariant().Contains(filter) ||
+                    m.SurfaceFlagsDescription.ToLowerInvariant().Contains(filter) ||
+                    m.ContentFlagsDescription.ToLowerInvariant().Contains(filter));
+            }
+
+            foreach (var material in materials)
+            {
+                var item = new ListViewItem(material.Name);
+                item.SubItems.Add(material.SurfaceFlagsDescription);
+                item.SubItems.Add(material.ContentFlagsDescription);
+                item.SubItems.Add($"0x{material.SurfaceFlags:X8}");
+                item.SubItems.Add($"0x{material.ContentFlags:X8}");
+                item.SubItems.Add($"0x{material.Offset:X}");
+                item.Tag = material;
+
+                // Color code by content flags
+                if ((material.ContentFlags & 0x1) != 0) // SOLID
+                    item.BackColor = Color.FromArgb(255, 240, 240);
+                else if ((material.ContentFlags & 0x4) != 0) // WATER
+                    item.BackColor = Color.FromArgb(230, 240, 255);
+                else if ((material.ContentFlags & 0x400) != 0) // LADDER
+                    item.BackColor = Color.FromArgb(255, 255, 220);
+
+                _collisionMaterialsListView.Items.Add(item);
+            }
+
+            _collisionMaterialsListView.EndUpdate();
+            UpdateCollisionMaterialStatus();
+        }
+
+        private void CollisionMaterialSearchTextBox_TextChanged(object sender, EventArgs e)
+        {
+            PopulateCollisionMaterialsList(_collisionMaterialSearchTextBox?.Text);
+        }
+
+        private void CollisionExportMaterials_Click(object sender, EventArgs e)
+        {
+            if (_clipMapAsset?.Materials == null || _clipMapAsset.Materials.Count == 0) return;
+
+            using var dialog = new SaveFileDialog
+            {
+                Filter = "CSV Files (*.csv)|*.csv|Text Files (*.txt)|*.txt|All Files (*.*)|*.*",
+                DefaultExt = "csv",
+                FileName = "collision_materials"
+            };
+
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                try
+                {
+                    using var writer = new StreamWriter(dialog.FileName);
+                    writer.WriteLine("Name,Surface Type,Content Flags,Surface Flags (Hex),Content Flags (Hex),Offset");
+                    foreach (var material in _clipMapAsset.Materials)
+                    {
+                        // Escape commas in descriptions
+                        string surfDesc = material.SurfaceFlagsDescription.Replace(",", ";");
+                        string contDesc = material.ContentFlagsDescription.Replace(",", ";");
+                        writer.WriteLine($"\"{material.Name}\",\"{surfDesc}\",\"{contDesc}\",0x{material.SurfaceFlags:X8},0x{material.ContentFlags:X8},0x{material.Offset:X}");
+                    }
+                    MessageBox.Show($"Exported {_clipMapAsset.Materials.Count} materials.", "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Export failed: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void UpdateCollisionMaterialStatus()
+        {
+            if (_collisionMaterialStatusLabel == null || _clipMapAsset?.Materials == null) return;
+
+            int displayedCount = _collisionMaterialsListView?.Items.Count ?? 0;
+            int totalCount = _clipMapAsset.Materials.Count;
+            int solidCount = _clipMapAsset.Materials.Count(m => (m.ContentFlags & 0x1) != 0);
+
+            _collisionMaterialStatusLabel.Text = $"Total: {totalCount} materials | Showing: {displayedCount} | Solid: {solidCount}";
         }
 
         private void PopulateCollisionEntityTree(string searchFilter = null)

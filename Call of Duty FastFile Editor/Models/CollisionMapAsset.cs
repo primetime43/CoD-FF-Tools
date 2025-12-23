@@ -80,9 +80,151 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public int LeafCount { get; set; }
 
         /// <summary>
+        /// Number of brushes
+        /// </summary>
+        public int BrushCount { get; set; }
+
+        /// <summary>
+        /// Number of submodels (cmodel_t)
+        /// </summary>
+        public int SubModelCount { get; set; }
+
+        /// <summary>
+        /// Number of collision vertices
+        /// </summary>
+        public int VertexCount { get; set; }
+
+        /// <summary>
+        /// Number of collision triangles
+        /// </summary>
+        public int TriangleCount { get; set; }
+
+        /// <summary>
+        /// List of collision materials (dmaterial_t)
+        /// </summary>
+        public List<ClipMapMaterial> Materials { get; set; } = new List<ClipMapMaterial>();
+
+        /// <summary>
+        /// List of static models referenced in the collision map
+        /// </summary>
+        public List<ClipMapStaticModel> StaticModels { get; set; } = new List<ClipMapStaticModel>();
+
+        /// <summary>
         /// Parsing method used (Structure-based or Pattern matching)
         /// </summary>
         public string AdditionalData { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Represents a collision material (dmaterial_t).
+    /// Structure: 64-byte name + 4-byte surface flags + 4-byte content flags = 72 bytes total
+    /// </summary>
+    public class ClipMapMaterial
+    {
+        /// <summary>
+        /// Material name (up to 64 characters)
+        /// </summary>
+        public string Name { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Surface flags (affects footsteps, impacts, etc.)
+        /// </summary>
+        public uint SurfaceFlags { get; set; }
+
+        /// <summary>
+        /// Content flags (solid, water, ladder, etc.)
+        /// </summary>
+        public uint ContentFlags { get; set; }
+
+        /// <summary>
+        /// Offset in zone file where this material was found
+        /// </summary>
+        public int Offset { get; set; }
+
+        /// <summary>
+        /// Gets a human-readable description of the content flags
+        /// </summary>
+        public string ContentFlagsDescription => GetContentFlagsDescription();
+
+        /// <summary>
+        /// Gets a human-readable description of the surface flags
+        /// </summary>
+        public string SurfaceFlagsDescription => GetSurfaceFlagsDescription();
+
+        private string GetContentFlagsDescription()
+        {
+            var flags = new List<string>();
+            if ((ContentFlags & 0x1) != 0) flags.Add("SOLID");
+            if ((ContentFlags & 0x2) != 0) flags.Add("LAVA");
+            if ((ContentFlags & 0x4) != 0) flags.Add("WATER");
+            if ((ContentFlags & 0x10) != 0) flags.Add("PLAYERCLIP");
+            if ((ContentFlags & 0x20) != 0) flags.Add("MONSTERCLIP");
+            if ((ContentFlags & 0x80) != 0) flags.Add("VEHICLECLIP");
+            if ((ContentFlags & 0x400) != 0) flags.Add("LADDER");
+            if ((ContentFlags & 0x1000000) != 0) flags.Add("TRIGGER");
+            if ((ContentFlags & 0x4000000) != 0) flags.Add("MANTLE");
+            if ((ContentFlags & 0x8000000) != 0) flags.Add("NOSIGHT");
+
+            return flags.Count > 0 ? string.Join(" | ", flags) : $"0x{ContentFlags:X8}";
+        }
+
+        private string GetSurfaceFlagsDescription()
+        {
+            var flags = new List<string>();
+            // Surface type (lower bits)
+            int surfType = (int)(SurfaceFlags & 0x1F);
+            string[] surfTypes = { "DEFAULT", "BARK", "BRICK", "CARPET", "CLOTH", "CONCRETE", "DIRT", "FLESH",
+                                   "FOLIAGE", "GLASS", "GRASS", "GRAVEL", "ICE", "METAL", "MUD", "PAPER",
+                                   "PLASTER", "ROCK", "SAND", "SNOW", "WATER", "WOOD", "ASPHALT", "CERAMIC" };
+            if (surfType < surfTypes.Length)
+                flags.Add(surfTypes[surfType]);
+
+            if ((SurfaceFlags & 0x100) != 0) flags.Add("NODAMAGE");
+            if ((SurfaceFlags & 0x200) != 0) flags.Add("SLICK");
+            if ((SurfaceFlags & 0x400) != 0) flags.Add("SKY");
+            if ((SurfaceFlags & 0x800) != 0) flags.Add("NOIMPACT");
+            if ((SurfaceFlags & 0x1000) != 0) flags.Add("NOMARKS");
+            if ((SurfaceFlags & 0x4000) != 0) flags.Add("NODRAW");
+            if ((SurfaceFlags & 0x10000) != 0) flags.Add("NODLIGHT");
+
+            return flags.Count > 0 ? string.Join(" | ", flags) : $"0x{SurfaceFlags:X8}";
+        }
+    }
+
+    /// <summary>
+    /// Represents a static model in the collision map (cStaticModel_s).
+    /// </summary>
+    public class ClipMapStaticModel
+    {
+        /// <summary>
+        /// Name/path of the XModel
+        /// </summary>
+        public string ModelName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Origin X coordinate
+        /// </summary>
+        public float OriginX { get; set; }
+
+        /// <summary>
+        /// Origin Y coordinate
+        /// </summary>
+        public float OriginY { get; set; }
+
+        /// <summary>
+        /// Origin Z coordinate
+        /// </summary>
+        public float OriginZ { get; set; }
+
+        /// <summary>
+        /// Offset in zone file where this static model was found
+        /// </summary>
+        public int Offset { get; set; }
+
+        /// <summary>
+        /// Gets the origin as a formatted string
+        /// </summary>
+        public string OriginString => $"({OriginX:F2}, {OriginY:F2}, {OriginZ:F2})";
     }
 
     /// <summary>
@@ -362,6 +504,236 @@ namespace Call_of_Duty_FastFile_Editor.Models
                  | (data[offset + 1] << 16)
                  | (data[offset + 2] << 8)
                  | data[offset + 3];
+        }
+
+        /// <summary>
+        /// Reads a big-endian 32-bit unsigned integer.
+        /// </summary>
+        private static uint ReadUInt32BE(byte[] data, int offset)
+        {
+            if (offset + 4 > data.Length)
+                return 0;
+
+            return (uint)((data[offset] << 24)
+                 | (data[offset + 1] << 16)
+                 | (data[offset + 2] << 8)
+                 | data[offset + 3]);
+        }
+
+        /// <summary>
+        /// Reads a big-endian single-precision float.
+        /// </summary>
+        private static float ReadFloatBE(byte[] data, int offset)
+        {
+            if (offset + 4 > data.Length)
+                return 0f;
+
+            byte[] bytes = new byte[4];
+            bytes[3] = data[offset];
+            bytes[2] = data[offset + 1];
+            bytes[1] = data[offset + 2];
+            bytes[0] = data[offset + 3];
+            return BitConverter.ToSingle(bytes, 0);
+        }
+
+        /// <summary>
+        /// Parses collision materials (dmaterial_t) from zone data.
+        /// dmaterial_t structure: 64-byte name + 4-byte surface flags + 4-byte content flags = 72 bytes
+        /// Materials are stored in a contiguous array.
+        /// </summary>
+        public static List<ClipMapMaterial> ParseMaterials(byte[] data, bool isPC = false)
+        {
+            var materials = new List<ClipMapMaterial>();
+            if (data == null || data.Length < 72)
+                return materials;
+
+            // Find the materials array by looking for a sequence of valid dmaterial_t structures
+            int arrayStart = FindMaterialArrayStart(data, isPC);
+            if (arrayStart < 0)
+                return materials;
+
+            // Parse all materials in the contiguous array
+            int offset = arrayStart;
+            while (offset + 72 <= data.Length)
+            {
+                var material = TryParseMaterialAt(data, offset, isPC);
+                if (material == null)
+                    break; // End of array
+
+                materials.Add(material);
+                offset += 72;
+            }
+
+            return materials;
+        }
+
+        /// <summary>
+        /// Finds the start of the dmaterial_t array by looking for known material prefixes
+        /// and validating that we have a contiguous array of valid structures.
+        /// </summary>
+        private static int FindMaterialArrayStart(byte[] data, bool isPC)
+        {
+            // Known material name prefixes that appear in CoD games
+            string[] knownPrefixes = { "mtl_", "mc/", "wc/", "gfx_", "clip", "mantle" };
+
+            for (int i = 0; i < data.Length - 72 * 3; i++)
+            {
+                // Check if this offset starts with a known material prefix
+                bool hasKnownPrefix = false;
+                foreach (var prefix in knownPrefixes)
+                {
+                    if (i + prefix.Length >= data.Length)
+                        continue;
+
+                    bool match = true;
+                    for (int j = 0; j < prefix.Length && match; j++)
+                    {
+                        if (data[i + j] != prefix[j])
+                            match = false;
+                    }
+                    if (match)
+                    {
+                        hasKnownPrefix = true;
+                        break;
+                    }
+                }
+
+                if (!hasKnownPrefix)
+                    continue;
+
+                // Validate this is the start of a valid material
+                var firstMaterial = TryParseMaterialAt(data, i, isPC);
+                if (firstMaterial == null)
+                    continue;
+
+                // Check if we can find more valid materials at 72-byte intervals
+                int validCount = 1;
+                int checkOffset = i + 72;
+                while (checkOffset + 72 <= data.Length && validCount < 5)
+                {
+                    var nextMaterial = TryParseMaterialAt(data, checkOffset, isPC);
+                    if (nextMaterial == null)
+                        break;
+                    validCount++;
+                    checkOffset += 72;
+                }
+
+                // Require at least 3 consecutive valid materials to confirm we found the array
+                if (validCount >= 3)
+                {
+                    // Walk backwards to find the actual start of the array
+                    int arrayStart = i;
+                    int backOffset = i - 72;
+                    while (backOffset >= 0)
+                    {
+                        var prevMaterial = TryParseMaterialAt(data, backOffset, isPC);
+                        if (prevMaterial == null)
+                            break;
+                        arrayStart = backOffset;
+                        backOffset -= 72;
+                    }
+                    return arrayStart;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Attempts to parse a dmaterial_t structure at the given offset.
+        /// Uses strict validation to avoid false positives.
+        /// </summary>
+        private static ClipMapMaterial TryParseMaterialAt(byte[] data, int offset, bool isPC)
+        {
+            if (offset + 72 > data.Length || offset < 0)
+                return null;
+
+            // Read the 64-byte name field
+            int nameLen = 0;
+            while (nameLen < 64 && data[offset + nameLen] != 0)
+            {
+                byte c = data[offset + nameLen];
+                // Valid material name characters: alphanumeric, underscore, slash, dot, minus
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') || c == '_' || c == '/' || c == '.' || c == '-'))
+                    return null;
+                nameLen++;
+            }
+
+            // Name must be at least 3 characters
+            if (nameLen < 3)
+                return null;
+
+            // Rest of the 64-byte name field should be null padding
+            for (int i = offset + nameLen; i < offset + 64; i++)
+            {
+                if (data[i] != 0)
+                    return null;
+            }
+
+            string name = Encoding.ASCII.GetString(data, offset, nameLen);
+
+            // Read flags based on endianness
+            uint surfaceFlags, contentFlags;
+            if (isPC)
+            {
+                surfaceFlags = (uint)(data[offset + 64] | (data[offset + 65] << 8) |
+                                     (data[offset + 66] << 16) | (data[offset + 67] << 24));
+                contentFlags = (uint)(data[offset + 68] | (data[offset + 69] << 8) |
+                                     (data[offset + 70] << 16) | (data[offset + 71] << 24));
+            }
+            else
+            {
+                surfaceFlags = ReadUInt32BE(data, offset + 64);
+                contentFlags = ReadUInt32BE(data, offset + 68);
+            }
+
+            // Surface flags lower 5 bits are surface type (0-23 are valid)
+            uint surfaceType = surfaceFlags & 0x1F;
+            if (surfaceType > 23)
+                return null;
+
+            return new ClipMapMaterial
+            {
+                Name = name,
+                SurfaceFlags = surfaceFlags,
+                ContentFlags = contentFlags,
+                Offset = offset
+            };
+        }
+
+        /// <summary>
+        /// Parses a full ClipMapAsset from zone data, including map ents and materials.
+        /// </summary>
+        public static ClipMapAsset ParseClipMap(ZoneFile zone, bool isPC = false)
+        {
+            if (zone?.Data == null)
+                return null;
+
+            var clipMap = new ClipMapAsset();
+
+            // Parse map entities
+            clipMap.MapEnts = ParseMapEnts(zone);
+
+            // Parse materials
+            clipMap.Materials = ParseMaterials(zone.Data, isPC);
+            clipMap.MaterialCount = clipMap.Materials.Count;
+
+            // Try to find the map name from the map ents (worldspawn entity)
+            if (clipMap.MapEnts?.Entities != null)
+            {
+                var worldspawn = clipMap.MapEnts.Entities.FirstOrDefault(e =>
+                    e.ClassName.Equals("worldspawn", StringComparison.OrdinalIgnoreCase));
+                if (worldspawn != null && worldspawn.Properties.TryGetValue("classname", out var _))
+                {
+                    // The map name is typically the zone name
+                    clipMap.Name = "clipMap";
+                }
+            }
+
+            clipMap.AdditionalData = $"Materials: {clipMap.MaterialCount}, Entities: {clipMap.MapEnts?.Entities.Count ?? 0}";
+
+            return clipMap;
         }
     }
 
