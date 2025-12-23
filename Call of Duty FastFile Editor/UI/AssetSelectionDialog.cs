@@ -13,6 +13,21 @@ namespace Call_of_Duty_FastFile_Editor.UI
     /// </summary>
     public partial class AssetSelectionDialog : Form
     {
+        private static readonly HashSet<string> SupportedAssetTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "rawfile",
+            "localize",
+            "menufile",
+            "material",
+            "techset",
+            "xanim",
+            "stringtable",
+            "weapon",
+            "image",
+            "col_map_sp",
+            "col_map_mp"
+        };
+
         private readonly List<AssetTypeInfo> _assetTypes;
         private readonly FastFile _fastFile;
         private readonly int _tagCount;
@@ -112,9 +127,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             var result = new List<AssetTypeInfo>();
             foreach (var kvp in assetCounts.OrderByDescending(x => x.Value))
             {
-                bool isSupported = kvp.Key == "rawfile" || kvp.Key == "localize" || kvp.Key == "menufile" ||
-                                   kvp.Key == "material" || kvp.Key == "techset" || kvp.Key == "xanim" ||
-                                   kvp.Key == "stringtable" || kvp.Key == "weapon" || kvp.Key == "image";
+                bool isSupported = SupportedAssetTypes.Contains(kvp.Key);
                 result.Add(new AssetTypeInfo
                 {
                     TypeName = kvp.Key,

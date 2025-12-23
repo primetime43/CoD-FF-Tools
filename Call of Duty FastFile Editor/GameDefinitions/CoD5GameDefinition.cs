@@ -43,6 +43,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override byte ImageAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.image : (byte)CoD5AssetTypePS3.image;
         public byte MaterialAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.material : (byte)CoD5AssetTypePS3.material;
         public byte TechSetAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.techset : (byte)CoD5AssetTypePS3.techset;
+        public byte ColMapSPAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.col_map_sp : (byte)CoD5AssetTypePS3.col_map_sp;
+        public byte ColMapMPAssetType => IsXbox360 ? (byte)CoD5AssetTypeXbox360.col_map_mp : (byte)CoD5AssetTypePS3.col_map_mp;
 
         // Maximum bytes to search forward for alignment/padding
         // Reduced from 512 to 64 for better performance - alignment issues are typically small
@@ -77,11 +79,14 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                    assetType == XAnimAssetType ||
                    assetType == StringTableAssetType ||
                    assetType == WeaponAssetType ||
-                   assetType == ImageAssetType;
+                   assetType == ImageAssetType ||
+                   assetType == ColMapSPAssetType ||
+                   assetType == ColMapMPAssetType;
         }
 
         public override bool IsMaterialType(int assetType) => assetType == MaterialAssetType;
         public override bool IsTechSetType(int assetType) => assetType == TechSetAssetType;
+        public bool IsColMapType(int assetType) => assetType == ColMapSPAssetType || assetType == ColMapMPAssetType;
 
         /// <summary>
         /// CoD5/WaW localize parsing with alignment handling.

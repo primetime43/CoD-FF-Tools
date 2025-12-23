@@ -2554,6 +2554,7 @@ namespace Call_of_Duty_FastFile_Editor
                 Scrollable = true // Enable both vertical and horizontal scrolling
             };
             _collisionEntityTreeView.AfterSelect += CollisionEntityTreeView_AfterSelect;
+            _collisionEntityTreeView.NodeMouseDoubleClick += CollisionEntityTreeView_NodeMouseDoubleClick;
 
             // Property list view
             _collisionPropertyListView = new ListView
@@ -2874,6 +2875,169 @@ namespace Call_of_Duty_FastFile_Editor
                     if (prop.Key.Equals("classname", StringComparison.OrdinalIgnoreCase))
                         item.ForeColor = Color.Blue;
                     _collisionPropertyListView.Items.Add(item);
+                }
+            }
+        }
+
+        private void CollisionEntityTreeView_NodeMouseDoubleClick(object? sender, TreeNodeMouseClickEventArgs e)
+        {
+            if (e.Node?.Tag is MapEntity entity)
+            {
+                ShowMapEntityEditor(entity);
+            }
+        }
+
+        private void ShowMapEntityEditor(MapEntity entity)
+        {
+            using var form = new Form
+            {
+                Text = $"Edit Entity: {entity.ClassName}",
+                StartPosition = FormStartPosition.CenterParent,
+                MinimizeBox = false,
+                MaximizeBox = true,
+                FormBorderStyle = FormBorderStyle.Sizable,
+                ClientSize = new Size(600, 500),
+                MinimumSize = new Size(400, 300)
+            };
+
+            // Info label
+            var infoLabel = new Label
+            {
+                Text = $"Entity: {entity.ClassName}  |  Offset: 0x{entity.SourceOffset:X}",
+                Dock = DockStyle.Top,
+                Height = 25,
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = Color.FromArgb(240, 240, 240),
+                Padding = new Padding(5, 0, 0, 0)
+            };
+
+            // Property grid using DataGridView for editing
+            var dataGridView = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AllowUserToAddRows = true,
+                AllowUserToDeleteRows = true,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+                SelectionMode = DataGridViewSelectionMode.CellSelect,
+                EditMode = DataGridViewEditMode.EditOnEnter
+            };
+
+            // Add columns
+            dataGridView.Columns.Add(new DataGridViewTextBoxColumn { Name = "Key", HeaderText = "Property", FillWeight = 40 });
+            dataGridView.Columns.Add(new DataGridViewTextBoxColumn { Name = "Value", HeaderText = "Value", FillWeight = 60 });
+
+            // Populate with entity properties
+            foreach (var prop in entity.Properties.OrderBy(p => p.Key))
+            {
+                int rowIndex = dataGridView.Rows.Add(prop.Key, prop.Value);
+                // Make classname key read-only (but value editable)
+                if (prop.Key.Equals("classname", StringComparison.OrdinalIgnoreCase))
+                {
+                    dataGridView.Rows[rowIndex].Cells["Key"].ReadOnly = true;
+                    dataGridView.Rows[rowIndex].Cells["Key"].Style.BackColor = Color.FromArgb(230, 230, 250);
+                }
+            }
+
+            // Button panel
+            var buttonPanel = new Panel { Dock = DockStyle.Bottom, Height = 40 };
+
+            var saveButton = new Button
+            {
+                Text = "Save Changes",
+                DialogResult = DialogResult.OK,
+                Location = new Point(10, 8),
+                Size = new Size(100, 25)
+            };
+
+            var cancelButton = new Button
+            {
+                Text = "Cancel",
+                DialogResult = DialogResult.Cancel,
+                Location = new Point(120, 8),
+                Size = new Size(80, 25)
+            };
+
+            var addPropertyBtn = new Button
+            {
+                Text = "Add Property",
+                Location = new Point(210, 8),
+                Size = new Size(100, 25)
+            };
+            addPropertyBtn.Click += (s, e) =>
+            {
+                dataGridView.Rows.Add("new_key", "value");
+                dataGridView.CurrentCell = dataGridView.Rows[dataGridView.Rows.Count - 2].Cells[0];
+                dataGridView.BeginEdit(true);
+            };
+
+            var helpLabel = new Label
+            {
+                Text = "Tip: Edit origin (x y z) to move, angles (pitch yaw roll) to rotate",
+                AutoSize = true,
+                Location = new Point(320, 12),
+                ForeColor = Color.Gray
+            };
+
+            buttonPanel.Controls.AddRange(new Control[] { saveButton, cancelButton, addPropertyBtn, helpLabel });
+
+            form.Controls.Add(dataGridView);
+            form.Controls.Add(buttonPanel);
+            form.Controls.Add(infoLabel);
+            form.AcceptButton = saveButton;
+            form.CancelButton = cancelButton;
+
+            if (form.ShowDialog() == DialogResult.OK)
+            {
+                // Collect updated properties
+                var newProperties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (DataGridViewRow row in dataGridView.Rows)
+                {
+                    if (row.IsNewRow) continue;
+                    var key = row.Cells["Key"].Value?.ToString()?.Trim();
+                    var value = row.Cells["Value"].Value?.ToString() ?? "";
+                    if (!string.IsNullOrEmpty(key))
+                    {
+                        newProperties[key] = value;
+                    }
+                }
+
+                // Check if anything changed
+                bool hasChanges = entity.Properties.Count != newProperties.Count;
+                if (!hasChanges)
+                {
+                    foreach (var kvp in entity.Properties)
+                    {
+                        if (!newProperties.TryGetValue(kvp.Key, out var newVal) || newVal != kvp.Value)
+                        {
+                            hasChanges = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (hasChanges)
+                {
+                    // Update entity properties
+                    entity.Properties.Clear();
+                    foreach (var kvp in newProperties)
+                    {
+                        entity.Properties[kvp.Key] = kvp.Value;
+                    }
+
+                    // Update the property list view
+                    CollisionEntityTreeView_AfterSelect(this, new TreeViewEventArgs(_collisionEntityTreeView?.SelectedNode));
+
+                    // Update the tree node display name
+                    if (_collisionEntityTreeView?.SelectedNode != null)
+                    {
+                        _collisionEntityTreeView.SelectedNode.Text = entity.DisplayName;
+                    }
+
+                    // Mark as modified
+                    _hasUnsavedChanges = true;
+                    MessageBox.Show("Entity properties updated.\n\nNote: To apply changes to the FastFile, you'll need to save.",
+                        "Entity Modified", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
         }
