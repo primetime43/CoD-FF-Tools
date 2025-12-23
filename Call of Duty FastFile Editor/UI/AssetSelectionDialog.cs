@@ -1,3 +1,4 @@
+using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
 using System;
 using System.Collections.Generic;
@@ -13,23 +14,9 @@ namespace Call_of_Duty_FastFile_Editor.UI
     /// </summary>
     public partial class AssetSelectionDialog : Form
     {
-        private static readonly HashSet<string> SupportedAssetTypes = new(StringComparer.OrdinalIgnoreCase)
-        {
-            "rawfile",
-            "localize",
-            "menufile",
-            "material",
-            "techset",
-            "xanim",
-            "stringtable",
-            "weapon",
-            "image",
-            "col_map_sp",
-            "col_map_mp"
-        };
-
         private readonly List<AssetTypeInfo> _assetTypes;
         private readonly FastFile _fastFile;
+        private readonly IGameDefinition _gameDefinition;
         private readonly int _tagCount;
 
         /// <summary>
@@ -62,6 +49,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
         {
             InitializeComponent();
             _fastFile = fastFile;
+            _gameDefinition = GameDefinitionFactory.GetDefinition(fastFile);
             _tagCount = tagCount;
             _assetTypes = AnalyzeAssets(zoneAssetRecords);
             PopulateFileInfo();
@@ -127,7 +115,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             var result = new List<AssetTypeInfo>();
             foreach (var kvp in assetCounts.OrderByDescending(x => x.Value))
             {
-                bool isSupported = SupportedAssetTypes.Contains(kvp.Key);
+                bool isSupported = _gameDefinition.IsSupportedAssetTypeName(kvp.Key);
                 result.Add(new AssetTypeInfo
                 {
                     TypeName = kvp.Key,
@@ -198,19 +186,26 @@ namespace Call_of_Duty_FastFile_Editor.UI
             // Get user selections
             foreach (ListViewItem item in assetListView.Items)
             {
-                var asset = item.Tag as AssetTypeInfo;
-                if (asset != null)
+                if (item.Tag is AssetTypeInfo asset)
                 {
                     asset.IsSelected = item.Checked;
 
-                    if (asset.TypeName == "rawfile")
-                        LoadRawFiles = item.Checked;
-                    else if (asset.TypeName == "localize")
-                        LoadLocalizedEntries = item.Checked;
-                    else if (asset.TypeName == "tags")
-                        LoadTags = item.Checked;
-                    else if (asset.TypeName == "menufile")
-                        LoadMenuFiles = item.Checked;
+                    // Update load flags based on asset type
+                    switch (asset.TypeName)
+                    {
+                        case "rawfile":
+                            LoadRawFiles = item.Checked;
+                            break;
+                        case "localize":
+                            LoadLocalizedEntries = item.Checked;
+                            break;
+                        case "tags":
+                            LoadTags = item.Checked;
+                            break;
+                        case "menufile":
+                            LoadMenuFiles = item.Checked;
+                            break;
+                    }
                 }
             }
 

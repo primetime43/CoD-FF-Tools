@@ -100,6 +100,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         bool IsSupportedAssetType(int assetType);
 
         /// <summary>
+        /// Checks if the given asset type name (string) is supported for parsing.
+        /// </summary>
+        bool IsSupportedAssetTypeName(string typeName);
+
+        /// <summary>
         /// Gets the name of the asset type for display purposes.
         /// </summary>
         string GetAssetTypeName(int assetType);

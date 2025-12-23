@@ -12,6 +12,25 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
     /// </summary>
     public abstract class GameDefinitionBase : IGameDefinition
     {
+        /// <summary>
+        /// Set of asset type names that are supported for parsing.
+        /// Used by IsSupportedAssetTypeName for string-based lookups.
+        /// </summary>
+        protected static readonly HashSet<string> SupportedAssetTypeNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "rawfile",
+            "localize",
+            "menufile",
+            "material",
+            "techset",
+            "xanim",
+            "stringtable",
+            "weapon",
+            "image",
+            "col_map_sp",
+            "col_map_mp"
+        };
+
         public abstract string GameName { get; }
         public abstract string ShortName { get; }
         public virtual string Platform => IsPC ? "PC" : (IsXbox360 ? "Xbox 360" : "PS3");
@@ -38,6 +57,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public virtual bool IsWeaponType(int assetType) => WeaponAssetType != 0 && assetType == WeaponAssetType;
         public virtual bool IsImageType(int assetType) => ImageAssetType != 0 && assetType == ImageAssetType;
         public virtual bool IsSupportedAssetType(int assetType) => IsRawFileType(assetType) || IsLocalizeType(assetType) || IsMenuFileType(assetType) || IsXAnimType(assetType) || IsStringTableType(assetType) || IsWeaponType(assetType) || IsImageType(assetType);
+        public virtual bool IsSupportedAssetTypeName(string typeName) => SupportedAssetTypeNames.Contains(typeName);
         public abstract string GetAssetTypeName(int assetType);
 
         /// <summary>
