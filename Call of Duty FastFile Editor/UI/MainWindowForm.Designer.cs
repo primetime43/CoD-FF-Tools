@@ -69,6 +69,7 @@ namespace Call_of_Duty_FastFile_Editor
             compressZoneToFFToolStripMenuItem = new ToolStripMenuItem();
             keepZoneFileToolStripMenuItem = new ToolStripMenuItem();
             helpToolStripMenuItem = new ToolStripMenuItem();
+            supportedFormatsToolStripMenuItem = new ToolStripMenuItem();
             aboutToolStripMenuItem = new ToolStripMenuItem();
             CheckForUpdatesToolStripMenuItem = new ToolStripMenuItem();
             splitContainer1 = new SplitContainer();
@@ -495,11 +496,18 @@ namespace Call_of_Duty_FastFile_Editor
             keepZoneFileToolStripMenuItem.ToolTipText = "When checked, keeps a copy of the uncompressed .zone file when closing";
             //
             // helpToolStripMenuItem
-            // 
-            helpToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { aboutToolStripMenuItem, CheckForUpdatesToolStripMenuItem, reportIssuesToolStripMenuItem });
+            //
+            helpToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { supportedFormatsToolStripMenuItem, new ToolStripSeparator(), aboutToolStripMenuItem, CheckForUpdatesToolStripMenuItem, reportIssuesToolStripMenuItem });
             helpToolStripMenuItem.Name = "helpToolStripMenuItem";
             helpToolStripMenuItem.Size = new Size(53, 24);
             helpToolStripMenuItem.Text = "Help";
+            //
+            // supportedFormatsToolStripMenuItem
+            //
+            supportedFormatsToolStripMenuItem.Name = "supportedFormatsToolStripMenuItem";
+            supportedFormatsToolStripMenuItem.Size = new Size(200, 22);
+            supportedFormatsToolStripMenuItem.Text = "Supported Formats && Features...";
+            supportedFormatsToolStripMenuItem.Click += supportedFormatsToolStripMenuItem_Click;
             // 
             // aboutToolStripMenuItem
             // 
@@ -1107,6 +1115,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem fileInfoToolStripMenuItem;
         private ToolStripMenuItem zoneHexViewToolStripMenuItem;
         private ToolStripMenuItem helpToolStripMenuItem;
+        private ToolStripMenuItem supportedFormatsToolStripMenuItem;
         private ToolStripMenuItem renameRawFileToolStripMenuItem;
         private ToolStripSeparator toolStripSeparator1;
         private ToolStripSeparator toolStripSeparator3;

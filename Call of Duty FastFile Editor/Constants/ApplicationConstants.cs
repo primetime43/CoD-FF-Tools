@@ -7,9 +7,7 @@
         public const string About = $"{ProgramName}\n" +
              "Version: " + ProgramVersion + "\n\n" +
              "Developed by primetime43\n\n" +
-             "Supported Games\n" +
-             "- COD4 (Modern Warfare)\n" +
-             "- COD5 (World at War)\n\n" +
+             "Help > Supported Formats & Features\n\n" +
              "Special thanks to:\n" +
              "- BuC-ShoTz\n" +
              "- aerosoul94\n" +

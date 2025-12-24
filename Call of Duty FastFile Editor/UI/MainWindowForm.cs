@@ -4511,6 +4511,14 @@ namespace Call_of_Duty_FastFile_Editor
             MessageBox.Show(ApplicationConstants.About, "About Call of Duty Fast File Editor");
         }
 
+        private void supportedFormatsToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            using (var form = new SupportedFormatsForm())
+            {
+                form.ShowDialog(this);
+            }
+        }
+
         /// <summary>
         /// Shows a popup with the current file's information.
         /// </summary>
