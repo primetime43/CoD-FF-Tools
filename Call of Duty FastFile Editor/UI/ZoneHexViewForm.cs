@@ -29,6 +29,9 @@ namespace Call_of_Duty_FastFile_Editor.UI
         private readonly List<TechSetAsset> _techSets;
         private readonly List<MenuList> _menuLists;
 
+        // Store all asset items for filtering
+        private List<ListViewItem> _allAssetItems = new List<ListViewItem>();
+
         // Color mapping for asset types
         private static readonly Dictionary<string, Color> AssetTypeColors = new Dictionary<string, Color>
         {
@@ -149,6 +152,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             assetListView.SelectedIndexChanged += AssetListView_SelectedIndexChanged;
             assetListView.DoubleClick += AssetListView_DoubleClick;
             jumpToAssetButton.Click += JumpToAssetButton_Click;
+            assetSearchTextBox.TextChanged += AssetSearchTextBox_TextChanged;
 
             // Populate asset list
             PopulateAssetList();
@@ -329,8 +333,76 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
             assetListView.EndUpdate();
 
+            // Store all items for filtering
+            _allAssetItems.Clear();
+            foreach (ListViewItem item in assetListView.Items)
+            {
+                _allAssetItems.Add((ListViewItem)item.Clone());
+            }
+
             // Update panel label with count
             assetPanelLabel.Text = $"Asset Pool ({_assetRecords.Count})";
+        }
+
+        /// <summary>
+        /// Filters the asset list based on search text.
+        /// </summary>
+        private void AssetSearchTextBox_TextChanged(object sender, EventArgs e)
+        {
+            string searchText = assetSearchTextBox.Text.Trim().ToLowerInvariant();
+
+            if (_allAssetItems == null || _allAssetItems.Count == 0)
+                return;
+
+            assetListView.BeginUpdate();
+            try
+            {
+                assetListView.Items.Clear();
+
+                int matchCount = 0;
+                foreach (var item in _allAssetItems)
+                {
+                    if (string.IsNullOrEmpty(searchText))
+                    {
+                        // No filter - show all
+                        assetListView.Items.Add((ListViewItem)item.Clone());
+                        matchCount++;
+                    }
+                    else
+                    {
+                        // Check if type or name contains the search text
+                        bool matches = false;
+                        foreach (ListViewItem.ListViewSubItem subItem in item.SubItems)
+                        {
+                            if (subItem.Text.ToLowerInvariant().Contains(searchText))
+                            {
+                                matches = true;
+                                break;
+                            }
+                        }
+
+                        if (matches)
+                        {
+                            assetListView.Items.Add((ListViewItem)item.Clone());
+                            matchCount++;
+                        }
+                    }
+                }
+
+                // Update label with filter count
+                if (!string.IsNullOrEmpty(searchText))
+                {
+                    assetPanelLabel.Text = $"Asset Pool ({matchCount} of {_allAssetItems.Count})";
+                }
+                else
+                {
+                    assetPanelLabel.Text = $"Asset Pool ({_allAssetItems.Count})";
+                }
+            }
+            finally
+            {
+                assetListView.EndUpdate();
+            }
         }
 
         private int GetAssetTypeValue(ZoneAssetRecord record)

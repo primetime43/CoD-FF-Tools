@@ -97,6 +97,9 @@ namespace Call_of_Duty_FastFile_Editor
             tagsTabPage = new TabPage();
             tagsListView = new ListView();
             assetPoolTabPage = new TabPage();
+            assetPoolSearchPanel = new Panel();
+            assetPoolSearchLabel = new Label();
+            assetPoolSearchTextBox = new TextBox();
             assetPoolListView = new ListView();
             techSetsTabPage = new TabPage();
             techSetsListView = new ListView();
@@ -775,6 +778,7 @@ namespace Call_of_Duty_FastFile_Editor
             // assetPoolTabPage
             //
             assetPoolTabPage.Controls.Add(assetPoolListView);
+            assetPoolTabPage.Controls.Add(assetPoolSearchPanel);
             assetPoolTabPage.Location = new Point(4, 24);
             assetPoolTabPage.Name = "assetPoolTabPage";
             assetPoolTabPage.Padding = new Padding(3);
@@ -782,6 +786,28 @@ namespace Call_of_Duty_FastFile_Editor
             assetPoolTabPage.TabIndex = 5;
             assetPoolTabPage.Text = "Asset Pool";
             assetPoolTabPage.UseVisualStyleBackColor = true;
+            //
+            // assetPoolSearchPanel
+            //
+            assetPoolSearchPanel.Controls.Add(assetPoolSearchLabel);
+            assetPoolSearchPanel.Controls.Add(assetPoolSearchTextBox);
+            assetPoolSearchPanel.Dock = DockStyle.Top;
+            assetPoolSearchPanel.Height = 30;
+            assetPoolSearchPanel.Name = "assetPoolSearchPanel";
+            //
+            // assetPoolSearchLabel
+            //
+            assetPoolSearchLabel.AutoSize = true;
+            assetPoolSearchLabel.Location = new Point(6, 7);
+            assetPoolSearchLabel.Name = "assetPoolSearchLabel";
+            assetPoolSearchLabel.Text = "Search:";
+            //
+            // assetPoolSearchTextBox
+            //
+            assetPoolSearchTextBox.Location = new Point(60, 4);
+            assetPoolSearchTextBox.Name = "assetPoolSearchTextBox";
+            assetPoolSearchTextBox.Size = new Size(300, 23);
+            assetPoolSearchTextBox.PlaceholderText = "Filter by name or type...";
             //
             // assetPoolListView
             //
@@ -1116,6 +1142,9 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem increaseRawFileSizeToolStripMenuItem;
         private ToolStripMenuItem transferSpaceToolStripMenuItem;
         private TabPage assetPoolTabPage;
+        private Panel assetPoolSearchPanel;
+        private Label assetPoolSearchLabel;
+        private TextBox assetPoolSearchTextBox;
         private ListView assetPoolListView;
         private TabPage techSetsTabPage;
         private ListView techSetsListView;

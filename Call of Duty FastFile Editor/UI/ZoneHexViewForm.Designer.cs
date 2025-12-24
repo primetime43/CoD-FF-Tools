@@ -38,6 +38,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
         private SplitContainer mainSplitContainer;
         private Panel assetPanel;
         private Label assetPanelLabel;
+        private Panel assetSearchPanel;
+        private TextBox assetSearchTextBox;
         private ListView assetListView;
         private ColumnHeader assetTypeColumn;
         private ColumnHeader assetNameColumn;
@@ -161,6 +163,21 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 Padding = new Padding(5, 0, 0, 0)
             };
 
+            this.assetSearchPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 28
+            };
+
+            this.assetSearchTextBox = new TextBox
+            {
+                Location = new Point(3, 3),
+                Width = 240,
+                PlaceholderText = "Filter assets..."
+            };
+
+            this.assetSearchPanel.Controls.Add(assetSearchTextBox);
+
             this.jumpToAssetButton = new Button
             {
                 Text = "Jump to Selected",
@@ -189,8 +206,9 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 assetEndColumn
             });
 
-            // Assemble asset panel
+            // Assemble asset panel (order matters for docking - add in reverse order)
             this.assetPanel.Controls.Add(assetListView);
+            this.assetPanel.Controls.Add(assetSearchPanel);
             this.assetPanel.Controls.Add(assetPanelLabel);
             this.assetPanel.Controls.Add(jumpToAssetButton);
 

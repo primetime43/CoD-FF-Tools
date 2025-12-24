@@ -128,6 +128,11 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private bool _isLoading = false;
 
+        /// <summary>
+        /// Stores all asset pool items for filtering.
+        /// </summary>
+        private List<ListViewItem> _allAssetPoolItems = new List<ListViewItem>();
+
         public MainWindowForm(IRawFileService rawFileService)
         {
             InitializeComponent();
@@ -148,6 +153,9 @@ namespace Call_of_Duty_FastFile_Editor
             this.AllowDrop = true;
             this.DragEnter += MainWindowForm_DragEnter;
             this.DragDrop += MainWindowForm_DragDrop;
+
+            // Asset pool search filter
+            assetPoolSearchTextBox.TextChanged += AssetPoolSearchTextBox_TextChanged;
 
             // Create loading panel
             CreateLoadingPanel();
@@ -3974,6 +3982,88 @@ namespace Call_of_Duty_FastFile_Editor
 
             // Auto-resize columns to fit header size or content
             assetPoolListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
+
+            // Store all items for filtering (skip the header row)
+            _allAssetPoolItems.Clear();
+            for (int i = 1; i < assetPoolListView.Items.Count; i++)
+            {
+                _allAssetPoolItems.Add((ListViewItem)assetPoolListView.Items[i].Clone());
+            }
+
+            // Clear the search box when loading a new file
+            assetPoolSearchTextBox.Text = "";
+        }
+
+        /// <summary>
+        /// Filters the asset pool list view based on search text.
+        /// </summary>
+        private void AssetPoolSearchTextBox_TextChanged(object? sender, EventArgs e)
+        {
+            string searchText = assetPoolSearchTextBox.Text.Trim().ToLowerInvariant();
+
+            // If no items stored or no listview items, skip
+            if (_allAssetPoolItems == null || _allAssetPoolItems.Count == 0)
+                return;
+
+            assetPoolListView.BeginUpdate();
+            try
+            {
+                // Keep the header row (first item)
+                ListViewItem? headerItem = null;
+                if (assetPoolListView.Items.Count > 0 && assetPoolListView.Items[0].SubItems[1].Text == "ASSET POOL")
+                {
+                    headerItem = assetPoolListView.Items[0];
+                }
+
+                assetPoolListView.Items.Clear();
+
+                // Re-add header
+                if (headerItem != null)
+                {
+                    assetPoolListView.Items.Add(headerItem);
+                }
+
+                // Filter items
+                int matchCount = 0;
+                foreach (var item in _allAssetPoolItems)
+                {
+                    if (string.IsNullOrEmpty(searchText))
+                    {
+                        // No filter - show all
+                        assetPoolListView.Items.Add((ListViewItem)item.Clone());
+                        matchCount++;
+                    }
+                    else
+                    {
+                        // Check if any subitem contains the search text
+                        bool matches = false;
+                        foreach (ListViewItem.ListViewSubItem subItem in item.SubItems)
+                        {
+                            if (subItem.Text.ToLowerInvariant().Contains(searchText))
+                            {
+                                matches = true;
+                                break;
+                            }
+                        }
+
+                        if (matches)
+                        {
+                            assetPoolListView.Items.Add((ListViewItem)item.Clone());
+                            matchCount++;
+                        }
+                    }
+                }
+
+                // Update header with filter info
+                if (headerItem != null && !string.IsNullOrEmpty(searchText))
+                {
+                    headerItem.SubItems[6].Text = $"Showing {matchCount} of {_allAssetPoolItems.Count} assets";
+                }
+            }
+            finally
+            {
+                assetPoolListView.EndUpdate();
+            }
         }
 
         /// <summary>
