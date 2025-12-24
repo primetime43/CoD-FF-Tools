@@ -31,8 +31,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private readonly int _headerSize;
 
         // Platform-specific header sizes:
-        // Xbox 360 (WaW/MW2): XFile (32 bytes = 6 blocks) + XAssetList (16 bytes) = 48 bytes (0x30)
-        // PS3/CoD4 (all platforms): XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
+        // Xbox 360 (MW2 only): XFile (32 bytes = 6 blocks) + XAssetList (16 bytes) = 48 bytes (0x30)
+        // PS3/CoD4/WaW (all platforms): XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
         // PC: XFile (40 bytes = 8 blocks) + XAssetList (16 bytes) = 56 bytes (0x38)
         private const int HEADER_SIZE_XBOX360 = 0x30;
         private const int HEADER_SIZE_PS3 = 0x34;
@@ -50,8 +50,9 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             _isBigEndian = !_isPC; // PC uses little-endian, consoles use big-endian
 
             // Set header size based on platform and game
-            // CoD4 uses the same zone structure across all platforms (PS3-style 52-byte header)
-            if (_isXbox360 && !_isCod4)
+            // CoD4 and WaW use the same zone structure across all platforms (PS3-style 52-byte header)
+            // Only MW2 Xbox 360 uses the smaller 48-byte header
+            if (_isXbox360 && !_isCod4 && !_isCod5)
                 _headerSize = HEADER_SIZE_XBOX360;
             else if (_isPC)
                 _headerSize = HEADER_SIZE_PC;
