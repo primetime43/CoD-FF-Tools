@@ -49,22 +49,19 @@ namespace Call_of_Duty_FastFile_Editor.Models
             LoadData();
         }
 
-        // XFile structure properties
-        public uint ZoneSize { get; private set; }
-        public uint ExternalSize { get; private set; }
-        public uint BlockSizeTemp { get; private set; }
-        public uint BlockSizePhysical { get; private set; }
-        public uint BlockSizeRuntime { get; private set; }
-        public uint BlockSizeVirtual { get; private set; }
-        public uint BlockSizeLarge { get; private set; }
-        public uint BlockSizeCallback { get; private set; }
-        public uint BlockSizeVertex { get; private set; }
-
-        // XAssetList structure properties
-        public uint ScriptStringCount { get; private set; }
-        public uint ScriptStringsPtr { get; private set; }
-        public uint AssetCount { get; private set; }
-        public uint AssetsPtr { get; private set; }
+        // Various zone header properties.
+        public uint FileSize { get; private set; }
+        public uint Unknown1 { get; private set; }
+        public uint Unknown2 { get; private set; }
+        public uint Unknown3 { get; private set; }
+        public uint Unknown4 { get; private set; }
+        public uint Unknown5 { get; private set; }
+        public uint EndOfFileDataPointer { get; private set; }
+        public uint Unknown7 { get; private set; }
+        public uint Unknown8 { get; private set; }
+        public uint TagCount { get; private set; }
+        public uint Unknown10 { get; private set; }
+        public uint AssetRecordCount { get; private set; }
 
         // For display or debugging purposes.
         public Dictionary<string, uint>? HeaderFieldValues { get; private set; }
@@ -134,28 +131,21 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// <summary>Reloads Data from disk.</summary>
         public void LoadData() => Data = File.ReadAllBytes(FilePath);
 
-        /// <summary>Parses the zone's asset pool into ZoneFileAssets & offsets.</summary>
+        /// <summary>Parses the zone’s asset pool into ZoneFileAssets & offsets.</summary>
         public void ParseAssetPool()
         {
-            // Use structure-based parsing first (uses header counts)
-            var structureParser = new StructureBasedZoneParser(this);
-            bool success = structureParser.Parse();
-
+            var parser = new AssetPoolParser(this);
+            bool success = parser.MapZoneAssetsPoolAndGetEndOffset();
             if (!success)
             {
-                Debug.WriteLine("Structure-based parsing failed, trying pattern-based fallback.");
-                // Fallback is handled internally by StructureBasedZoneParser
-                // If we still fail, show error
-                if (ZoneFileAssets.ZoneAssetRecords == null || ZoneFileAssets.ZoneAssetRecords.Count == 0)
-                {
-                    Debug.WriteLine("Asset pool parse failed: No assets found.");
-                    MessageBox.Show(
-                        "Failed to parse asset pool!\n\nNo assets could be found in the zone file.",
-                        "Parse Failed",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error
-                    );
-                }
+                Debug.WriteLine("Asset pool parse failed: AssetRecordCount was -1.");
+                MessageBox.Show(
+                "Failed to parse asset pool!\n\nZone file's AssetRecordCount was -1, cannot determine expected number of assets.",
+                "Parse Failed",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error
+            );
+
             }
         }
 

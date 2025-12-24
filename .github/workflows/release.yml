@@ -30,7 +30,7 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore "Call of Duty FastFile Editor.sln"
 
-    - name: Build and Publish Main Editor
+    - name: Build and Publish
       run: |
         dotnet publish "Call of Duty FastFile Editor/Call of Duty FastFile Editor.csproj" `
           -c Release `
@@ -40,34 +40,8 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish
 
-    - name: Build and Publish FastFile Compiler GUI
-      run: |
-        dotnet publish "FastFileCompilerGUI/FastFileCompilerGUI.csproj" `
-          -c Release `
-          -r win-x64 `
-          --self-contained false `
-          -p:PublishSingleFile=true `
-          -p:IncludeNativeLibrariesForSelfExtract=true `
-          -o ./publish-compiler
-
-    - name: Build and Publish FastFile Tool GUI
-      run: |
-        dotnet publish "FastFileToolGUI/FastFileToolGUI.csproj" `
-          -c Release `
-          -r win-x64 `
-          --self-contained false `
-          -p:PublishSingleFile=true `
-          -p:IncludeNativeLibrariesForSelfExtract=true `
-          -o ./publish-tool
-
     - name: List published files
-      run: |
-        Write-Host "Main Editor:"
-        Get-ChildItem -Path ./publish -Recurse
-        Write-Host "Compiler GUI:"
-        Get-ChildItem -Path ./publish-compiler -Recurse
-        Write-Host "Tool GUI:"
-        Get-ChildItem -Path ./publish-tool -Recurse
+      run: Get-ChildItem -Path ./publish -Recurse
 
     - name: Get version from tag
       id: get_version
@@ -89,7 +63,5 @@ jobs:
         generate_release_notes: true
         files: |
           ./publish/Call of Duty FastFile Editor.exe
-          ./publish-compiler/FastFileCompilerGUI.exe
-          ./publish-tool/FastFileToolGUI.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -16,19 +16,11 @@ EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
-		Debug|x64 = Debug|x64
-		Debug|x86 = Debug|x86
 		Release|Any CPU = Release|Any CPU
-		Release|x64 = Release|x64
-		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Debug|x64.Build.0 = Debug|Any CPU
-		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Debug|x86.Build.0 = Debug|Any CPU
 		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Release|Any CPU.Build.0 = Release|Any CPU
 		{F6412FD6-9BE3-4EF3-B0F6-9DF3110C5A39}.Release|x64.ActiveCfg = Release|Any CPU

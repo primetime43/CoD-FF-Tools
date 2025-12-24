@@ -1,4 +1,4 @@
-using Call_of_Duty_FastFile_Editor.Models;
+﻿using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.Services;
 using System;
 using System.Collections.Generic;
@@ -6,19 +6,6 @@ using System.Diagnostics;
 
 namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 {
-    /// <summary>
-    /// Parser for StringTable assets in CoD4/WaW zone files.
-    ///
-    /// Structure (from wiki https://codresearch.dev/index.php/StringTable_Asset):
-    /// struct StringTable {
-    ///   const char *name;       // 4 bytes - pointer (FF FF FF FF if inline)
-    ///   int columnCount;        // 4 bytes
-    ///   int rowCount;           // 4 bytes
-    ///   const char **values;    // 4 bytes - pointer (FF FF FF FF if inline)
-    /// };
-    ///
-    /// When pointers are inline (FF FF FF FF), data follows immediately.
-    /// </summary>
     public class StringTableParser
     {
         /// <summary>
@@ -30,11 +17,11 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         {
             byte[] fileData = openedFastFile.OpenedFastFileZone.Data;
 
-            Debug.WriteLine($"[StringTableParser] Starting parse at offset 0x{startingOffset:X}");
-
-            if (startingOffset + 16 > fileData.Length)
+            // Marker: typically 0xFFFFFFFF
+            int marker = (int)Utilities.ReadUInt32BigEndian(fileData, startingOffset);
+            if (marker != -1)
             {
-                Debug.WriteLine($"[StringTableParser] Not enough data for header at 0x{startingOffset:X}");
+                Debug.WriteLine($"Unexpected marker at offset 0x{startingOffset:X}: 0x{marker:X}. Aborting.");
                 return null;
             }
 
@@ -46,124 +33,119 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             uint namePointer = Utilities.ReadUInt32BigEndian(fileData, startingOffset);
             int columnCount = (int)Utilities.ReadUInt32BigEndian(fileData, startingOffset + 4);
             int rowCount = (int)Utilities.ReadUInt32BigEndian(fileData, startingOffset + 8);
-            uint valuesPointer = Utilities.ReadUInt32BigEndian(fileData, startingOffset + 12);
 
-            Debug.WriteLine($"[StringTableParser] Header: namePtr=0x{namePointer:X}, cols={columnCount}, rows={rowCount}, valuesPtr=0x{valuesPointer:X}");
+            // "valuesPointer" field
+            int valuesPointer = (int)Utilities.ReadUInt32BigEndian(fileData, startingOffset + 12);
 
-            // Name pointer must be inline (FF FF FF FF) for embedded data
-            if (namePointer != 0xFFFFFFFF)
-            {
-                Debug.WriteLine($"[StringTableParser] Name pointer not inline (0x{namePointer:X}), skipping.");
-                return null;
-            }
+            // Table name (null-terminated) at offset +16
+            string tableName = Utilities.ReadNullTerminatedString(fileData, startingOffset + 16);
 
-            // Validate row/column counts are reasonable
-            if (columnCount <= 0 || columnCount > 1000 || rowCount <= 0 || rowCount > 100000)
-            {
-                Debug.WriteLine($"[StringTableParser] Invalid dimensions: {columnCount} x {rowCount}");
-                return null;
-            }
-
-            int cellCount = rowCount * columnCount;
-
-            // Table name follows the 16-byte header (null-terminated string)
-            int tableNameOffset = startingOffset + 16;
-            string tableName = Utilities.ReadNullTerminatedString(fileData, tableNameOffset);
-
-            if (string.IsNullOrEmpty(tableName))
-            {
-                Debug.WriteLine($"[StringTableParser] Empty table name at 0x{tableNameOffset:X}");
-                return null;
-            }
-
-            Debug.WriteLine($"[StringTableParser] Table name: '{tableName}'");
-
-            // Calculate where the header ends (after the name string + null terminator)
+            // Calculate header length
             int headerLength = 16 + tableName.Length + 1;
             int endOfHeader = startingOffset + headerLength;
 
-            // Values pointer determines where cell pointer array starts
-            // If inline (0xFFFFFFFF), it follows the name
-            int cellDataBlockOffset;
-            if (valuesPointer == 0xFFFFFFFF)
+            // rowCount * columnCount
+            int cellCount = rowCount * columnCount;
+            if (cellCount <= 0)
             {
-                cellDataBlockOffset = endOfHeader;
-            }
-            else
-            {
-                // External pointer - data is elsewhere (rare case)
-                cellDataBlockOffset = (int)valuesPointer;
+                Debug.WriteLine($"Bad rowCount/columnCount: {rowCount} x {columnCount} = {cellCount}.");
+                return null;
             }
 
-            // Cell pointer array: cellCount * 4 bytes
-            // Each cell has a 4-byte pointer to its string
+            // 4-byte "cell data" block offset
+            int cellDataBlockOffset = (valuesPointer != -1 && valuesPointer != 0)
+                ? valuesPointer
+                : endOfHeader;
+
             int cellBytesNeeded = cellCount * 4;
             if (cellDataBlockOffset + cellBytesNeeded > fileData.Length)
             {
-                Debug.WriteLine($"[StringTableParser] Not enough data for cell pointers at 0x{cellDataBlockOffset:X}");
+                Debug.WriteLine($"Not enough data for row/column block at 0x{cellDataBlockOffset:X}.");
                 return null;
             }
 
-            // String data pool starts after the cell pointer array
+            // (Optional) read these 4-byte values (IDs)
+            // e.g. 
+            // for (int i = 0; i < cellCount; i++)
+            // {
+            //     int offset = cellDataBlockOffset + (i * 4);
+            //     uint cellID = Utilities.ReadUInt32AtOffset(offset, openedFastFile.OpenedFastFileZone, isBigEndian: true);
+            // }
+
+            // The actual strings: read until sentinel or end of file
             int stringBlockOffset = cellDataBlockOffset + cellBytesNeeded;
             if (stringBlockOffset >= fileData.Length)
             {
-                Debug.WriteLine($"[StringTableParser] No room for strings at 0x{stringBlockOffset:X}");
+                Debug.WriteLine($"No room left for strings, offset=0x{stringBlockOffset:X} > file size.");
                 return null;
             }
 
-            Debug.WriteLine($"[StringTableParser] Cell pointers at 0x{cellDataBlockOffset:X}, strings at 0x{stringBlockOffset:X}");
-
-            // Read strings from the string data pool
+            // We'll store both offset & text in a single list
             List<(int Offset, string Text)> cells = new List<(int Offset, string Text)>();
-            int dataStartPos = stringBlockOffset;
-            int dataEndPos = stringBlockOffset;
 
-            int currentOffset = stringBlockOffset;
-            int stringsRead = 0;
+            // CodeStartPosition => first string offset
+            int codeStartPos = stringBlockOffset;
 
-            // Read strings until we hit the next asset marker or reach expected count
-            while (currentOffset < fileData.Length && stringsRead < cellCount)
+            // We'll keep updating DataEndPosition to the last null terminator read
+            int codeEndPos = codeStartPos;
+
+            int currentStringOffset = stringBlockOffset;
+            while (currentStringOffset < fileData.Length)
             {
-                // Check for next asset marker (FF FF FF FF)
-                if (currentOffset + 4 <= fileData.Length &&
-                    fileData[currentOffset] == 0xFF &&
-                    fileData[currentOffset + 1] == 0xFF &&
-                    fileData[currentOffset + 2] == 0xFF &&
-                    fileData[currentOffset + 3] == 0xFF)
+                // 1) Read the next null-terminated string
+                int offsetForThisString = currentStringOffset;
+                string cellValue = Utilities.ReadNullTerminatedString(fileData, offsetForThisString);
+                cells.Add((offsetForThisString, cellValue));
+
+                // 2) Advance offset to after the null terminator
+                currentStringOffset += (cellValue.Length + 1);
+
+                // The last character read was the string's null terminator
+                codeEndPos = currentStringOffset - 1;
+                // So codeEndPos points to the 0 of that string's end.
+
+                // 3) Check for space to verify sentinel
+                if (currentStringOffset + 4 > fileData.Length)
                 {
-                    Debug.WriteLine($"[StringTableParser] Hit next asset marker at 0x{currentOffset:X}");
+                    // Not enough room to read sentinel => break
                     break;
                 }
 
-                // Read the null-terminated string
-                string cellValue = Utilities.ReadNullTerminatedString(fileData, currentOffset);
-                cells.Add((currentOffset, cellValue));
-                stringsRead++;
-
-                // Move past the string and its null terminator
-                currentOffset += cellValue.Length + 1;
-                dataEndPos = currentOffset - 1;
+                // 4) Check sentinel pattern: 00 FF FF FF FF
+                if (fileData[currentStringOffset] == 0xFF &&
+                    fileData[currentStringOffset + 1] == 0xFF &&
+                    fileData[currentStringOffset + 2] == 0xFF &&
+                    fileData[currentStringOffset + 3] == 0xFF &&
+                    fileData[currentStringOffset - 1] == 0x00)
+                {
+                    // We found 00 FF FF FF FF, meaning we break right here. (this might not be right. possibly fix)
+                    // codeEndPos is already set to the 0 that precedes the FF FF FF FF.
+                    break;
+                }
             }
 
-            Debug.WriteLine($"[StringTableParser] Read {cells.Count} strings (expected {cellCount} cells)");
-
-            // Build and return the StringTable
-            return new StringTable
+            // Build & return the final StringTable
+            var stringTable = new StringTable
             {
                 RowCount = rowCount,
                 ColumnCount = columnCount,
                 TableName = tableName,
+
                 RowCountOffset = startingOffset + 8,
                 ColumnCountOffset = startingOffset + 4,
-                TableNameOffset = tableNameOffset,
-                DataStartPosition = dataStartPos,
-                DataEndPosition = dataEndPos,
+                TableNameOffset = startingOffset + 16,
+
+                DataStartPosition = codeStartPos,
+                DataEndPosition = codeEndPos,
+
                 StartOfFileHeader = startingOffset,
                 EndOfFileHeader = endOfHeader,
+
                 Cells = cells,
-                AdditionalData = $"Structure-based parse; {columnCount}x{rowCount}={cellCount} cells, {cells.Count} strings read."
+                AdditionalData = $"Parsed from offset 0x{startingOffset:X}; totalCellCount={cellCount}, read {cells.Count} strings."
             };
+
+            return stringTable;
         }
     }
 }

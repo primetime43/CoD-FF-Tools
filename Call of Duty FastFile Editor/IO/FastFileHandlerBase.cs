@@ -1,8 +1,8 @@
 ﻿using Call_of_Duty_FastFile_Editor.Models;
 using FastFileLib;
 using System.IO;
-using System.IO.Compression;
 using System.Text;
+using Ionic.Zlib;
 
 namespace Call_of_Duty_FastFile_Editor.IO
 {

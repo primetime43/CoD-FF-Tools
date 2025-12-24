@@ -45,9 +45,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
             while (i <= fileLen - 8)
             {
-                // End marker: 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF (all FF)
-                if (data[i] == 0xFF && data[i + 1] == 0xFF && data[i + 2] == 0xFF && data[i + 3] == 0xFF &&
-                    data[i + 4] == 0xFF && data[i + 5] == 0xFF && data[i + 6] == 0xFF && data[i + 7] == 0xFF)
+                // End marker: 0xFF 0xFF 0xFF 0xFF
+                if (data[i] == 0xFF && data[i + 1] == 0xFF && data[i + 2] == 0xFF && data[i + 3] == 0xFF)
                 {
                     Debug.WriteLine($"[DEBUG] END MARKER (all FF) at 0x{i:X}, breaking.");
                     endOfPoolOffset = i + 8; // Skip PAST the end marker
@@ -153,7 +152,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         records.Add(record);
 
                         foundAnyAsset = true;
-                        i += 8;
+                        i += 8; // skip to next possible record
                         continue;
                     }
                 }

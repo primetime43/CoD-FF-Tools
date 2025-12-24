@@ -58,7 +58,7 @@ namespace Call_of_Duty_FastFile_Editor.Services.IO
         {
             var b = new byte[4];
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
-            fs.Seek(ZoneFileHeaderConstants.BlockSizeLargeOffset, SeekOrigin.Begin);
+            fs.Seek(ZoneFileHeaderConstants.EndOfFileDataPointer, SeekOrigin.Begin);
             fs.Read(b, 0, 4);
             return isPC
                 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b)

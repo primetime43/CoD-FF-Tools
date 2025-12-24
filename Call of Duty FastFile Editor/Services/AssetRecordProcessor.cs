@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Xml.Linq;
 
 namespace Call_of_Duty_FastFile_Editor.Services
 {
@@ -18,7 +19,10 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// </summary>
         /// <param name="openedFastFile">The FastFile object containing the zone data.</param>
         /// <param name="zoneAssetRecords">The list of asset records extracted from the zone.</param>
-        /// <param name="forcePatternMatching">If true, skip structure-based parsing and use pattern matching only.</param>
+        /// <param name="forcePatternMatching">
+        /// If true, raw files will be parsed using pattern matching, which overrides the default structured parsing.
+        /// Use this option when the standard parsing does not correctly detect raw files.
+        /// </param>
         /// <returns>A ZoneAssetRecords object containing updated asset lists and records.</returns>
         public static AssetRecordCollection ProcessAssetRecords(
             FastFile openedFastFile,
@@ -47,8 +51,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
             int indexOfLastAssetRecordParsed = -1;
             int previousRecordEndOffset = 0;
             string assetRecordMethod = string.Empty;
-            int structureParsingStoppedAtIndex = -1;
-            int lastStructureParsedEndOffset = 0;
 
             // Zone file data
             byte[] zoneData = openedFastFile.OpenedFastFileZone.Data;
@@ -103,7 +105,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     if (i > 0)
                         previousRecordEndOffset = zoneAssetRecords[i - 1].AssetRecordEndOffset;
 
-                    Debug.WriteLine($"Processing record index {i} ({assetTypeName}), previousRecordEndOffset: {previousRecordEndOffset}");
+                    Debug.WriteLine($"Processing record index {i}, previousRecordEndOffset: {previousRecordEndOffset}");
 
                     // Determine the starting offset for the current record
                     int startingOffset = DetermineStartingOffset(openedFastFile, zoneAssetRecords, i, previousRecordEndOffset, indexOfLastAssetRecordParsed);

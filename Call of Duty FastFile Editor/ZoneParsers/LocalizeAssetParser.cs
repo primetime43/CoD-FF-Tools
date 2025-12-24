@@ -11,129 +11,27 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     {
         /// <summary>
         /// Parses a single localized asset starting at the given offset in the zone file data.
-        ///
-        /// Localize entry structure uses two 4-byte pointers:
-        ///   [4-byte text pointer] [4-byte key pointer] [text if inline] [key if inline]
-        ///
-        /// Case A - Both inline (8 consecutive FFs):
-        ///   [FF FF FF FF FF FF FF FF] [LocalizedText\0] [Key\0]
-        ///
-        /// Case B - Key only inline (first 4 bytes != FF):
-        ///   [XX XX XX XX FF FF FF FF] [Key\0]
-        ///   Text is empty/external when first 4 bytes are not all FF.
-        ///
-        /// This method first tries to parse at the exact offset. If that fails,
-        /// it will search forward up to 64 bytes to find a valid marker (handles alignment/padding).
+        /// Expected pattern:
+        ///   [8 bytes marker: 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF]
+        ///   [LocalizedText: null-terminated ASCII string]
+        ///   [Key: null-terminated ASCII string]
+        /// Returns a tuple containing the parsed LocalizedEntry (or null if not found)
+        /// and the new offset immediately after the entry.
         /// </summary>
+        /// <param name="openedFastFile">The FastFile object holding zone data.</param>
+        /// <param name="startingOffset">Offset in the zone data where the localized item is expected to start.</param>
+        /// <returns>
+        /// A tuple of (LocalizedEntry entry, int nextOffset). If no valid entry is found, entry is null.
+        /// </returns>
         public static (LocalizedEntry entry, int nextOffset) ParseSingleLocalizeAssetNoPattern(FastFile openedFastFile, int startingOffset)
         {
             Debug.WriteLine($"[LocalizeAssetParser] Starting parse at offset 0x{startingOffset:X}.");
             byte[] fileData = openedFastFile.OpenedFastFileZone.Data;
 
-            // Log the bytes at the starting offset for debugging
-            if (startingOffset + 16 < fileData.Length)
-            {
-                Debug.WriteLine($"[LocalizeAssetParser] Bytes at 0x{startingOffset:X}: " +
-                    $"{fileData[startingOffset]:X2} {fileData[startingOffset + 1]:X2} {fileData[startingOffset + 2]:X2} {fileData[startingOffset + 3]:X2} " +
-                    $"{fileData[startingOffset + 4]:X2} {fileData[startingOffset + 5]:X2} {fileData[startingOffset + 6]:X2} {fileData[startingOffset + 7]:X2} " +
-                    $"{fileData[startingOffset + 8]:X2} {fileData[startingOffset + 9]:X2} {fileData[startingOffset + 10]:X2} {fileData[startingOffset + 11]:X2}");
-            }
-
-            // First try exact position
-            var result = TryParseLocalizeAtOffset(fileData, startingOffset);
-            if (result.entry != null)
-                return result;
-
-            // If exact position failed, search forward for a valid marker (handles alignment/padding)
-            // Search up to 64 bytes forward
-            for (int offset = startingOffset + 1; offset <= startingOffset + 64 && offset + 10 < fileData.Length; offset++)
-            {
-                if (IsValidLocalizeMarker(fileData, offset))
-                {
-                    Debug.WriteLine($"[LocalizeAssetParser] Found marker at adjusted offset 0x{offset:X} (was 0x{startingOffset:X}, delta={offset - startingOffset})");
-                    result = TryParseLocalizeAtOffset(fileData, offset);
-                    if (result.entry != null)
-                        return result;
-                }
-            }
-
-            Debug.WriteLine($"[LocalizeAssetParser] Failed to parse localize asset at 0x{startingOffset:X} (searched 64 bytes forward)");
-            return (null, startingOffset);
-        }
-
-        /// <summary>
-        /// Checks if there's a valid localize marker at the given offset.
-        /// Valid markers:
-        ///   - 8 consecutive FFs (both text and key inline)
-        ///   - 4 non-FF bytes followed by 4 FFs (key only inline, empty text)
-        /// </summary>
-        private static bool IsValidLocalizeMarker(byte[] data, int offset)
-        {
-            if (offset + 8 > data.Length)
-                return false;
-
-            // Check if last 4 bytes are FF (key pointer must be inline)
-            bool keyPointerIsFF = data[offset + 4] == 0xFF && data[offset + 5] == 0xFF &&
-                                  data[offset + 6] == 0xFF && data[offset + 7] == 0xFF;
-
-            if (!keyPointerIsFF)
-                return false;
-
-            // Check if first 4 bytes are also FF (both inline) or not (key only)
-            bool textPointerIsFF = data[offset] == 0xFF && data[offset + 1] == 0xFF &&
-                                   data[offset + 2] == 0xFF && data[offset + 3] == 0xFF;
-
-            // Verify there's valid data after the marker
-            if (offset + 8 >= data.Length)
-                return false;
-
-            byte nextByte = data[offset + 8];
-
-            // The byte after marker should be printable ASCII (start of text or key)
-            // or 0x00 (empty text followed by key)
-            if (nextByte == 0xFF)
-                return false; // Still in padding
-
-            // If both pointers are FF, next byte starts the text (can be printable or 0x00 for empty)
-            // If only key pointer is FF, next byte starts the key (should be printable)
-            if (!textPointerIsFF && nextByte == 0x00)
-                return false; // Key-only but next byte is null - not valid
-
-            return true;
-        }
-
-        /// <summary>
-        /// Attempts to parse a localize entry at the exact given offset.
-        /// Handles both full inline (8 FFs) and key-only inline (4 bytes + 4 FFs) cases.
-        /// </summary>
-        private static (LocalizedEntry entry, int nextOffset) TryParseLocalizeAtOffset(byte[] fileData, int offset)
-        {
-            if (offset + 9 > fileData.Length) // Need at least marker + 1 null terminator
-            {
-                Debug.WriteLine($"[LocalizeAssetParser] Not enough data at 0x{offset:X}");
-                return (null, offset);
-            }
-
-            // Check if last 4 bytes are FF (key pointer must be inline)
-            bool keyPointerIsFF = fileData[offset + 4] == 0xFF && fileData[offset + 5] == 0xFF &&
-                                  fileData[offset + 6] == 0xFF && fileData[offset + 7] == 0xFF;
-
-            if (!keyPointerIsFF)
-            {
-                Debug.WriteLine($"[LocalizeAssetParser] No key pointer marker at 0x{offset:X}, found: " +
-                    $"{fileData[offset + 4]:X2} {fileData[offset + 5]:X2} {fileData[offset + 6]:X2} {fileData[offset + 7]:X2}");
-                return (null, offset);
-            }
-
-            // Check if first 4 bytes are also FF (both inline)
-            bool textPointerIsFF = fileData[offset] == 0xFF && fileData[offset + 1] == 0xFF &&
-                                   fileData[offset + 2] == 0xFF && fileData[offset + 3] == 0xFF;
-
             using (MemoryStream ms = new MemoryStream(fileData))
             using (BinaryReader br = new BinaryReader(ms, Encoding.ASCII))
             {
-                // Position after the 8-byte marker
-                ms.Position = offset + 8;
+                ms.Position = startingOffset;
 
                 byte[] textBytes;
                 byte[] keyBytes;
@@ -171,7 +69,29 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 // Validate key is not empty
                 if (keyBytes.Length == 0)
                 {
-                    Debug.WriteLine($"[LocalizeAssetParser] Empty key at 0x{offset:X}");
+                    if (b != 0xFF)
+                    {
+                        Debug.WriteLine($"[LocalizeAssetParser] Expected eight 0xFF bytes at position 0x{markerPos:X} but marker is invalid. Returning null.");
+                        return (null, markerPos);
+                    }
+                }
+
+                // After the marker, the localized text begins.
+                int entryStart = (int)ms.Position;
+
+                // Read the localized text (null-terminated).
+                string localizedText = ReadNullTerminatedString(br);
+                if (localizedText == null)
+                {
+                    Debug.WriteLine("[LocalizeAssetParser] Localized text string not found. Returning null.");
+                    return (null, (int)ms.Position);
+                }
+
+                // Read the key (null-terminated).
+                string key = ReadNullTerminatedString(br);
+                if (key == null)
+                {
+                    Debug.WriteLine("[LocalizeAssetParser] Key string not found. Returning null.");
                     return (null, (int)ms.Position);
                 }
 
@@ -191,21 +111,20 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         }
 
         /// <summary>
-        /// Searches for a valid localize marker starting from the given offset,
-        /// then parses the localized asset entry if found.
-        ///
-        /// Valid markers:
-        ///   - 8 consecutive FFs (both value and name inline)
-        ///   - 4 non-FF bytes + 4 FFs (name only inline, value is null/external)
-        ///
-        /// Returns a tuple of (LocalizedEntry, nextOffset). If no valid marker found, returns (null, startingOffset).
+        /// Searches for the eight 0xFF bytes pattern starting from the given offset,
+        /// then parses a single localized asset entry if found.
+        /// Expected pattern:
+        ///   [8 bytes marker: 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF]
+        ///   [LocalizedText: null-terminated ASCII string]
+        ///   [Key: null-terminated ASCII string]
+        /// Returns a tuple of (LocalizedEntry, nextOffset). If the pattern is not found or not followed by valid data, returns (null, startingOffset).
         /// </summary>
         public static (LocalizedEntry entry, int nextOffset) ParseSingleLocalizeAssetWithPattern(FastFile openedFastFile, int startingOffset)
         {
             Debug.WriteLine($"[LocalizeAssetParser] Starting pattern-based parse at offset 0x{startingOffset:X}.");
             byte[] fileData = openedFastFile.OpenedFastFileZone.Data;
 
-            // Search for a valid localize marker starting at startingOffset
+            // Search for eight consecutive 0xFF bytes starting at startingOffset.
             for (int pos = startingOffset; pos <= fileData.Length - 8; pos++)
             {
                 // Check if last 4 bytes are FF (name pointer must be inline)
@@ -332,7 +251,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                     if (consecutiveSameChar > 3)
                         return false; // More than 3 consecutive same characters is suspicious
                 }
-                else
+
+                // Read the key (null-terminated).
+                string key = ReadNullTerminatedString(br);
+                if (key == null)
                 {
                     consecutiveSameChar = 1;
                 }

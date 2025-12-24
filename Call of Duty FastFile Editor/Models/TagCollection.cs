@@ -20,47 +20,65 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public string OffsetHex { get; set; }
     }
 
-    /// <summary>
-    /// Parses script strings (tags) from the zone file.
-    /// </summary>
+    // Eventually rewrite this to use the asset pool start offset to get the tags
     public static class TagOperations
     {
-        // Zone header size: XFile (0x00-0x23) + XAssetList (0x24-0x33) = 0x34 bytes
-        private const int ZoneHeaderSize = 0x34;
+        /// <summary>
+        /// Finds a large run (16 bytes) of 0xFF in the zone’s byte array.
+        /// Returns the start offset of that run, or -1 if not found.
+        /// Adjust if your format uses more or fewer 0xFF.
+        /// </summary>
+        private static int FindLargeFFBlock(byte[] zoneBytes)
+        {
+            const int runLength = 16;
+            for (int i = 0; i <= zoneBytes.Length - runLength; i++)
+            {
+                bool foundRun = true;
+                for (int j = 0; j < runLength; j++)
+                {
+                    if (zoneBytes[i + j] != 0xFF)
+                    {
+                        foundRun = false;
+                        break;
+                    }
+                }
+                if (foundRun) return i;
+            }
+            return -1;
+        }
 
         /// <summary>
-        /// Finds tags using known zone structure offsets.
-        /// Uses pre-parsed offsets from StructureBasedZoneParser if available.
+        /// Reads tags appearing after a large run of 0xFF, ending at the first
+        /// occurrence of four consecutive 0x00 bytes (or out of file). Each tag 
+        /// is null-terminated ASCII, and we store each tag's offset in both 
+        /// decimal and hex.
         /// </summary>
         public static TagCollection? FindTags(ZoneFile zone)
         {
-            if (zone?.Data == null || zone.Data.Length < ZoneHeaderSize)
-                return null;
-
             byte[] zoneBytes = zone.Data;
+            int blockStart = FindLargeFFBlock(zoneBytes);
+            if (blockStart < 0) return null;
 
-            // Use pre-parsed tag section offsets if available (set by StructureBasedZoneParser)
-            int tagSectionStart = zone.TagSectionStartOffset > 0
-                ? zone.TagSectionStartOffset
-                : ZoneHeaderSize;
+            int offset = blockStart;
+            while (offset < zoneBytes.Length && zoneBytes[offset] == 0xFF)
+                offset++;
 
-            // Tags end at the tag section end or asset pool start
-            int tagSectionEnd = zone.TagSectionEndOffset > 0
-                ? zone.TagSectionEndOffset
-                : (zone.AssetPoolStartOffset > 0
-                    ? zone.AssetPoolStartOffset
-                    : FindAssetPoolStart(zoneBytes, tagSectionStart));
-
-            if (tagSectionEnd <= tagSectionStart)
-                return null;
-
+            int tagSectionStart = offset;
             var tagEntries = new List<ZoneAsset_TagEntry>();
-            int offset = tagSectionStart;
 
-            // Parse null-terminated strings until we reach the asset pool
-            while (offset < tagSectionEnd)
+            // Keep going until we see asset record pool, not just zeros!
+            while (offset + 8 <= zoneBytes.Length)
             {
-                // Skip any null bytes (padding between tags or at start)
+                // Check if we are at the start of the asset record pool
+                if (zoneBytes[offset] == 0x00 && zoneBytes[offset + 1] == 0x00 && zoneBytes[offset + 2] == 0x00 &&
+                    zoneBytes[offset + 4] == 0xFF && zoneBytes[offset + 5] == 0xFF &&
+                    zoneBytes[offset + 6] == 0xFF && zoneBytes[offset + 7] == 0xFF)
+                {
+                    // Found asset record pool start
+                    break;
+                }
+
+                // Skip padding zeros between tags (not the 8-byte asset record pattern)
                 if (zoneBytes[offset] == 0x00)
                 {
                     offset++;
@@ -68,17 +86,10 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 }
 
                 int currentOffset = offset;
-                string tag = ReadNullTerminatedString(zoneBytes, offset, tagSectionEnd);
+                string tag = Utilities.ReadStringAtOffset(offset, zone);
 
-                if (string.IsNullOrEmpty(tag))
+                if (string.IsNullOrEmpty(tag) || tag.Length > 128)
                     break;
-
-                // Sanity check - tags shouldn't be too long
-                if (tag.Length > 256)
-                {
-                    // Likely hit corrupted data, stop parsing
-                    break;
-                }
 
                 tagEntries.Add(new ZoneAsset_TagEntry
                 {
@@ -87,14 +98,12 @@ namespace Call_of_Duty_FastFile_Editor.Models
                     OffsetHex = currentOffset.ToString("X")
                 });
 
-                offset += tag.Length + 1; // +1 for null terminator
+                offset += tag.Length + 1;
             }
+            int tagSectionEnd = offset;
 
-            // Only update zone offsets if they weren't already set
-            if (zone.TagSectionStartOffset == 0)
-                zone.TagSectionStartOffset = tagSectionStart;
-            if (zone.TagSectionEndOffset == 0)
-                zone.TagSectionEndOffset = tagSectionEnd;
+            zone.TagSectionStartOffset = tagSectionStart;
+            zone.TagSectionEndOffset = tagSectionEnd;
 
             return new TagCollection
             {
@@ -102,62 +111,6 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 TagSectionStartOffset = tagSectionStart,
                 TagSectionEndOffset = tagSectionEnd
             };
-        }
-
-        /// <summary>
-        /// Reads a null-terminated ASCII string from the byte array.
-        /// </summary>
-        private static string ReadNullTerminatedString(byte[] data, int offset, int maxOffset)
-        {
-            if (offset >= maxOffset || offset >= data.Length)
-                return string.Empty;
-
-            int end = offset;
-            while (end < maxOffset && end < data.Length && data[end] != 0x00)
-                end++;
-
-            if (end == offset)
-                return string.Empty;
-
-            return System.Text.Encoding.ASCII.GetString(data, offset, end - offset);
-        }
-
-        /// <summary>
-        /// Fallback: finds the asset pool start by looking for either format:
-        /// Format A: 00 00 00 XX FF FF FF FF (type first)
-        /// Format B: FF FF FF FF 00 00 00 XX (pointer first)
-        /// </summary>
-        private static int FindAssetPoolStart(byte[] zoneBytes, int startOffset)
-        {
-            for (int i = startOffset; i <= zoneBytes.Length - 8; i++)
-            {
-                // Format A: 00 00 00 [type] FF FF FF FF (type first)
-                if (zoneBytes[i] == 0x00 && zoneBytes[i + 1] == 0x00 && zoneBytes[i + 2] == 0x00 &&
-                    zoneBytes[i + 4] == 0xFF && zoneBytes[i + 5] == 0xFF &&
-                    zoneBytes[i + 6] == 0xFF && zoneBytes[i + 7] == 0xFF)
-                {
-                    return i;
-                }
-
-                // Format B: FF FF FF FF 00 00 00 [type] (pointer first)
-                if (zoneBytes[i] == 0xFF && zoneBytes[i + 1] == 0xFF &&
-                    zoneBytes[i + 2] == 0xFF && zoneBytes[i + 3] == 0xFF &&
-                    zoneBytes[i + 4] == 0x00 && zoneBytes[i + 5] == 0x00 &&
-                    zoneBytes[i + 6] == 0x00)
-                {
-                    return i;
-                }
-            }
-            return -1;
-        }
-
-        /// <summary>
-        /// Gets the count of tags in a zone (uses header field for accuracy).
-        /// </summary>
-        public static int GetTagCount(ZoneFile zone)
-        {
-            // Use the ScriptStringCount from the zone header - it's already parsed and accurate
-            return (int)(zone?.ScriptStringCount ?? 0);
         }
     }
 }
