@@ -7,7 +7,7 @@ on:
   workflow_dispatch:  # Allows manual trigger from GitHub UI
     inputs:
       version:
-        description: 'Version tag (e.g., v2.1.0)'
+        description: 'Version tag (e.g., v3.0.0)'
         required: true
         type: string
 
@@ -60,6 +60,16 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-tool
 
+    - name: Build and Publish FastFile Converter GUI
+      run: |
+        dotnet publish "FastFileConverterGUI/FastFileConverterGUI.csproj" `
+          -c Release `
+          -r win-x64 `
+          --self-contained false `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o ./publish-converter
+
     - name: List published files
       run: |
         Write-Host "Main Editor:"
@@ -68,6 +78,8 @@ jobs:
         Get-ChildItem -Path ./publish-compiler -Recurse
         Write-Host "Tool GUI:"
         Get-ChildItem -Path ./publish-tool -Recurse
+        Write-Host "Converter GUI:"
+        Get-ChildItem -Path ./publish-converter -Recurse
 
     - name: Get version from tag
       id: get_version
@@ -91,5 +103,6 @@ jobs:
           ./publish/Call of Duty FastFile Editor.exe
           ./publish-compiler/FastFileCompilerGUI.exe
           ./publish-tool/FastFileToolGUI.exe
+          ./publish-converter/FastFileConverterGUI.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
