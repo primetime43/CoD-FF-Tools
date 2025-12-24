@@ -13,7 +13,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     /// Reference: https://codresearch.dev/index.php/FastFiles_and_Zone_files_(MW2)
     ///
     /// Zone Structure:
-    /// [0x00-0x33] XFile Header + XAssetList header (52 bytes)
+    /// [0x00-0x33] XFile Header + XAssetList header (52 bytes for PS3/CoD4)
     /// [0x34+]     Script strings (tags) - null-terminated, count from ScriptStringCount
     /// [after tags] Asset pool records - 8 bytes each, count from AssetCount
     /// [after pool] Asset data
@@ -31,8 +31,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private readonly int _headerSize;
 
         // Platform-specific header sizes:
-        // Xbox 360: XFile (32 bytes = 6 blocks) + XAssetList (16 bytes) = 48 bytes (0x30)
-        // PS3: XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
+        // Xbox 360 (WaW/MW2): XFile (32 bytes = 6 blocks) + XAssetList (16 bytes) = 48 bytes (0x30)
+        // PS3/CoD4 (all platforms): XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
         // PC: XFile (40 bytes = 8 blocks) + XAssetList (16 bytes) = 56 bytes (0x38)
         private const int HEADER_SIZE_XBOX360 = 0x30;
         private const int HEADER_SIZE_PS3 = 0x34;
@@ -49,15 +49,16 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             _isPC = zone.ParentFastFile?.IsPC ?? false;
             _isBigEndian = !_isPC; // PC uses little-endian, consoles use big-endian
 
-            // Set header size based on platform
-            if (_isXbox360)
+            // Set header size based on platform and game
+            // CoD4 uses the same zone structure across all platforms (PS3-style 52-byte header)
+            if (_isXbox360 && !_isCod4)
                 _headerSize = HEADER_SIZE_XBOX360;
             else if (_isPC)
                 _headerSize = HEADER_SIZE_PC;
             else
                 _headerSize = HEADER_SIZE_PS3;
 
-            Debug.WriteLine($"[StructureParser] Platform: {(_isXbox360 ? "Xbox 360" : (_isPC ? "PC" : "PS3"))}, Header size: 0x{_headerSize:X}");
+            Debug.WriteLine($"[StructureParser] Game: {(_isCod4 ? "CoD4" : (_isCod5 ? "WaW" : "MW2"))}, Platform: {(_isXbox360 ? "Xbox 360" : (_isPC ? "PC" : "PS3"))}, Header size: 0x{_headerSize:X}");
         }
 
         /// <summary>

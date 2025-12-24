@@ -104,6 +104,101 @@ public static class FastFileConstants
     // Compression block size
     public const int BlockSize = 65536;    // 0x10000 - 64KB blocks
 
+    #region Zone Header Offsets
+
+    /// <summary>
+    /// Zone header sizes vary by platform:
+    /// - Xbox 360 (WaW/MW2 only): 48 bytes (0x30) - no BlockSizeVertex field
+    /// - PS3/CoD4 (all platforms): 52 bytes (0x34) - includes BlockSizeVertex
+    /// - PC: 56 bytes (0x38) - includes additional field
+    /// Note: CoD4 uses the same 52-byte structure across ALL platforms.
+    /// </summary>
+    public const int ZoneHeaderSize_Xbox360 = 0x30;  // WaW/MW2 Xbox 360 only
+    public const int ZoneHeaderSize_PS3 = 0x34;      // PS3 and CoD4 (all platforms)
+    public const int ZoneHeaderSize_PC = 0x38;       // PC
+
+    // XFile structure offsets (common to all platforms)
+    public const int ZoneSizeOffset = 0x00;
+    public const int ExternalSizeOffset = 0x04;
+    public const int BlockSizeTempOffset = 0x08;
+    public const int BlockSizePhysicalOffset = 0x0C;
+    public const int BlockSizeRuntimeOffset = 0x10;
+    public const int BlockSizeVirtualOffset = 0x14;
+    public const int BlockSizeLargeOffset = 0x18;
+    public const int BlockSizeCallbackOffset = 0x1C;
+    public const int BlockSizeVertexOffset = 0x20;  // PS3/PC only, not on Xbox 360 (except CoD4)
+
+    // XAssetList offsets - PS3 and CoD4 (all platforms)
+    public const int ScriptStringCountOffset_PS3 = 0x24;
+    public const int ScriptStringsPtrOffset_PS3 = 0x28;
+    public const int AssetCountOffset_PS3 = 0x2C;
+    public const int AssetsPtrOffset_PS3 = 0x30;
+
+    // XAssetList offsets - Xbox 360 (WaW/MW2 only, NOT CoD4)
+    public const int ScriptStringCountOffset_Xbox360 = 0x20;
+    public const int ScriptStringsPtrOffset_Xbox360 = 0x24;
+    public const int AssetCountOffset_Xbox360 = 0x28;
+    public const int AssetsPtrOffset_Xbox360 = 0x2C;
+
+    // XAssetList offsets - PC
+    public const int ScriptStringCountOffset_PC = 0x28;
+    public const int ScriptStringsPtrOffset_PC = 0x2C;
+    public const int AssetCountOffset_PC = 0x30;
+    public const int AssetsPtrOffset_PC = 0x34;
+
+    /// <summary>
+    /// Gets the zone header size for the given game and platform.
+    /// CoD4 uses PS3-style offsets on ALL platforms.
+    /// </summary>
+    public static int GetZoneHeaderSize(GameVersion version, bool isXbox360, bool isPC)
+    {
+        // CoD4 uses PS3-style header on all platforms
+        if (version == GameVersion.CoD4)
+            return ZoneHeaderSize_PS3;
+
+        if (isPC)
+            return ZoneHeaderSize_PC;
+        if (isXbox360)
+            return ZoneHeaderSize_Xbox360;
+        return ZoneHeaderSize_PS3;
+    }
+
+    /// <summary>
+    /// Gets the AssetCount offset for the given game and platform.
+    /// CoD4 uses PS3-style offsets on ALL platforms.
+    /// </summary>
+    public static int GetAssetCountOffset(GameVersion version, bool isXbox360, bool isPC)
+    {
+        // CoD4 uses PS3-style offsets on all platforms
+        if (version == GameVersion.CoD4)
+            return AssetCountOffset_PS3;
+
+        if (isPC)
+            return AssetCountOffset_PC;
+        if (isXbox360)
+            return AssetCountOffset_Xbox360;
+        return AssetCountOffset_PS3;
+    }
+
+    /// <summary>
+    /// Gets the ScriptStringCount offset for the given game and platform.
+    /// CoD4 uses PS3-style offsets on ALL platforms.
+    /// </summary>
+    public static int GetScriptStringCountOffset(GameVersion version, bool isXbox360, bool isPC)
+    {
+        // CoD4 uses PS3-style offsets on all platforms
+        if (version == GameVersion.CoD4)
+            return ScriptStringCountOffset_PS3;
+
+        if (isPC)
+            return ScriptStringCountOffset_PC;
+        if (isXbox360)
+            return ScriptStringCountOffset_Xbox360;
+        return ScriptStringCountOffset_PS3;
+    }
+
+    #endregion
+
     // Version bytes (big-endian)
     public static readonly byte[] CoD4Version = { 0x00, 0x00, 0x00, 0x01 };
     public static readonly byte[] WaWVersion = { 0x00, 0x00, 0x01, 0x83 };
