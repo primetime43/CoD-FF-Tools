@@ -85,11 +85,12 @@ QUICK REFERENCE
 Full Support (Extract, Parse Assets, Edit, Repack):
   - CoD4: Modern Warfare - PS3, Xbox 360
   - CoD5: World at War - PS3, Xbox 360
+  - CoD6: Modern Warfare 2 - PS3, Xbox 360
 
 Extract Only (Zone extraction, no asset parsing):
   - CoD4: Modern Warfare - PC, Wii
   - CoD5: World at War - PC, Wii
-  - CoD6: Modern Warfare 2 - PS3, Xbox 360, PC
+  - CoD6: Modern Warfare 2 - PC
 
 LIMITATIONS
 -----------
