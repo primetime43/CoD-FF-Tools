@@ -75,6 +75,9 @@ namespace Call_of_Duty_FastFile_Editor.UI
             var overviewText = (RichTextBox)tabControl.TabPages[0].Controls[0];
             overviewText.Text = @"CALL OF DUTY FASTFILE EDITOR
 
+Developed by primetime43
+Repo: https://github.com/primetime43/CoD-FF-Tools
+
 This tool allows you to view, extract, and modify FastFile (.ff) archives from older Call of Duty games on various platforms.
 
 QUICK REFERENCE
