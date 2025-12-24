@@ -522,15 +522,22 @@ public static class FastFileProcessor
     /// <param name="inputPath">Path to the .zone file</param>
     /// <param name="outputPath">Path to output the .ff file</param>
     /// <param name="gameVersion">Target game version</param>
-    /// <param name="platform">Target platform (PS3, PC, Wii, etc.)</param>
+    /// <param name="platform">Target platform (PS3, PC, Wii, Xbox360, etc.)</param>
     /// <returns>Number of blocks compressed</returns>
     public static int Compress(string inputPath, string outputPath, GameVersion gameVersion, string platform = "PS3")
     {
         using var br = new BinaryReader(new FileStream(inputPath, FileMode.Open, FileAccess.Read), Encoding.Default);
         using var bw = new BinaryWriter(new FileStream(outputPath, FileMode.Create, FileAccess.Write), Encoding.Default);
 
-        // Write header
-        bw.Write(FastFileInfo.GetMagicBytes());
+        // Determine if we need a signed header (Xbox 360 uses signed header)
+        bool isXbox360 = platform.ToUpperInvariant() switch
+        {
+            "XBOX360" or "XBOX 360" or "360" => true,
+            _ => false
+        };
+
+        // Write header - Xbox 360 uses signed header (IWff0100), others use unsigned (IWffu100)
+        bw.Write(FastFileInfo.GetMagicBytes(signed: isXbox360));
         bw.Write(FastFileInfo.GetVersionBytes(gameVersion, platform));
 
         int blockCount = 0;
