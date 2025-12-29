@@ -61,6 +61,9 @@ partial class MainForm
         this.menuItemRename = new ToolStripMenuItem();
         this.menuItemRemove = new ToolStripMenuItem();
 
+        // Tooltip
+        this.toolTip = new ToolTip(this.components);
+
         // Menu strip
         this.menuStrip = new MenuStrip();
         this.fileToolStripMenuItem = new ToolStripMenuItem();
@@ -352,7 +355,7 @@ partial class MainForm
         this.comboBoxPlatform.Items.AddRange(new object[] {
             "PS3",
             "Xbox 360 (Unsigned)",
-            "Xbox 360 (Signed) - Requires loaded FF",
+            "Xbox 360 (Signed)",
             "PC",
             "Wii"
         });
@@ -360,6 +363,7 @@ partial class MainForm
         this.comboBoxPlatform.Name = "comboBoxPlatform";
         this.comboBoxPlatform.Size = new Size(175, 23);
         this.comboBoxPlatform.SelectedIndex = 0;
+        this.comboBoxPlatform.SelectedIndexChanged += new EventHandler(this.comboBoxPlatform_SelectedIndexChanged);
 
         //
         // labelZoneName
@@ -543,4 +547,5 @@ partial class MainForm
     private ToolStripMenuItem exitMenuItem;
     private ToolStripMenuItem helpToolStripMenuItem;
     private ToolStripMenuItem aboutMenuItem;
+    private ToolTip toolTip;
 }

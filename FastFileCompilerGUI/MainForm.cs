@@ -14,6 +14,9 @@ public partial class MainForm : Form
     {
         InitializeComponent();
         UpdateStatus("Ready - Add files to compile into a FastFile");
+
+        // Set initial tooltip for platform dropdown
+        comboBoxPlatform_SelectedIndexChanged(this, EventArgs.Empty);
     }
 
     #region Load Existing FastFile
@@ -690,6 +693,20 @@ public partial class MainForm : Form
             4 => ("Wii", false),
             _ => ("PS3", false)
         };
+    }
+
+    private void comboBoxPlatform_SelectedIndexChanged(object sender, EventArgs e)
+    {
+        string tooltipText = comboBoxPlatform.SelectedIndex switch
+        {
+            0 => "PlayStation 3 - Standard unsigned format",
+            1 => "Xbox 360 Unsigned - For unsigned/retail Xbox 360 files",
+            2 => "Xbox 360 Signed - Requires loading an existing signed FF first to preserve the hash table",
+            3 => "PC - Windows platform format",
+            4 => "Wii - Nintendo Wii platform format",
+            _ => ""
+        };
+        toolTip.SetToolTip(comboBoxPlatform, tooltipText);
     }
 
     #endregion
