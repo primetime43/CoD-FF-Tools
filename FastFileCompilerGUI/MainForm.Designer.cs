@@ -42,6 +42,8 @@ partial class MainForm
         this.groupBoxOptions = new GroupBox();
         this.labelGame = new Label();
         this.comboBoxGame = new ComboBox();
+        this.labelPlatform = new Label();
+        this.comboBoxPlatform = new ComboBox();
         this.labelZoneName = new Label();
         this.textBoxZoneName = new TextBox();
         this.checkBoxSaveZone = new CheckBox();
@@ -297,6 +299,8 @@ partial class MainForm
         //
         this.groupBoxOptions.Controls.Add(this.labelGame);
         this.groupBoxOptions.Controls.Add(this.comboBoxGame);
+        this.groupBoxOptions.Controls.Add(this.labelPlatform);
+        this.groupBoxOptions.Controls.Add(this.comboBoxPlatform);
         this.groupBoxOptions.Controls.Add(this.labelZoneName);
         this.groupBoxOptions.Controls.Add(this.textBoxZoneName);
         this.groupBoxOptions.Controls.Add(this.checkBoxSaveZone);
@@ -304,7 +308,7 @@ partial class MainForm
         this.groupBoxOptions.Controls.Add(this.labelLoadedFF);
         this.groupBoxOptions.Location = new Point(0, 5);
         this.groupBoxOptions.Name = "groupBoxOptions";
-        this.groupBoxOptions.Size = new Size(400, 145);
+        this.groupBoxOptions.Size = new Size(550, 145);
         this.groupBoxOptions.TabIndex = 0;
         this.groupBoxOptions.TabStop = false;
         this.groupBoxOptions.Text = "Options";
@@ -315,7 +319,7 @@ partial class MainForm
         this.labelGame.AutoSize = true;
         this.labelGame.Location = new Point(15, 30);
         this.labelGame.Name = "labelGame";
-        this.labelGame.Text = "Game Version:";
+        this.labelGame.Text = "Game:";
 
         //
         // comboBoxGame
@@ -327,10 +331,35 @@ partial class MainForm
             "Call of Duty: World at War",
             "Call of Duty: Modern Warfare 2"
         });
-        this.comboBoxGame.Location = new Point(120, 27);
+        this.comboBoxGame.Location = new Point(70, 27);
         this.comboBoxGame.Name = "comboBoxGame";
-        this.comboBoxGame.Size = new Size(250, 23);
+        this.comboBoxGame.Size = new Size(220, 23);
         this.comboBoxGame.SelectedIndex = 0;
+
+        //
+        // labelPlatform
+        //
+        this.labelPlatform.AutoSize = true;
+        this.labelPlatform.Location = new Point(300, 30);
+        this.labelPlatform.Name = "labelPlatform";
+        this.labelPlatform.Text = "Platform:";
+
+        //
+        // comboBoxPlatform
+        //
+        this.comboBoxPlatform.DropDownStyle = ComboBoxStyle.DropDownList;
+        this.comboBoxPlatform.FormattingEnabled = true;
+        this.comboBoxPlatform.Items.AddRange(new object[] {
+            "PS3",
+            "Xbox 360 (Unsigned)",
+            "Xbox 360 (Signed) - Requires loaded FF",
+            "PC",
+            "Wii"
+        });
+        this.comboBoxPlatform.Location = new Point(365, 27);
+        this.comboBoxPlatform.Name = "comboBoxPlatform";
+        this.comboBoxPlatform.Size = new Size(175, 23);
+        this.comboBoxPlatform.SelectedIndex = 0;
 
         //
         // labelZoneName
@@ -343,9 +372,9 @@ partial class MainForm
         //
         // textBoxZoneName
         //
-        this.textBoxZoneName.Location = new Point(120, 62);
+        this.textBoxZoneName.Location = new Point(100, 62);
         this.textBoxZoneName.Name = "textBoxZoneName";
-        this.textBoxZoneName.Size = new Size(250, 23);
+        this.textBoxZoneName.Size = new Size(440, 23);
         this.textBoxZoneName.Text = "custom_patch_mp";
 
         //
@@ -386,9 +415,9 @@ partial class MainForm
         this.groupBoxCompile.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         this.groupBoxCompile.Controls.Add(this.progressBar);
         this.groupBoxCompile.Controls.Add(this.labelStatus);
-        this.groupBoxCompile.Location = new Point(410, 5);
+        this.groupBoxCompile.Location = new Point(560, 5);
         this.groupBoxCompile.Name = "groupBoxCompile";
-        this.groupBoxCompile.Size = new Size(450, 145);
+        this.groupBoxCompile.Size = new Size(300, 145);
         this.groupBoxCompile.TabIndex = 1;
         this.groupBoxCompile.TabStop = false;
         this.groupBoxCompile.Text = "Status";
@@ -408,7 +437,7 @@ partial class MainForm
         this.progressBar.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         this.progressBar.Location = new Point(15, 35);
         this.progressBar.Name = "progressBar";
-        this.progressBar.Size = new Size(420, 23);
+        this.progressBar.Size = new Size(270, 23);
 
         //
         // labelStatus
@@ -416,7 +445,7 @@ partial class MainForm
         this.labelStatus.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         this.labelStatus.Location = new Point(15, 70);
         this.labelStatus.Name = "labelStatus";
-        this.labelStatus.Size = new Size(420, 60);
+        this.labelStatus.Size = new Size(270, 60);
         this.labelStatus.Text = "Ready";
 
         //
@@ -492,6 +521,8 @@ partial class MainForm
     private GroupBox groupBoxOptions;
     private Label labelGame;
     private ComboBox comboBoxGame;
+    private Label labelPlatform;
+    private ComboBox comboBoxPlatform;
     private Label labelZoneName;
     private TextBox textBoxZoneName;
     private CheckBox checkBoxSaveZone;

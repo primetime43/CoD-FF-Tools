@@ -66,32 +66,50 @@ namespace Call_of_Duty_FastFile_Editor.IO
 
         /// <summary>
         /// Recompresses a zone file back to MW2 FastFile format.
-        /// Note: MW2 uses zlib-wrapped deflate, not raw deflate.
+        /// Preserves the original file's signed/unsigned status.
+        /// Xbox 360 signed files use IWffs100 streaming format.
         /// </summary>
         public override void Recompress(string ffFilePath, string zoneFilePath, FastFile openedFastFile)
         {
-            using var binaryReader = new BinaryReader(new FileStream(zoneFilePath, FileMode.Open, FileAccess.Read), Encoding.Default);
-            using var binaryWriter = new BinaryWriter(new FileStream(ffFilePath, FileMode.Create, FileAccess.Write), Encoding.Default);
-
-            // Write header and version value
-            binaryWriter.Write(HeaderBytes);
-            binaryWriter.Write(VersionBytes);
-
-            // MW2 needs a minimal extended header for the game to accept it
-            WriteMinimalExtendedHeader(binaryWriter);
-
-            int chunkSize = 65536;
-            while (binaryReader.BaseStream.Position < binaryReader.BaseStream.Length)
+            if (openedFastFile.IsSigned)
             {
-                byte[] chunk = binaryReader.ReadBytes(chunkSize);
-                byte[] compressedChunk = CompressMW2(chunk);
+                // Xbox 360 signed files use streaming format - use library method
+                // Build version bytes from original file's version
+                int originalVersion = openedFastFile.GameVersion;
+                byte[] versionBytes = new byte[4];
+                versionBytes[0] = (byte)((originalVersion >> 24) & 0xFF);
+                versionBytes[1] = (byte)((originalVersion >> 16) & 0xFF);
+                versionBytes[2] = (byte)((originalVersion >> 8) & 0xFF);
+                versionBytes[3] = (byte)(originalVersion & 0xFF);
 
-                int compressedLength = compressedChunk.Length;
-                byte[] lengthBytes = BitConverter.GetBytes(compressedLength);
-                Array.Reverse(lengthBytes);
-                binaryWriter.Write(lengthBytes, 2, 2);
+                FastFileProcessor.CompressXbox360Signed(zoneFilePath, ffFilePath, versionBytes, openedFastFile.FfFilePath);
+            }
+            else
+            {
+                // PS3/Xbox 360 unsigned: standard block format with extended header
+                using var binaryReader = new BinaryReader(new FileStream(zoneFilePath, FileMode.Open, FileAccess.Read), Encoding.Default);
+                using var binaryWriter = new BinaryWriter(new FileStream(ffFilePath, FileMode.Create, FileAccess.Write), Encoding.Default);
 
-                binaryWriter.Write(compressedChunk);
+                // Write header and version value
+                binaryWriter.Write(HeaderBytes);
+                binaryWriter.Write(VersionBytes);
+
+                // MW2 needs a minimal extended header for the game to accept it
+                WriteMinimalExtendedHeader(binaryWriter);
+
+                int chunkSize = 65536;
+                while (binaryReader.BaseStream.Position < binaryReader.BaseStream.Length)
+                {
+                    byte[] chunk = binaryReader.ReadBytes(chunkSize);
+                    byte[] compressedChunk = CompressMW2(chunk);
+
+                    int compressedLength = compressedChunk.Length;
+                    byte[] lengthBytes = BitConverter.GetBytes(compressedLength);
+                    Array.Reverse(lengthBytes);
+                    binaryWriter.Write(lengthBytes, 2, 2);
+
+                    binaryWriter.Write(compressedChunk);
+                }
             }
         }
 

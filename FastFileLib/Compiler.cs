@@ -9,14 +9,30 @@ namespace FastFileLib;
 public class Compiler
 {
     private readonly GameVersion _gameVersion;
+    private readonly string _platform;
     private readonly bool _xbox360Signed;
     private readonly string? _originalFfPath;
 
-    public Compiler(GameVersion gameVersion)
+    /// <summary>
+    /// Creates a compiler for standard (unsigned) format.
+    /// </summary>
+    /// <param name="gameVersion">Target game version</param>
+    /// <param name="platform">Target platform (PS3, Xbox360, PC, Wii)</param>
+    public Compiler(GameVersion gameVersion, string platform = "PS3")
     {
         _gameVersion = gameVersion;
+        _platform = platform;
         _xbox360Signed = false;
         _originalFfPath = null;
+    }
+
+    // Private constructor for Xbox 360 signed format
+    private Compiler(GameVersion gameVersion, string platform, bool xbox360Signed, string? originalFfPath)
+    {
+        _gameVersion = gameVersion;
+        _platform = platform;
+        _xbox360Signed = xbox360Signed;
+        _originalFfPath = originalFfPath;
     }
 
     /// <summary>
@@ -25,11 +41,10 @@ public class Compiler
     /// </summary>
     /// <param name="gameVersion">Target game version</param>
     /// <param name="originalFfPath">Path to original signed FF (to preserve hash table)</param>
-    public Compiler(GameVersion gameVersion, string originalFfPath)
+    /// <returns>A Compiler configured for Xbox 360 signed format</returns>
+    public static Compiler ForXbox360Signed(GameVersion gameVersion, string originalFfPath)
     {
-        _gameVersion = gameVersion;
-        _xbox360Signed = true;
-        _originalFfPath = originalFfPath;
+        return new Compiler(gameVersion, "Xbox360", true, originalFfPath);
     }
 
     /// <summary>
@@ -71,8 +86,8 @@ public class Compiler
         // Write signed header (IWff0100)
         fastFile.AddRange(FastFileConstants.SignedHeaderBytes);
 
-        // Write version (big-endian)
-        fastFile.AddRange(FastFileConstants.GetVersionBytes(_gameVersion));
+        // Write version (big-endian) - use Xbox360 platform version
+        fastFile.AddRange(FastFileInfo.GetVersionBytes(_gameVersion, "Xbox360"));
 
         // Write streaming header (IWffs100)
         fastFile.AddRange(FastFileConstants.StreamingHeaderBytes);
@@ -105,8 +120,8 @@ public class Compiler
         // Magic: "IWffu100" (8 bytes)
         header.AddRange(Encoding.ASCII.GetBytes(FastFileConstants.UnsignedHeader));
 
-        // Version (4 bytes, big-endian)
-        header.AddRange(FastFileConstants.GetVersionBytes(_gameVersion));
+        // Version (4 bytes, big-endian) - platform-specific
+        header.AddRange(FastFileInfo.GetVersionBytes(_gameVersion, _platform));
 
         return header.ToArray();
     }
