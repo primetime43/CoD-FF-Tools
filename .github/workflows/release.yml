@@ -103,6 +103,6 @@ jobs:
           ./publish/Call of Duty FastFile Editor.exe
           ./publish-compiler/FastFileCompilerGUI.exe
           ./publish-tool/FastFileToolGUI.exe
-          ./publish-converter/FastFileConverterGUI.exe
+          ./publish-converter/FastFileConverter.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
