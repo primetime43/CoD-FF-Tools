@@ -786,6 +786,117 @@ public static class FastFileProcessor
         return output.ToArray();
     }
 
+    #region MW2 Compression
+
+    /// <summary>
+    /// Compresses a zone file to MW2 FastFile format.
+    /// Based on ZoneTool research:
+    /// - PS3 uses block compression (64KB blocks with 2-byte length markers, full zlib)
+    /// - Xbox 360/PC uses single zlib stream compression (no block structure)
+    /// </summary>
+    /// <param name="inputPath">Path to the .zone file</param>
+    /// <param name="outputPath">Path to output the .ff file</param>
+    /// <param name="versionBytes">Version bytes (4 bytes, big-endian)</param>
+    /// <param name="isXbox360">True for Xbox 360, false for PS3</param>
+    /// <returns>Number of blocks compressed (1 for Xbox 360 single stream)</returns>
+    public static int CompressMW2(string inputPath, string outputPath, byte[] versionBytes, bool isXbox360)
+    {
+        using var br = new BinaryReader(new FileStream(inputPath, FileMode.Open, FileAccess.Read), Encoding.Default);
+        using var bw = new BinaryWriter(new FileStream(outputPath, FileMode.Create, FileAccess.Write), Encoding.Default);
+
+        // Write unsigned header (IWffu100)
+        bw.Write(FastFileConstants.UnsignedHeaderBytes);
+
+        // Write version bytes
+        bw.Write(versionBytes);
+
+        // Write MW2 extended header
+        WriteMW2ExtendedHeader(bw);
+
+        if (isXbox360)
+        {
+            // Xbox 360: Single zlib stream compression (no block structure)
+            // Based on ZoneTool: compress_zlib(false) = standard single stream
+            byte[] zoneData = br.ReadBytes((int)br.BaseStream.Length);
+            byte[] compressedData = CompressFullZlib(zoneData);
+            bw.Write(compressedData);
+            // No end marker for single stream format
+            return 1;
+        }
+        else
+        {
+            // PS3: Block-based compression with 2-byte length markers
+            // Based on ZoneTool: compress_zlib(true) = block mode for PS3
+            int blockCount = 0;
+            while (br.BaseStream.Position < br.BaseStream.Length)
+            {
+                byte[] chunk = br.ReadBytes(BlockSize);
+                byte[] compressedChunk = CompressBlockMW2(chunk);
+
+                int compressedLength = compressedChunk.Length;
+                // Write length as 2-byte big-endian
+                bw.Write((byte)(compressedLength >> 8));
+                bw.Write((byte)(compressedLength & 0xFF));
+
+                bw.Write(compressedChunk);
+                blockCount++;
+            }
+
+            // Write end marker for block format
+            bw.Write((byte)0x00);
+            bw.Write((byte)0x01);
+
+            return blockCount;
+        }
+    }
+
+    /// <summary>
+    /// Compresses a zone file to MW2 FastFile format using GameVersion enum.
+    /// </summary>
+    public static int CompressMW2(string inputPath, string outputPath, GameVersion gameVersion, string platform)
+    {
+        byte[] versionBytes = FastFileInfo.GetVersionBytes(gameVersion, platform);
+        bool isXbox360 = platform.ToUpperInvariant().Contains("XBOX") || platform == "360";
+        return CompressMW2(inputPath, outputPath, versionBytes, isXbox360);
+    }
+
+    /// <summary>
+    /// Compresses a single block for MW2 format.
+    /// MW2 uses full zlib format (0x78 header) instead of stripped deflate.
+    /// </summary>
+    public static byte[] CompressBlockMW2(byte[] uncompressedData)
+    {
+        using var output = new MemoryStream();
+        using (var zlib = new ZLibStream(output, CompressionLevel.Optimal))
+        {
+            zlib.Write(uncompressedData, 0, uncompressedData.Length);
+        }
+        return output.ToArray();
+    }
+
+    /// <summary>
+    /// Writes a minimal MW2 extended header.
+    /// </summary>
+    /// <param name="bw">BinaryWriter to write to</param>
+    public static void WriteMW2ExtendedHeader(BinaryWriter bw)
+    {
+        // MW2 extended header structure:
+        // allowOnlineUpdate (1 byte)
+        // fileCreationTime (8 bytes)
+        // region (4 bytes)
+        // entryCount (4 bytes, big-endian)
+        // entries (entryCount * 0x14 bytes) - none for minimal header
+        // fileSizes (8 bytes)
+
+        bw.Write((byte)0x00);    // allowOnlineUpdate = false
+        bw.Write(new byte[8]);   // fileCreationTime = 0
+        bw.Write(new byte[4]);   // region = 0
+        bw.Write(new byte[4]);   // entryCount = 0 (no entries)
+        bw.Write(new byte[8]);   // fileSizes = 0
+    }
+
+    #endregion
+
     /// <summary>
     /// Compresses a zone file to a FastFile with Xbox 360 signed format.
     /// Xbox 360 signed files use IWffs100 streaming format with a single zlib stream.

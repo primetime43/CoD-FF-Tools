@@ -66,51 +66,23 @@ namespace Call_of_Duty_FastFile_Editor.IO
 
         /// <summary>
         /// Recompresses a zone file back to MW2 FastFile format.
-        /// MW2 Xbox 360 uses XBlock format (different from CoD4/WaW IWffs100).
-        /// Since XEX is patched to skip RSA, we use unsigned block format for all platforms.
+        /// Uses FastFileLib.FastFileProcessor.CompressMW2 which handles platform differences:
+        /// - PS3 uses block compression (64KB blocks with 2-byte length markers)
+        /// - Xbox 360/PC uses single zlib stream compression (no block structure)
         /// </summary>
         public override void Recompress(string ffFilePath, string zoneFilePath, FastFile openedFastFile)
         {
-            // MW2 Xbox 360 signed files use XBlock format with RSA signatures.
-            // Unlike CoD4/WaW which use simple IWffs100 streaming, MW2 XBlocks are complex.
-            // Since XEX is patched, we save as unsigned block format which works on modded consoles.
-
-            using var binaryReader = new BinaryReader(new FileStream(zoneFilePath, FileMode.Open, FileAccess.Read), Encoding.Default);
-            using var binaryWriter = new BinaryWriter(new FileStream(ffFilePath, FileMode.Create, FileAccess.Write), Encoding.Default);
-
-            // Use unsigned header (IWffu100) - works with patched XEX
-            binaryWriter.Write(HeaderBytes);
-
-            // Use original version bytes to preserve platform compatibility
+            // Build version bytes from original file's version
             int originalVersion = openedFastFile.GameVersion;
             byte[] versionBytes = new byte[4];
             versionBytes[0] = (byte)((originalVersion >> 24) & 0xFF);
             versionBytes[1] = (byte)((originalVersion >> 16) & 0xFF);
             versionBytes[2] = (byte)((originalVersion >> 8) & 0xFF);
             versionBytes[3] = (byte)(originalVersion & 0xFF);
-            binaryWriter.Write(versionBytes);
 
-            // MW2 needs extended header
-            WriteMinimalExtendedHeader(binaryWriter);
-
-            // Standard 64KB block compression (same format as PS3)
-            int chunkSize = 65536;
-            while (binaryReader.BaseStream.Position < binaryReader.BaseStream.Length)
-            {
-                byte[] chunk = binaryReader.ReadBytes(chunkSize);
-                byte[] compressedChunk = CompressMW2(chunk);
-
-                int compressedLength = compressedChunk.Length;
-                byte[] lengthBytes = BitConverter.GetBytes(compressedLength);
-                Array.Reverse(lengthBytes);
-                binaryWriter.Write(lengthBytes, 2, 2);
-
-                binaryWriter.Write(compressedChunk);
-            }
-
-            // Write end marker
-            binaryWriter.Write((byte)0x00);
-            binaryWriter.Write((byte)0x01);
+            // Use library method which handles platform-specific compression
+            bool isXbox360 = openedFastFile.IsXbox360;
+            FastFileProcessor.CompressMW2(zoneFilePath, ffFilePath, versionBytes, isXbox360);
         }
 
         /// <summary>
@@ -143,30 +115,5 @@ namespace Call_of_Duty_FastFile_Editor.IO
             br.ReadBytes(8);         // fileSizes
         }
 
-        /// <summary>
-        /// Writes a minimal extended header for MW2.
-        /// </summary>
-        private void WriteMinimalExtendedHeader(BinaryWriter bw)
-        {
-            bw.Write((byte)0x00);    // allowOnlineUpdate = false
-            bw.Write(new byte[8]);   // fileCreationTime = 0
-            bw.Write(new byte[4]);   // region = 0
-            bw.Write(new byte[4]);   // entryCount = 0 (no entries)
-            bw.Write(new byte[8]);   // fileSizes = 0
-        }
-
-        /// <summary>
-        /// Compresses data using zlib-wrapped deflate for MW2.
-        /// MW2 uses zlib format (0x78 header) instead of raw deflate.
-        /// </summary>
-        private byte[] CompressMW2(byte[] uncompressedData)
-        {
-            using var output = new MemoryStream();
-            using (var zlib = new System.IO.Compression.ZLibStream(output, System.IO.Compression.CompressionLevel.Optimal))
-            {
-                zlib.Write(uncompressedData, 0, uncompressedData.Length);
-            }
-            return output.ToArray();
-        }
     }
 }
