@@ -8,24 +8,35 @@ Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives
 |------|-----|----------|-----|-----|
 | CoD4: Modern Warfare | Full | Full | Extract | Extract |
 | WaW: World at War | Full | Full | Extract | Extract |
-| MW2: Modern Warfare 2 | Full | Full | Extract | - |
+| MW2: Modern Warfare 2 | Full | Needs Tested | Extract | - |
 
 **Full** = decompress, edit assets, recompress
 **Extract** = decompress to zone only (no asset editing)
 
+## Asset Support
+
+| Support Level | Asset Types | What You Can Do |
+|---------------|-------------|-----------------|
+| ✅ **Full** | `rawfile`, `localize`, `weapon`, `menufile` | Parse, view, edit, and save changes |
+| 👁️ **View Only** | `stringtable`, `xanim`, `material`, `techset`, `image`, `col_map_sp`, `col_map_mp` | Parse and view content, but cannot edit |
+| 📋 **Detected** | All others (xmodel, sound, fx, etc.) | Shows in asset pool list, no parsing/editing |
+
+> **Note**: Full asset list per game available in [docs/SupportedFormats.md](docs/SupportedFormats.md)
+
+### What Each Level Means
+
+- **Full**: These assets can be fully modified. RawFiles include GSC scripts, vision files, configs, etc. Localize entries are the in-game text strings.
+- **View Only**: The editor can parse and display these, but saving changes isn't supported yet.
+- **Detected**: The editor recognizes these asset types and shows them in the asset pool, but cannot parse their internal structure.
+
 ## Tools
 
-### FastFile Editor
-Edit raw files (GSC scripts, configs, vision files, etc.), string tables, and localized strings inside existing FastFiles. View the full asset pool to see what's packed in a zone.
-
-### FastFile Compiler
-Build new FastFiles from scratch. Drop in your raw files and localized strings to create custom patch files.
-
-### FastFile Converter
-Convert FastFiles between platforms. Turn a PS3 FastFile into an Xbox 360 one, or vice versa.
-
-### FastFile Tool
-Simple extract/repack utility. Pull out the zone file or recompress a modified one.
+| Tool | Description |
+|------|-------------|
+| FastFile Editor | Edit raw files, localized strings, weapons, and menus inside existing FastFiles |
+| FastFile Compiler | Build new FastFiles from scratch using raw files and localized strings |
+| FastFile Converter | Convert FastFiles between platforms (PS3, Xbox 360) |
+| FastFile Tool | Simple extract/repack utility for zone files |
 
 ## Screenshots
 
