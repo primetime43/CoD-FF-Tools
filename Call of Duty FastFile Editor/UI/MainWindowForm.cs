@@ -4600,46 +4600,14 @@ namespace Call_of_Duty_FastFile_Editor
             }
         }
 
-        private async void COD5ToolStripMenuItem_Click(object sender, EventArgs e)
+        private async void openFastFileToolStripMenuItem_Click(object sender, EventArgs e)
         {
             if (_isLoading) return;
 
             using var openFileDialog = new OpenFileDialog
             {
-                Title = "Select a COD5 Fast File",
-                Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm"
-            };
-
-            if (openFileDialog.ShowDialog() != DialogResult.OK)
-                return;
-
-            await OpenFastFileAutoDetectAsync(openFileDialog.FileName);
-        }
-
-        private async void cOD4ToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (_isLoading) return;
-
-            using var openFileDialog = new OpenFileDialog
-            {
-                Title = "Select a COD4 Fast File",
-                Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm"
-            };
-
-            if (openFileDialog.ShowDialog() != DialogResult.OK)
-                return;
-
-            await OpenFastFileAutoDetectAsync(openFileDialog.FileName);
-        }
-
-        private async void mW2ToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (_isLoading) return;
-
-            using var openFileDialog = new OpenFileDialog
-            {
-                Title = "Select a MW2 Fast File",
-                Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm"
+                Title = "Select a FastFile (CoD4, WaW, or MW2)",
+                Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*"
             };
 
             if (openFileDialog.ShowDialog() != DialogResult.OK)

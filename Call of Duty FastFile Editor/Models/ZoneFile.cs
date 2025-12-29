@@ -79,14 +79,18 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public int TagSectionEndOffset { get; set; }
 
         /// <summary>
-        /// Gets header field offsets based on platform.
-        /// Xbox 360 has 6 block sizes, PS3 has 7, PC has 8.
+        /// Gets header field offsets based on platform and game.
+        /// Xbox 360 has 6 block sizes (for MW2 only), PS3 has 7, PC has 8.
         /// This affects where XAssetList fields are located.
+        /// Note: CoD4 and WaW use the same zone structure across all platforms (PS3-style 52-byte header).
+        /// Only MW2 Xbox 360 uses the smaller 48-byte header.
         /// </summary>
         private Dictionary<string, int> GetHeaderFieldOffsets()
         {
             bool isXbox360 = ParentFastFile?.IsXbox360 ?? false;
             bool isPC = ParentFastFile?.IsPC ?? false;
+            bool isCod4 = ParentFastFile?.IsCod4File ?? false;
+            bool isCod5 = ParentFastFile?.IsCod5File ?? false;
 
             var offsets = new Dictionary<string, int>
             {
@@ -102,10 +106,12 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 { "BlockSizeVertex", ZoneFileHeaderConstants.BlockSizeVertexOffset }
             };
 
-            // XAssetList structure - offsets depend on platform
-            if (isXbox360)
+            // XAssetList structure - offsets depend on platform and game
+            // CoD4 and WaW use the same zone structure across all platforms (no Xbox 360-specific offsets)
+            // Only MW2 Xbox 360 uses the smaller 48-byte header
+            if (isXbox360 && !isCod4 && !isCod5)
             {
-                // Xbox 360: 6 blocks = 32 bytes XFile header
+                // Xbox 360 (MW2 only): 6 blocks = 32 bytes XFile header
                 offsets["ScriptStringCount"] = ZoneFileHeaderConstants.Xbox360_ScriptStringCountOffset;
                 offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.Xbox360_ScriptStringsPtrOffset;
                 offsets["AssetCount"] = ZoneFileHeaderConstants.Xbox360_AssetCountOffset;
@@ -121,7 +127,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
             }
             else
             {
-                // PS3: 7 blocks = 36 bytes XFile header (default)
+                // PS3 and CoD4 (all platforms): 7 blocks = 36 bytes XFile header
                 offsets["ScriptStringCount"] = ZoneFileHeaderConstants.ScriptStringCountOffset;
                 offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.ScriptStringsPtrOffset;
                 offsets["AssetCount"] = ZoneFileHeaderConstants.AssetCountOffset;

@@ -410,17 +410,27 @@ public static class FastFileConverter
     {
         byte[] zoneData = File.ReadAllBytes(zonePath);
 
-        if (zoneData.Length < 0x34)
+        // Get proper header size for the game (CoD4 always uses PS3-style 52-byte header)
+        int minHeaderSize = gameVersion == GameVersion.CoD4
+            ? FastFileConstants.ZoneHeaderSize_PS3
+            : FastFileConstants.ZoneHeaderSize_Xbox360;
+
+        if (zoneData.Length < minHeaderSize)
             return 0; // Zone too small to have header
 
         // Get the correct memory allocation values for the target platform and game
         (uint blockSizeTemp, uint blockSizeVertex) = GetMemoryAllocationValues(gameVersion, targetPlatform);
 
         // Patch BlockSizeTemp at offset 0x08 (4 bytes, big-endian)
-        WriteUInt32BE(zoneData, 0x08, blockSizeTemp);
+        WriteUInt32BE(zoneData, FastFileConstants.BlockSizeTempOffset, blockSizeTemp);
 
         // Patch BlockSizeVertex at offset 0x20 (4 bytes, big-endian)
-        WriteUInt32BE(zoneData, 0x20, blockSizeVertex);
+        // Note: For CoD4 all platforms have this field. For WaW/MW2 Xbox 360, this offset is ScriptStringCount.
+        // Only write BlockSizeVertex for games/platforms that have it.
+        if (gameVersion == GameVersion.CoD4 || targetPlatform == Platform.PS3 || targetPlatform == Platform.PC)
+        {
+            WriteUInt32BE(zoneData, FastFileConstants.BlockSizeVertexOffset, blockSizeVertex);
+        }
 
         // Handle BlockSizeVirtual (0x14) and BlockSizeCallback (0x1C) swap
         uint blockSizeVirtual = ReadUInt32BE(zoneData, 0x14);
@@ -581,6 +591,7 @@ public static class FastFileConverter
     /// Xbox 360: techset=0x08, image=0x09, rawfile=0x21, stringtable=0x22
     /// PS3:      vertexshader=0x08, techset=0x09, image=0x0A, rawfile=0x22, stringtable=0x23
     /// Both platforms use [4-byte type][4-byte ptr] field order - NO swap needed.
+    /// Note: CoD4 uses PS3-style offsets on ALL platforms.
     /// </summary>
     private static void ConvertAssetTypeIDs(byte[] zoneData, Platform targetPlatform, GameVersion gameVersion)
     {
@@ -590,7 +601,10 @@ public static class FastFileConverter
             return;
         }
 
-        int assetCount = (int)ReadUInt32BE(zoneData, 0x2C);
+        // CoD4 uses PS3-style offsets on all platforms
+        // For WaW, we assume the source is PS3-style (most common case)
+        int assetCountOffset = FastFileConstants.GetAssetCountOffset(gameVersion, isXbox360: false, isPC: false);
+        int assetCount = (int)ReadUInt32BE(zoneData, assetCountOffset);
 
         if (assetCount <= 0 || assetCount > 10000)
             return; // Invalid asset count

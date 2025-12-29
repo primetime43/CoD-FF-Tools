@@ -16,9 +16,11 @@ public partial class MainForm : Form
         gameVersionComboBox.Items.AddRange(new object[]
         {
             "COD4 - PS3/Xbox 360 (Unsigned)",
+            "COD4 - Xbox 360 (Signed) - Requires original FF",
             "COD4 - PC",
             "COD4 - Wii",
-            "WAW - PS3/Xbox 360/PC",
+            "WAW - PS3/Xbox 360 (Unsigned)",
+            "WAW - Xbox 360 (Signed) - Requires original FF",
             "WAW - Wii",
             "MW2 - PS3/Xbox 360",
             "MW2 - PC"
@@ -26,18 +28,20 @@ public partial class MainForm : Form
         gameVersionComboBox.SelectedIndex = 0;
     }
 
-    private (GameVersion gameVersion, string platform) GetPackSettings()
+    private (GameVersion gameVersion, string platform, bool xbox360Signed) GetPackSettings()
     {
         return gameVersionComboBox.SelectedIndex switch
         {
-            0 => (GameVersion.CoD4, "PS3"),
-            1 => (GameVersion.CoD4, "PC"),
-            2 => (GameVersion.CoD4, "Wii"),
-            3 => (GameVersion.WaW, "PS3"),
-            4 => (GameVersion.WaW, "Wii"),
-            5 => (GameVersion.MW2, "PS3"),
-            6 => (GameVersion.MW2, "PC"),
-            _ => (GameVersion.CoD4, "PS3")
+            0 => (GameVersion.CoD4, "PS3", false),
+            1 => (GameVersion.CoD4, "Xbox360", true),  // Signed
+            2 => (GameVersion.CoD4, "PC", false),
+            3 => (GameVersion.CoD4, "Wii", false),
+            4 => (GameVersion.WaW, "PS3", false),
+            5 => (GameVersion.WaW, "Xbox360", true),   // Signed
+            6 => (GameVersion.WaW, "Wii", false),
+            7 => (GameVersion.MW2, "PS3", false),
+            8 => (GameVersion.MW2, "PC", false),
+            _ => (GameVersion.CoD4, "PS3", false)
         };
     }
 
@@ -154,18 +158,58 @@ public partial class MainForm : Form
             return;
         }
 
+        var (gameVersion, platform, xbox360Signed) = GetPackSettings();
+        string? originalFfPath = null;
+
+        // For Xbox 360 signed format, prompt for the original FF file
+        if (xbox360Signed)
+        {
+            using var ofd = new OpenFileDialog
+            {
+                Title = "Select Original Xbox 360 Signed FastFile (to preserve hash table)",
+                Filter = "FastFiles (*.ff)|*.ff|All Files (*.*)|*.*"
+            };
+
+            if (ofd.ShowDialog() != DialogResult.OK)
+            {
+                MessageBox.Show("Xbox 360 signed format requires the original FastFile to preserve the hash table.\n\n" +
+                    "Without it, the file won't work on Xbox 360.", "Original FF Required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            originalFfPath = ofd.FileName;
+
+            // Verify it's a signed file
+            var info = FastFileInfo.FromFile(originalFfPath);
+            if (!info.IsSigned)
+            {
+                MessageBox.Show("The selected file is not a signed Xbox 360 FastFile.\n\n" +
+                    "Please select a signed file (IWff0100 header) or use the unsigned format.",
+                    "Not Signed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+        }
+
         try
         {
             packButton.Enabled = false;
             statusLabel.Text = "Packing...";
             Application.DoEvents();
 
-            var (gameVersion, platform) = GetPackSettings();
-            Compress(packInputTextBox.Text, packOutputTextBox.Text, gameVersion, platform);
+            if (xbox360Signed && originalFfPath != null)
+            {
+                FastFileProcessor.CompressXbox360Signed(packInputTextBox.Text, packOutputTextBox.Text, gameVersion, originalFfPath);
+            }
+            else
+            {
+                Compress(packInputTextBox.Text, packOutputTextBox.Text, gameVersion, platform);
+            }
 
             var fi = new FileInfo(packOutputTextBox.Text);
             statusLabel.Text = $"Packed successfully! ({fi.Length:N0} bytes)";
-            MessageBox.Show($"FastFile created successfully!\n\nOutput: {packOutputTextBox.Text}\nSize: {fi.Length:N0} bytes",
+
+            string formatNote = xbox360Signed ? " (Xbox 360 Signed Format)" : "";
+            MessageBox.Show($"FastFile created successfully!{formatNote}\n\nOutput: {packOutputTextBox.Text}\nSize: {fi.Length:N0} bytes",
                 "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)

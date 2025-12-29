@@ -14,6 +14,9 @@ public partial class MainForm : Form
     {
         InitializeComponent();
         UpdateStatus("Ready - Add files to compile into a FastFile");
+
+        // Set initial tooltip for platform dropdown
+        comboBoxPlatform_SelectedIndexChanged(this, EventArgs.Empty);
     }
 
     #region Load Existing FastFile
@@ -504,6 +507,21 @@ public partial class MainForm : Form
             return;
         }
 
+        var (platform, isXbox360Signed) = GetSelectedPlatform();
+
+        // Xbox 360 Signed requires a loaded FF to copy hash table from
+        if (isXbox360Signed && _loadedFastFilePath == null)
+        {
+            MessageBox.Show(
+                "Xbox 360 Signed format requires loading an existing signed FastFile first.\n\n" +
+                "The hash table from the original file is needed for the signed format.\n\n" +
+                "Please load a signed FastFile using 'Load FF...' button, or select a different platform.",
+                "Original FF Required",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+            return;
+        }
+
         using var dialog = new SaveFileDialog
         {
             Title = "Save FastFile",
@@ -598,9 +616,35 @@ public partial class MainForm : Form
                 Invoke(() => UpdateStatus("Compressing..."));
                 Invoke(() => progressBar.Value = 70);
 
-                // Compile to FastFile
-                var compiler = new Compiler(gameVersion);
-                compiler.CompileToFile(zoneData, outputPath, saveZone);
+                // Save zone file first if requested
+                if (saveZone)
+                {
+                    string zonePath = Path.ChangeExtension(outputPath, ".zone");
+                    File.WriteAllBytes(zonePath, zoneData);
+                }
+
+                // Write zone to temp file for compression
+                string tempZonePath = Path.GetTempFileName();
+                File.WriteAllBytes(tempZonePath, zoneData);
+
+                try
+                {
+                    if (isXbox360Signed)
+                    {
+                        // Xbox 360 signed format - use streaming compression with hash table from original
+                        FastFileProcessor.CompressXbox360Signed(tempZonePath, outputPath, gameVersion, _loadedFastFilePath!);
+                    }
+                    else
+                    {
+                        // Standard format - use block compression with platform-specific version
+                        FastFileProcessor.Compress(tempZonePath, outputPath, gameVersion, platform);
+                    }
+                }
+                finally
+                {
+                    // Clean up temp file
+                    try { File.Delete(tempZonePath); } catch { }
+                }
 
                 Invoke(() => progressBar.Value = 100);
             });
@@ -638,6 +682,33 @@ public partial class MainForm : Form
         };
     }
 
+    private (string platform, bool isXbox360Signed) GetSelectedPlatform()
+    {
+        return comboBoxPlatform.SelectedIndex switch
+        {
+            0 => ("PS3", false),
+            1 => ("Xbox360", false),      // Xbox 360 Unsigned
+            2 => ("Xbox360", true),       // Xbox 360 Signed
+            3 => ("PC", false),
+            4 => ("Wii", false),
+            _ => ("PS3", false)
+        };
+    }
+
+    private void comboBoxPlatform_SelectedIndexChanged(object sender, EventArgs e)
+    {
+        string tooltipText = comboBoxPlatform.SelectedIndex switch
+        {
+            0 => "PlayStation 3 - Standard unsigned format",
+            1 => "Xbox 360 Unsigned - For unsigned/retail Xbox 360 files",
+            2 => "Xbox 360 Signed - Requires loading an existing signed FF first to preserve the hash table",
+            3 => "PC - Windows platform format",
+            4 => "Wii - Nintendo Wii platform format",
+            _ => ""
+        };
+        toolTip.SetToolTip(comboBoxPlatform, tooltipText);
+    }
+
     #endregion
 
     #region UI Helpers
@@ -664,6 +735,7 @@ public partial class MainForm : Form
         btnMoveDown.Enabled = enabled;
         btnCompile.Enabled = enabled;
         comboBoxGame.Enabled = enabled;
+        comboBoxPlatform.Enabled = enabled;
         textBoxZoneName.Enabled = enabled;
         checkBoxSaveZone.Enabled = enabled;
         fileListView.Enabled = enabled;
@@ -685,12 +757,17 @@ public partial class MainForm : Form
     {
         MessageBox.Show(
             "FastFile Compiler GUI\n\n" +
-            "A tool for creating PS3 Call of Duty FastFiles (.ff)\n" +
+            "A tool for creating Call of Duty FastFiles (.ff)\n" +
             "from raw game files.\n\n" +
-            "Supports:\n" +
+            "Supported Games:\n" +
             "- Call of Duty 4: Modern Warfare\n" +
             "- Call of Duty: World at War\n" +
-            "- Call of Duty: Modern Warfare 2",
+            "- Call of Duty: Modern Warfare 2\n\n" +
+            "Supported Platforms:\n" +
+            "- PS3\n" +
+            "- Xbox 360 (Unsigned & Signed)\n" +
+            "- PC\n" +
+            "- Wii",
             "About",
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);

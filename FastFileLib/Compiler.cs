@@ -9,10 +9,42 @@ namespace FastFileLib;
 public class Compiler
 {
     private readonly GameVersion _gameVersion;
+    private readonly string _platform;
+    private readonly bool _xbox360Signed;
+    private readonly string? _originalFfPath;
 
-    public Compiler(GameVersion gameVersion)
+    /// <summary>
+    /// Creates a compiler for standard (unsigned) format.
+    /// </summary>
+    /// <param name="gameVersion">Target game version</param>
+    /// <param name="platform">Target platform (PS3, Xbox360, PC, Wii)</param>
+    public Compiler(GameVersion gameVersion, string platform = "PS3")
     {
         _gameVersion = gameVersion;
+        _platform = platform;
+        _xbox360Signed = false;
+        _originalFfPath = null;
+    }
+
+    // Private constructor for Xbox 360 signed format
+    private Compiler(GameVersion gameVersion, string platform, bool xbox360Signed, string? originalFfPath)
+    {
+        _gameVersion = gameVersion;
+        _platform = platform;
+        _xbox360Signed = xbox360Signed;
+        _originalFfPath = originalFfPath;
+    }
+
+    /// <summary>
+    /// Creates a compiler for Xbox 360 signed format.
+    /// Requires an original signed FF file to copy the hash table from.
+    /// </summary>
+    /// <param name="gameVersion">Target game version</param>
+    /// <param name="originalFfPath">Path to original signed FF (to preserve hash table)</param>
+    /// <returns>A Compiler configured for Xbox 360 signed format</returns>
+    public static Compiler ForXbox360Signed(GameVersion gameVersion, string originalFfPath)
+    {
+        return new Compiler(gameVersion, "Xbox360", true, originalFfPath);
     }
 
     /// <summary>
@@ -22,6 +54,11 @@ public class Compiler
     /// <returns>The complete FastFile bytes ready to be written to disk.</returns>
     public byte[] Compile(byte[] zoneData)
     {
+        if (_xbox360Signed)
+        {
+            return CompileXbox360Signed(zoneData);
+        }
+
         var fastFile = new List<byte>();
 
         // Build FastFile header (12 bytes for CoD4/WaW)
@@ -39,6 +76,41 @@ public class Compiler
     }
 
     /// <summary>
+    /// Compiles zone data into Xbox 360 signed format.
+    /// Preserves the hash table from the original file.
+    /// </summary>
+    private byte[] CompileXbox360Signed(byte[] zoneData)
+    {
+        var fastFile = new List<byte>();
+
+        // Write signed header (IWff0100)
+        fastFile.AddRange(FastFileConstants.SignedHeaderBytes);
+
+        // Write version (big-endian) - use Xbox360 platform version
+        fastFile.AddRange(FastFileInfo.GetVersionBytes(_gameVersion, "Xbox360"));
+
+        // Write streaming header (IWffs100)
+        fastFile.AddRange(FastFileConstants.StreamingHeaderBytes);
+
+        // Read and write hash table from original file (or zeros if not available)
+        byte[] hashTableAndAuth = new byte[FastFileConstants.Xbox360SignedHashTableSize];
+        if (!string.IsNullOrEmpty(_originalFfPath) && File.Exists(_originalFfPath))
+        {
+            using var origReader = new BinaryReader(File.OpenRead(_originalFfPath));
+            origReader.BaseStream.Seek(FastFileConstants.Xbox360SignedHashTableStart, SeekOrigin.Begin);
+            origReader.Read(hashTableAndAuth, 0, hashTableAndAuth.Length);
+        }
+        fastFile.AddRange(hashTableAndAuth);
+
+        // Compress entire zone as single zlib stream
+        byte[] compressedData = FastFileProcessor.CompressFullZlib(zoneData);
+        fastFile.AddRange(compressedData);
+
+        // No end marker for signed format
+        return fastFile.ToArray();
+    }
+
+    /// <summary>
     /// Builds the FastFile header.
     /// </summary>
     private byte[] BuildFastFileHeader()
@@ -48,8 +120,8 @@ public class Compiler
         // Magic: "IWffu100" (8 bytes)
         header.AddRange(Encoding.ASCII.GetBytes(FastFileConstants.UnsignedHeader));
 
-        // Version (4 bytes, big-endian)
-        header.AddRange(FastFileConstants.GetVersionBytes(_gameVersion));
+        // Version (4 bytes, big-endian) - platform-specific
+        header.AddRange(FastFileInfo.GetVersionBytes(_gameVersion, _platform));
 
         return header.ToArray();
     }

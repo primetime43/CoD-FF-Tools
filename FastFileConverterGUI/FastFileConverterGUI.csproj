@@ -8,6 +8,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>FastFileConverter</AssemblyName>
     <RootNamespace>FastFileConverterGUI</RootNamespace>
+    <Version>3.1.0</Version>
+    <AssemblyVersion>3.1.0</AssemblyVersion>
+    <FileVersion>3.1.0</FileVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
