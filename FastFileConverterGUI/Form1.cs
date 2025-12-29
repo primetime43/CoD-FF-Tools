@@ -30,7 +30,7 @@ public partial class Form1 : Form
 
     private void SetupUI()
     {
-        this.Text = "FastFile Platform Converter";
+        this.Text = "FastFile Platform Converter v3.1.0";
         this.Size = new Size(700, 600);
         this.MinimumSize = new Size(600, 500);
         this.StartPosition = FormStartPosition.CenterScreen;

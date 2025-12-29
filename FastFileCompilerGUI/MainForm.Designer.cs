@@ -489,7 +489,7 @@ partial class MainForm
         this.MinimumSize = new Size(850, 500);
         this.Name = "MainForm";
         this.StartPosition = FormStartPosition.CenterScreen;
-        this.Text = "FastFile Compiler - Call of Duty";
+        this.Text = "FastFile Compiler v3.1.0 - Call of Duty";
 
         this.mainTableLayout.ResumeLayout(false);
         this.topPanel.ResumeLayout(false);

@@ -350,7 +350,7 @@ partial class MainForm
         MinimumSize = new Size(550, 400);
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "FastFile Tool";
+        Text = "FastFile Tool v3.1.0";
         DragDrop += MainForm_DragDrop;
         DragEnter += MainForm_DragEnter;
         tabControl.ResumeLayout(false);
