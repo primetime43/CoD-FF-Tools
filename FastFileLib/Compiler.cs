@@ -9,10 +9,27 @@ namespace FastFileLib;
 public class Compiler
 {
     private readonly GameVersion _gameVersion;
+    private readonly bool _xbox360Signed;
+    private readonly string? _originalFfPath;
 
     public Compiler(GameVersion gameVersion)
     {
         _gameVersion = gameVersion;
+        _xbox360Signed = false;
+        _originalFfPath = null;
+    }
+
+    /// <summary>
+    /// Creates a compiler for Xbox 360 signed format.
+    /// Requires an original signed FF file to copy the hash table from.
+    /// </summary>
+    /// <param name="gameVersion">Target game version</param>
+    /// <param name="originalFfPath">Path to original signed FF (to preserve hash table)</param>
+    public Compiler(GameVersion gameVersion, string originalFfPath)
+    {
+        _gameVersion = gameVersion;
+        _xbox360Signed = true;
+        _originalFfPath = originalFfPath;
     }
 
     /// <summary>
@@ -22,6 +39,11 @@ public class Compiler
     /// <returns>The complete FastFile bytes ready to be written to disk.</returns>
     public byte[] Compile(byte[] zoneData)
     {
+        if (_xbox360Signed)
+        {
+            return CompileXbox360Signed(zoneData);
+        }
+
         var fastFile = new List<byte>();
 
         // Build FastFile header (12 bytes for CoD4/WaW)
@@ -35,6 +57,41 @@ public class Compiler
         // End marker: 00 01
         fastFile.AddRange(new byte[] { 0x00, 0x01 });
 
+        return fastFile.ToArray();
+    }
+
+    /// <summary>
+    /// Compiles zone data into Xbox 360 signed format.
+    /// Preserves the hash table from the original file.
+    /// </summary>
+    private byte[] CompileXbox360Signed(byte[] zoneData)
+    {
+        var fastFile = new List<byte>();
+
+        // Write signed header (IWff0100)
+        fastFile.AddRange(FastFileConstants.SignedHeaderBytes);
+
+        // Write version (big-endian)
+        fastFile.AddRange(FastFileConstants.GetVersionBytes(_gameVersion));
+
+        // Write streaming header (IWffs100)
+        fastFile.AddRange(FastFileConstants.StreamingHeaderBytes);
+
+        // Read and write hash table from original file (or zeros if not available)
+        byte[] hashTableAndAuth = new byte[FastFileConstants.Xbox360SignedHashTableSize];
+        if (!string.IsNullOrEmpty(_originalFfPath) && File.Exists(_originalFfPath))
+        {
+            using var origReader = new BinaryReader(File.OpenRead(_originalFfPath));
+            origReader.BaseStream.Seek(FastFileConstants.Xbox360SignedHashTableStart, SeekOrigin.Begin);
+            origReader.Read(hashTableAndAuth, 0, hashTableAndAuth.Length);
+        }
+        fastFile.AddRange(hashTableAndAuth);
+
+        // Compress entire zone as single zlib stream
+        byte[] compressedData = FastFileProcessor.CompressFullZlib(zoneData);
+        fastFile.AddRange(compressedData);
+
+        // No end marker for signed format
         return fastFile.ToArray();
     }
 

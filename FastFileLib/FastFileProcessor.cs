@@ -768,4 +768,124 @@ public static class FastFileProcessor
 
         return zlibData;
     }
+
+    /// <summary>
+    /// Compresses data using full zlib format (with 78 DA header - best compression).
+    /// Xbox 360 signed files use this format as a single continuous stream.
+    /// </summary>
+    /// <param name="uncompressedData">The data to compress</param>
+    /// <returns>Full zlib stream including header and checksum</returns>
+    public static byte[] CompressFullZlib(byte[] uncompressedData)
+    {
+        using var output = new MemoryStream();
+        // Use SmallestSize to get 78 DA header (best compression) like original files
+        using (var zlib = new ZLibStream(output, CompressionLevel.SmallestSize))
+        {
+            zlib.Write(uncompressedData, 0, uncompressedData.Length);
+        }
+        return output.ToArray();
+    }
+
+    /// <summary>
+    /// Compresses a zone file to a FastFile with Xbox 360 signed format.
+    /// Xbox 360 signed files use IWffs100 streaming format with a single zlib stream.
+    /// </summary>
+    /// <param name="inputPath">Path to the .zone file</param>
+    /// <param name="outputPath">Path to output the .ff file</param>
+    /// <param name="gameVersion">Target game version</param>
+    /// <param name="originalFfPath">Path to original FF file (to preserve hash table)</param>
+    /// <returns>1 (single stream compressed)</returns>
+    public static int CompressXbox360Signed(string inputPath, string outputPath, GameVersion gameVersion, string originalFfPath)
+    {
+        // Read hash table from original file before opening output
+        byte[] hashTableAndAuth = null;
+        if (!string.IsNullOrEmpty(originalFfPath) && File.Exists(originalFfPath))
+        {
+            hashTableAndAuth = new byte[FastFileConstants.Xbox360SignedHashTableSize];
+            using var origReader = new BinaryReader(File.OpenRead(originalFfPath));
+            origReader.BaseStream.Seek(FastFileConstants.Xbox360SignedHashTableStart, SeekOrigin.Begin);
+            origReader.Read(hashTableAndAuth, 0, hashTableAndAuth.Length);
+        }
+
+        using var br = new BinaryReader(new FileStream(inputPath, FileMode.Open, FileAccess.Read), Encoding.Default);
+        using var bw = new BinaryWriter(new FileStream(outputPath, FileMode.Create, FileAccess.Write), Encoding.Default);
+
+        // Write signed header (IWff0100)
+        bw.Write(FastFileConstants.SignedHeaderBytes);
+
+        // Write version (big-endian)
+        bw.Write(FastFileInfo.GetVersionBytes(gameVersion, "Xbox360"));
+
+        // Write streaming header (IWffs100)
+        bw.Write(FastFileConstants.StreamingHeaderBytes);
+
+        // Write hash table and auth data (preserved from original or zeros)
+        if (hashTableAndAuth != null)
+        {
+            bw.Write(hashTableAndAuth);
+        }
+        else
+        {
+            bw.Write(new byte[FastFileConstants.Xbox360SignedHashTableSize]);
+        }
+
+        // Read entire zone file and compress as single stream
+        byte[] zoneData = br.ReadBytes((int)br.BaseStream.Length);
+        byte[] compressedData = CompressFullZlib(zoneData);
+        bw.Write(compressedData);
+
+        // No end marker for signed format
+        return 1;
+    }
+
+    /// <summary>
+    /// Compresses a zone file to a FastFile with Xbox 360 signed format using provided version bytes.
+    /// </summary>
+    /// <param name="inputPath">Path to the .zone file</param>
+    /// <param name="outputPath">Path to output the .ff file</param>
+    /// <param name="versionBytes">Version bytes (4 bytes, big-endian)</param>
+    /// <param name="originalFfPath">Path to original FF file (to preserve hash table)</param>
+    /// <returns>1 (single stream compressed)</returns>
+    public static int CompressXbox360Signed(string inputPath, string outputPath, byte[] versionBytes, string originalFfPath)
+    {
+        // Read hash table from original file before opening output
+        byte[] hashTableAndAuth = null;
+        if (!string.IsNullOrEmpty(originalFfPath) && File.Exists(originalFfPath))
+        {
+            hashTableAndAuth = new byte[FastFileConstants.Xbox360SignedHashTableSize];
+            using var origReader = new BinaryReader(File.OpenRead(originalFfPath));
+            origReader.BaseStream.Seek(FastFileConstants.Xbox360SignedHashTableStart, SeekOrigin.Begin);
+            origReader.Read(hashTableAndAuth, 0, hashTableAndAuth.Length);
+        }
+
+        using var br = new BinaryReader(new FileStream(inputPath, FileMode.Open, FileAccess.Read), Encoding.Default);
+        using var bw = new BinaryWriter(new FileStream(outputPath, FileMode.Create, FileAccess.Write), Encoding.Default);
+
+        // Write signed header (IWff0100)
+        bw.Write(FastFileConstants.SignedHeaderBytes);
+
+        // Write version bytes
+        bw.Write(versionBytes);
+
+        // Write streaming header (IWffs100)
+        bw.Write(FastFileConstants.StreamingHeaderBytes);
+
+        // Write hash table and auth data (preserved from original or zeros)
+        if (hashTableAndAuth != null)
+        {
+            bw.Write(hashTableAndAuth);
+        }
+        else
+        {
+            bw.Write(new byte[FastFileConstants.Xbox360SignedHashTableSize]);
+        }
+
+        // Read entire zone file and compress as single stream
+        byte[] zoneData = br.ReadBytes((int)br.BaseStream.Length);
+        byte[] compressedData = CompressFullZlib(zoneData);
+        bw.Write(compressedData);
+
+        // No end marker for signed format
+        return 1;
+    }
 }

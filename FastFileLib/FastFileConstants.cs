@@ -95,6 +95,17 @@ public static class FastFileConstants
     public static readonly byte[] UnsignedHeaderBytes = System.Text.Encoding.ASCII.GetBytes(UnsignedHeader);
     public static readonly byte[] SignedHeaderBytes = System.Text.Encoding.ASCII.GetBytes(SignedHeader);
 
+    // Xbox 360 signed streaming format constants
+    public const string StreamingHeader = "IWffs100";
+    public static readonly byte[] StreamingHeaderBytes = System.Text.Encoding.ASCII.GetBytes(StreamingHeader);
+
+    // Xbox 360 signed format offsets
+    public const int Xbox360SignedHashTableStart = 0x14;      // Hash table starts after streaming header
+    public const int Xbox360SignedHashTableEnd = 0x4000;      // Hash table ends here
+    public const int Xbox360SignedAuthDataEnd = 0x400C;       // 12 bytes auth data after hash table
+    public const int Xbox360SignedZlibStart = 0x400C;         // Zlib stream starts here
+    public const int Xbox360SignedHashTableSize = Xbox360SignedAuthDataEnd - Xbox360SignedHashTableStart; // 16376 bytes
+
     // Header structure offsets and sizes
     public const int HeaderSize = 12;      // 8 bytes magic + 4 bytes version
     public const int MagicLength = 8;      // Magic string length
