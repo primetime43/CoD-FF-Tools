@@ -33,9 +33,6 @@ namespace Call_of_Duty_FastFile_Editor
             openFastFileToolStripMenuItem = new ToolStripMenuItem();
             openZoneFileToolStripMenuItem = new ToolStripMenuItem();
             openFromFolderToolStripMenuItem = new ToolStripMenuItem();
-            COD5ToolStripMenuItem = new ToolStripMenuItem();
-            cOD4ToolStripMenuItem = new ToolStripMenuItem();
-            mW2ToolStripMenuItem = new ToolStripMenuItem();
             saveFastFileToolStripMenuItem = new ToolStripMenuItem();
             saveFastFileAsToolStripMenuItem = new ToolStripMenuItem();
             toolStripMenuItem1 = new ToolStripMenuItem();
@@ -228,13 +225,15 @@ namespace Call_of_Duty_FastFile_Editor
             fileToolStripMenuItem.Name = "fileToolStripMenuItem";
             fileToolStripMenuItem.Size = new Size(44, 24);
             fileToolStripMenuItem.Text = "File";
-            // 
+            //
             // openFastFileToolStripMenuItem
-            // 
-            openFastFileToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { COD5ToolStripMenuItem, cOD4ToolStripMenuItem, mW2ToolStripMenuItem });
+            //
             openFastFileToolStripMenuItem.Name = "openFastFileToolStripMenuItem";
+            openFastFileToolStripMenuItem.ShortcutKeys = Keys.Control | Keys.O;
             openFastFileToolStripMenuItem.Size = new Size(286, 24);
-            openFastFileToolStripMenuItem.Text = "Open Fast File";
+            openFastFileToolStripMenuItem.Text = "Open FastFile...";
+            openFastFileToolStripMenuItem.ToolTipText = "Open a FastFile (game is auto-detected)";
+            openFastFileToolStripMenuItem.Click += openFastFileToolStripMenuItem_Click;
             //
             // openZoneFileToolStripMenuItem
             //
@@ -251,27 +250,6 @@ namespace Call_of_Duty_FastFile_Editor
             openFromFolderToolStripMenuItem.Text = "Open from Folder...";
             openFromFolderToolStripMenuItem.ToolTipText = "Browse a folder and select a FastFile to open";
             openFromFolderToolStripMenuItem.Click += openFromFolderToolStripMenuItem_Click;
-            //
-            // COD5ToolStripMenuItem
-            // 
-            COD5ToolStripMenuItem.Name = "COD5ToolStripMenuItem";
-            COD5ToolStripMenuItem.Size = new Size(117, 24);
-            COD5ToolStripMenuItem.Text = "COD5";
-            COD5ToolStripMenuItem.Click += COD5ToolStripMenuItem_Click;
-            // 
-            // cOD4ToolStripMenuItem
-            //
-            cOD4ToolStripMenuItem.Name = "cOD4ToolStripMenuItem";
-            cOD4ToolStripMenuItem.Size = new Size(117, 24);
-            cOD4ToolStripMenuItem.Text = "COD4";
-            cOD4ToolStripMenuItem.Click += cOD4ToolStripMenuItem_Click;
-            //
-            // mW2ToolStripMenuItem
-            //
-            mW2ToolStripMenuItem.Name = "mW2ToolStripMenuItem";
-            mW2ToolStripMenuItem.Size = new Size(117, 24);
-            mW2ToolStripMenuItem.Text = "MW2";
-            mW2ToolStripMenuItem.Click += mW2ToolStripMenuItem_Click;
             //
             // saveFastFileToolStripMenuItem
             //
@@ -1185,9 +1163,6 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem deleteRawFileToolStripMenuItem;
         private ToolStripMenuItem aboutToolStripMenuItem;
         private ToolStripMenuItem CheckForUpdatesToolStripMenuItem;
-        private ToolStripMenuItem COD5ToolStripMenuItem;
-        private ToolStripMenuItem cOD4ToolStripMenuItem;
-        private ToolStripMenuItem mW2ToolStripMenuItem;
         private ToolStripMenuItem reloadRawFilesPatternMatchingToolStripMenuItem;
         private ToolStripMenuItem reportIssuesToolStripMenuItem;
         private ToolStripSeparator toolStripSeparator2;
