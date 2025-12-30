@@ -17,9 +17,9 @@ Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives
 
 | Support Level | Asset Types | What You Can Do |
 |---------------|-------------|-----------------|
-| ✅ **Full** | `rawfile`, `localize`, `weapon`, `menufile` | Parse, view, edit, and save changes |
-| 👁️ **View Only** | `stringtable`, `xanim`, `material`, `techset`, `image`, `col_map_sp`, `col_map_mp` | Parse and view content, but cannot edit |
-| 📋 **Detected** | All others (xmodel, sound, fx, etc.) | Shows in asset pool list, no parsing/editing |
+| **Full** | `rawfile`, `localize`, `weapon`, `menufile` | Parse, view, edit, and save changes |
+| **View Only** | `stringtable`, `xanim`, `material`, `techset`, `image`, `col_map_sp`, `col_map_mp` | Parse and view content, but cannot edit |
+| **Detected** | All others (xmodel, sound, fx, etc.) | Shows in asset pool list, no parsing/editing |
 
 > **Note**: Full asset list per game available in [docs/SupportedFormats.md](docs/SupportedFormats.md)
 
