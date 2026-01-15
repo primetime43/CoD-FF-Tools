@@ -427,21 +427,49 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
         /// <summary>
         /// Gets the FastFileLib.GameVersion based on the currently opened FastFile.
+        /// Uses centralized detection from FastFileLib for consistency across all tools.
         /// </summary>
+        /// <exception cref="InvalidOperationException">Thrown when no zone is loaded or game version cannot be detected.</exception>
         private static GameVersion GetGameVersionFromZone()
         {
-            // Get the game version from the current zone's associated FastFile
             var zone = RawFileNode.CurrentZone;
             if (zone == null)
-                return GameVersion.WaW; // Default to WaW
+                throw new InvalidOperationException("No zone file is currently loaded. Cannot determine game version.");
 
-            // Read version from zone header - check BlockSizeLarge pattern or use header info
-            // For now, determine based on common patterns
-            // CoD4: version 0x5 (5), WaW: version 0x183 (387), MW2: version 0x114 (276)
+            // Primary detection: Use FastFileLib's centralized zone detection
+            // This reads MemAlloc1 values from the zone header which is the most reliable method
+            if (zone.Data != null && zone.Data.Length >= 12)
+            {
+                var detected = FastFileInfo.DetectGameFromZoneData(zone.Data);
+                if (detected != GameVersion.Unknown)
+                    return detected;
+            }
 
-            // Since we don't have direct access to the FF header here, default to WaW
-            // The ZonePatcher pattern matching works the same for CoD4/WaW
-            return GameVersion.WaW;
+            // Fallback: Try detecting from zone file path
+            if (!string.IsNullOrEmpty(zone.FilePath) && File.Exists(zone.FilePath))
+            {
+                var detected = FastFileInfo.DetectGameFromZone(zone.FilePath);
+                if (detected != GameVersion.Unknown)
+                    return detected;
+            }
+
+            // Final fallback: Use parent FastFile header info
+            var parentFastFile = zone.ParentFastFile;
+            if (parentFastFile != null)
+            {
+                if (parentFastFile.IsMW2File)
+                    return GameVersion.MW2;
+                if (parentFastFile.IsCod4File)
+                    return GameVersion.CoD4;
+                if (parentFastFile.IsCod5File)
+                    return GameVersion.WaW;
+            }
+
+            // If we reach here, detection completely failed - this is a critical error
+            throw new InvalidOperationException(
+                "Unable to detect game version from the zone file. " +
+                "The zone header may be corrupted or the file format is not recognized. " +
+                "Expected MemAlloc1 values: CoD4=0x0F70, WaW=0x10B0, MW2=0x03B4");
         }
 
         /// <inheritdoc/>
