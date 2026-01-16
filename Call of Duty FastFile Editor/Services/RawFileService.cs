@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.IO.Compression;
+using System.Text;
 using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.UI;
 using Call_of_Duty_FastFile_Editor.Services.IO;
@@ -644,6 +645,89 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// <inheritdoc/>
         public void UpdateFileContent(string zoneFilePath, RawFileNode rawFileNode, byte[] newContent)
         {
+            // DEBUG: Show current state
+            System.Diagnostics.Debug.WriteLine($"[UpdateFileContent] IsCompressed={rawFileNode.IsCompressed}, HeaderSize={rawFileNode.HeaderSize}, StartOfFileHeader=0x{rawFileNode.StartOfFileHeader:X}");
+
+            // Handle internally compressed raw files (MW2 PS3 format)
+            if (rawFileNode.IsCompressed)
+            {
+                System.Diagnostics.Debug.WriteLine("[UpdateFileContent] Using compressed update (IsCompressed=true)");
+                UpdateCompressedFileContent(zoneFilePath, rawFileNode, newContent);
+                return;
+            }
+
+            // Fallback: Check if this is MW2 16-byte header format with internal compression
+            // This handles cases where the file was parsed before compression detection was added
+            // MW2 16-byte header: [FF FF FF FF] [compressedLen BE] [len BE] [FF FF FF FF] [name\0] [data]
+            // NOTE: Pattern matching may set StartOfFileHeader 4 bytes too far (at compressedLen instead of first marker)
+            if (RawFileNode.CurrentZone?.Data != null)
+            {
+                byte[] zoneData = RawFileNode.CurrentZone.Data;
+                int headerOffset = rawFileNode.StartOfFileHeader;
+
+                // Try both the current offset and 4 bytes back (pattern matching bug for 16-byte headers)
+                int[] offsetsToTry = { headerOffset, headerOffset - 4 };
+
+                foreach (int tryOffset in offsetsToTry)
+                {
+                    if (tryOffset < 0 || tryOffset + 16 > zoneData.Length)
+                        continue;
+
+                    // Check first marker
+                    bool hasFirstMarker = zoneData[tryOffset] == 0xFF && zoneData[tryOffset + 1] == 0xFF &&
+                                          zoneData[tryOffset + 2] == 0xFF && zoneData[tryOffset + 3] == 0xFF;
+                    // Check second marker at offset +12 (16-byte header)
+                    bool hasSecondMarkerAt12 = zoneData[tryOffset + 12] == 0xFF && zoneData[tryOffset + 13] == 0xFF &&
+                                               zoneData[tryOffset + 14] == 0xFF && zoneData[tryOffset + 15] == 0xFF;
+
+                    System.Diagnostics.Debug.WriteLine($"[Fallback] tryOffset=0x{tryOffset:X}, hasFirstMarker={hasFirstMarker}, hasSecondMarkerAt12={hasSecondMarkerAt12}");
+
+                    if (hasFirstMarker && hasSecondMarkerAt12)
+                    {
+                        // This is 16-byte header format - read compressedLen and len
+                        int compressedLen = (zoneData[tryOffset + 4] << 24) |
+                                           (zoneData[tryOffset + 5] << 16) |
+                                           (zoneData[tryOffset + 6] << 8) |
+                                           zoneData[tryOffset + 7];
+                        int len = (zoneData[tryOffset + 8] << 24) |
+                                 (zoneData[tryOffset + 9] << 16) |
+                                 (zoneData[tryOffset + 10] << 8) |
+                                 zoneData[tryOffset + 11];
+
+                        // If compressedLen > 0 and differs from len, file is compressed
+                        if (compressedLen > 0 && compressedLen < 10_000_000 && compressedLen != len)
+                        {
+                            // Calculate data position: header(16) + filename + null
+                            int filenameStart = tryOffset + 16;
+                            int filenameEnd = filenameStart;
+                            while (filenameEnd < zoneData.Length && zoneData[filenameEnd] != 0) filenameEnd++;
+                            int dataOffset = filenameEnd + 1;
+
+                            // Verify data starts with zlib header
+                            System.Diagnostics.Debug.WriteLine($"[Fallback] dataOffset=0x{dataOffset:X}, firstBytes=0x{zoneData[dataOffset]:X2} 0x{zoneData[dataOffset+1]:X2}");
+                            if (dataOffset + 2 <= zoneData.Length &&
+                                zoneData[dataOffset] == 0x78 &&
+                                (zoneData[dataOffset + 1] == 0x01 || zoneData[dataOffset + 1] == 0x5E ||
+                                 zoneData[dataOffset + 1] == 0x9C || zoneData[dataOffset + 1] == 0xDA))
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[Fallback] DETECTED COMPRESSION! Using compressed update.");
+                                // Fix the header offset and set compression properties
+                                rawFileNode.StartOfFileHeader = tryOffset;
+                                rawFileNode.IsCompressed = true;
+                                rawFileNode.CompressedSize = compressedLen;
+                                rawFileNode.HeaderSize = 16;
+                                rawFileNode.MaxSize = len;
+                                // Set CodeStartPosition for 16-byte header
+                                rawFileNode.CodeStartPosition = dataOffset;
+                                UpdateCompressedFileContent(zoneFilePath, rawFileNode, newContent);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
+            System.Diagnostics.Debug.WriteLine("[UpdateFileContent] Using UNCOMPRESSED update (no compression detected)");
             if (newContent.Length > rawFileNode.MaxSize)
             {
                 throw new ArgumentException(
@@ -675,6 +759,89 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     ioEx
                 );
             }
+        }
+
+        /// <summary>
+        /// Updates the content of an internally compressed raw file (MW2 format).
+        /// Re-compresses the data and updates the header fields accordingly.
+        /// </summary>
+        private void UpdateCompressedFileContent(string zoneFilePath, RawFileNode rawFileNode, byte[] newContent)
+        {
+            // Compress the new content using zlib
+            byte[] compressedContent = CompressZlib(newContent);
+
+            // Check if compressed content fits in the original slot
+            if (compressedContent.Length > rawFileNode.CompressedSize)
+            {
+                throw new ArgumentException(
+                    $"Compressed content size ({compressedContent.Length} bytes) exceeds the original compressed slot size ({rawFileNode.CompressedSize} bytes) for file '{rawFileNode.FileName}'.\n" +
+                    $"The zone file needs to be rebuilt to accommodate larger content."
+                );
+            }
+
+            try
+            {
+                RawFileNode.CurrentZone.ModifyZoneFile(fs =>
+                {
+                    // MW2 16-byte header format:
+                    // [FF FF FF FF] [compressedLen BE] [len BE] [FF FF FF FF] [name\0] [compressed data]
+                    // offset 0        offset 4          offset 8   offset 12
+
+                    // Update compressedLen field at StartOfFileHeader + 4 (big-endian)
+                    fs.Seek(rawFileNode.StartOfFileHeader + 4, SeekOrigin.Begin);
+                    byte[] compressedLenBytes = new byte[4];
+                    compressedLenBytes[0] = (byte)(compressedContent.Length >> 24);
+                    compressedLenBytes[1] = (byte)(compressedContent.Length >> 16);
+                    compressedLenBytes[2] = (byte)(compressedContent.Length >> 8);
+                    compressedLenBytes[3] = (byte)(compressedContent.Length);
+                    fs.Write(compressedLenBytes, 0, 4);
+
+                    // Update len (uncompressed length) field at StartOfFileHeader + 8 (big-endian)
+                    byte[] lenBytes = new byte[4];
+                    lenBytes[0] = (byte)(newContent.Length >> 24);
+                    lenBytes[1] = (byte)(newContent.Length >> 16);
+                    lenBytes[2] = (byte)(newContent.Length >> 8);
+                    lenBytes[3] = (byte)(newContent.Length);
+                    fs.Write(lenBytes, 0, 4);
+
+                    // Write compressed data at CodeStartPosition
+                    fs.Seek(rawFileNode.CodeStartPosition, SeekOrigin.Begin);
+                    fs.Write(compressedContent, 0, compressedContent.Length);
+
+                    // Pad with zeros if new compressed data is smaller than original
+                    if (compressedContent.Length < rawFileNode.CompressedSize)
+                    {
+                        var padding = new byte[rawFileNode.CompressedSize - compressedContent.Length];
+                        fs.Write(padding, 0, padding.Length);
+                    }
+                });
+
+                // Update node properties
+                rawFileNode.RawFileBytes = newContent;
+                rawFileNode.RawFileContent = System.Text.Encoding.Default.GetString(newContent);
+                rawFileNode.MaxSize = newContent.Length;
+                rawFileNode.CompressedSize = compressedContent.Length;
+            }
+            catch (IOException ioEx)
+            {
+                throw new IOException(
+                    $"Failed to update compressed content for raw file '{rawFileNode.FileName}': {ioEx.Message}",
+                    ioEx
+                );
+            }
+        }
+
+        /// <summary>
+        /// Compresses data using zlib (deflate with zlib header).
+        /// </summary>
+        private static byte[] CompressZlib(byte[] data)
+        {
+            using var outputStream = new MemoryStream();
+            using (var zlibStream = new ZLibStream(outputStream, CompressionLevel.Optimal, leaveOpen: true))
+            {
+                zlibStream.Write(data, 0, data.Length);
+            }
+            return outputStream.ToArray();
         }
 
         /// <summary>
@@ -815,6 +982,38 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     "Saved",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Asterisk);
+            }
+            catch (ArgumentException argEx) when (argEx.Message.Contains("compressed") || argEx.Message.Contains("Compressed"))
+            {
+                // Compressed content exceeds slot - offer to rebuild zone
+                var result = MessageBox.Show(
+                    $"{argEx.Message}\n\nDo you want to rebuild the zone to accommodate the new content?\n\n" +
+                    "(Note: This will convert the file to uncompressed format)",
+                    "Rebuild Zone",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (result == DialogResult.Yes)
+                {
+                    try
+                    {
+                        // Rebuild the zone with the new content
+                        // This creates an uncompressed version which MW2 can also read
+                        IncreaseSize(zoneFilePath, rawFileNode, updatedBytes);
+                        rawFileNode.RawFileContent = updatedText;
+                        rawFileNode.IsCompressed = false; // Mark as no longer compressed after rebuild
+
+                        MessageBox.Show(
+                            $"Raw File '{rawFileNode.FileName}' saved successfully (zone rebuilt with uncompressed format).",
+                            "Saved",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Asterisk);
+                    }
+                    catch (Exception rebuildEx)
+                    {
+                        MessageBox.Show($"Failed to rebuild zone: {rebuildEx.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
             }
             catch (IOException ioEx)
             {

@@ -145,6 +145,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         node.RawFileBytes = decompressedBytes;
                         node.RawFileContent = Encoding.UTF8.GetString(decompressedBytes);
                         node.AdditionalData = $"Decompressed: {bytesToRead} -> {decompressedBytes.Length} bytes";
+                        node.IsCompressed = true;
+                        node.CompressedSize = bytesToRead;
                         Debug.WriteLine($"[RawFile] Decompressed {bytesToRead} -> {decompressedBytes.Length} bytes.");
                     }
                     catch (Exception ex)
@@ -444,6 +446,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             // Extract and optionally decompress data
             byte[] rawBytes;
             string additionalData = "";
+            bool isCompressed = false;
+            int compressedSize = 0;
 
             if (compressedLen > 0)
             {
@@ -459,6 +463,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                     zlibStream.CopyTo(outputStream);
                     rawBytes = outputStream.ToArray();
                     additionalData = $"Compressed: {compressedLen} -> {len} bytes (pattern match)";
+                    isCompressed = true;
+                    compressedSize = compressedLen;
                     Debug.WriteLine($"[MW2PatternMatch] Decompressed {compressedLen} -> {rawBytes.Length} bytes");
                 }
                 catch (Exception ex)
@@ -488,7 +494,9 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 RawFileContent = fileContent,
                 RawFileBytes = rawBytes,
                 RawFileEndPosition = rawFileEndPosition,
-                AdditionalData = additionalData
+                AdditionalData = additionalData,
+                IsCompressed = isCompressed,
+                CompressedSize = compressedSize
             };
 
             Debug.WriteLine($"[MW2PatternMatch] Successfully parsed '{fileName}' at header 0x{startOfHeaderPosition:X}");

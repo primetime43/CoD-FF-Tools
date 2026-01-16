@@ -3,6 +3,7 @@ using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
 using FastFileLib.GameDefinitions;
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Text;
 
 namespace Call_of_Duty_FastFile_Editor.Services
@@ -386,10 +387,14 @@ namespace Call_of_Duty_FastFile_Editor.Services
             try
             {
                 // Build sections
-                var rawFilesSection = BuildRawFilesSection(rawFileNodes);
+                // For MW2 PS3, always use compression (16-byte header format with zlib)
+                // This matches the original format used by MW2 PS3 mods
+                bool useCompression = fastFile.IsMW2File && !fastFile.IsPC && !fastFile.IsXbox360;
+                Debug.WriteLine($"[ZoneFileBuilder] Building zone: IsMW2={fastFile.IsMW2File}, useCompression={useCompression}");
+                var rawFilesSection = BuildRawFilesSection(rawFileNodes, fastFile, useCompression);
                 var localizedSection = BuildLocalizedSection(localizedEntries);
                 var assetTableSection = BuildAssetTableSection(rawFileNodes.Count, localizedEntries?.Count ?? 0, fastFile);
-                var footerSection = BuildFooterSection(zoneName);
+                var footerSection = BuildFooterSection(zoneName, fastFile);
 
                 // Calculate sizes for header
                 int assetTableSize = assetTableSection.Length;
@@ -436,8 +441,14 @@ namespace Call_of_Duty_FastFile_Editor.Services
             var header = new List<byte>();
 
             // Calculate total sizes
-            int totalDataSize = assetTableSize + rawFilesSize + localizedSize + footerSize + 16;
-            int totalZoneSize = 52 + assetTableSize + rawFilesSize + localizedSize + footerSize;
+            // MW2 header is 48 bytes (0x30), CoD4/WaW header is 52 bytes (0x34)
+            int headerSize = (fastFile?.IsMW2File == true) ? 48 : 52;
+
+            // totalSize1 (offset 0x00): Points to footer header start
+            int totalDataSize = headerSize + assetTableSize + rawFilesSize + localizedSize;
+
+            // totalSize2 (offset 0x18): Points to data end (after footer)
+            int totalZoneSize = headerSize + assetTableSize + rawFilesSize + localizedSize + footerSize;
 
             // Get memory allocation values based on game version
             // WaW: MemAlloc1 = 0x10B0, MemAlloc2 = 0x05F8F0
@@ -480,8 +491,14 @@ namespace Call_of_Duty_FastFile_Editor.Services
             // Bytes 44-47: Asset count (big-endian)
             header.AddRange(GetBigEndianBytes(assetCount));
 
-            // Bytes 48-51: 0xFFFFFFFF marker
-            header.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+            // Note: MW2 header is 48 bytes (0x30) - NO trailing FFFFFFFF marker
+            // The FFFFFFFF at 0x30 is the first asset table entry, not a header marker
+            // CoD4/WaW may need the marker - keeping for non-MW2 files
+            if (fastFile?.IsMW2File != true)
+            {
+                // Bytes 48-51: 0xFFFFFFFF marker (CoD4/WaW only)
+                header.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+            }
 
             return header.ToArray();
         }
@@ -494,67 +511,151 @@ namespace Call_of_Duty_FastFile_Editor.Services
         {
             var table = new List<byte>();
 
-            byte rawFileType = fastFile.IsCod4File
-                ? (byte)CoD4AssetTypePS3.rawfile
-                : (byte)CoD5AssetTypePS3.rawfile;
+            byte rawFileType;
+            byte localizeType;
 
-            byte localizeType = fastFile.IsCod4File
-                ? (byte)CoD4AssetTypePS3.localize
-                : (byte)CoD5AssetTypePS3.localize;
+            if (fastFile.IsMW2File)
+            {
+                // MW2 asset types
+                rawFileType = FastFileLib.FastFileConstants.MW2RawFileAssetType;    // 0x23
+                localizeType = FastFileLib.FastFileConstants.MW2LocalizeAssetType;  // 0x1A
+            }
+            else if (fastFile.IsCod4File)
+            {
+                rawFileType = (byte)CoD4AssetTypePS3.rawfile;
+                localizeType = (byte)CoD4AssetTypePS3.localize;
+            }
+            else
+            {
+                // Default to WaW
+                rawFileType = (byte)CoD5AssetTypePS3.rawfile;
+                localizeType = (byte)CoD5AssetTypePS3.localize;
+            }
 
             // Entry for each raw file
+            // MW2 format: [ptr FFFFFFFF][type] - reversed from CoD4/WaW
+            // CoD4/WaW format: [type][ptr FFFFFFFF]
             for (int i = 0; i < rawFileCount; i++)
             {
-                table.AddRange(new byte[] { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF });
+                if (fastFile.IsMW2File)
+                    table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, rawFileType });
+                else
+                    table.AddRange(new byte[] { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF });
             }
 
             // Entry for each localized string
             for (int i = 0; i < localizedCount; i++)
             {
-                table.AddRange(new byte[] { 0x00, 0x00, 0x00, localizeType, 0xFF, 0xFF, 0xFF, 0xFF });
+                if (fastFile.IsMW2File)
+                    table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, localizeType });
+                else
+                    table.AddRange(new byte[] { 0x00, 0x00, 0x00, localizeType, 0xFF, 0xFF, 0xFF, 0xFF });
             }
 
             // Final rawfile entry (required by format)
-            table.AddRange(new byte[] { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF });
+            if (fastFile.IsMW2File)
+                table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, rawFileType });
+            else
+                table.AddRange(new byte[] { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF });
 
             return table.ToArray();
         }
 
         /// <summary>
         /// Builds the raw files section.
-        /// Each raw file: FF FF FF FF + [size] + FF FF FF FF + [name\0] + [data] + [\0]
+        /// Standard format (CoD4/WaW): FF FF FF FF + [size] + FF FF FF FF + [name\0] + [data] + [\0]
+        /// MW2 compressed format: FF FF FF FF + [compressedLen] + [len] + FF FF FF FF + [name\0] + [compressed_data] + [\0]
         /// </summary>
-        private static byte[] BuildRawFilesSection(List<RawFileNode> rawFileNodes)
+        private static byte[] BuildRawFilesSection(List<RawFileNode> rawFileNodes, FastFile fastFile, bool useCompression)
         {
             var section = new List<byte>();
+            bool isFirstFile = true;
 
             foreach (var node in rawFileNodes)
             {
-                // Marker: FF FF FF FF
-                section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+                byte[] dataToWrite;
+                int uncompressedLen = node.RawFileBytes?.Length ?? 0;
+                int compressedLen = 0;
 
-                // Data size (big-endian) - use the actual content length
-                int dataSize = node.RawFileBytes?.Length ?? 0;
-                section.AddRange(GetBigEndianBytes(dataSize));
+                if (useCompression && fastFile.IsMW2File)
+                {
+                    // MW2 header format with compression
+                    // First file: 20-byte header (FFFFFFFF FFFFFFFF compLen uncompLen FFFFFFFF name)
+                    // Subsequent files: 16-byte header (FFFFFFFF compLen uncompLen FFFFFFFF name)
+                    // Compress the data
+                    if (node.RawFileBytes != null && node.RawFileBytes.Length > 0)
+                    {
+                        dataToWrite = CompressZlib(node.RawFileBytes);
+                        compressedLen = dataToWrite.Length;
+                        Debug.WriteLine($"[BuildRawFilesSection] Compressed '{node.FileName}': {uncompressedLen} -> {compressedLen} bytes");
+                    }
+                    else
+                    {
+                        dataToWrite = Array.Empty<byte>();
+                    }
 
-                // Pointer placeholder: FF FF FF FF
-                section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+                    // First marker: FF FF FF FF
+                    section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+
+                    // Second marker/pointer: FF FF FF FF (only for first file)
+                    if (isFirstFile)
+                    {
+                        section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+                        isFirstFile = false;
+                    }
+
+                    // Compressed size (big-endian)
+                    section.AddRange(GetBigEndianBytes(compressedLen));
+
+                    // Uncompressed size (big-endian)
+                    section.AddRange(GetBigEndianBytes(uncompressedLen));
+
+                    // Pointer marker: FF FF FF FF
+                    section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+                }
+                else
+                {
+                    // Standard 12-byte header format (CoD4/WaW)
+                    dataToWrite = node.RawFileBytes ?? Array.Empty<byte>();
+
+                    // Marker: FF FF FF FF
+                    section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+
+                    // Data size (big-endian) - use the actual content length
+                    section.AddRange(GetBigEndianBytes(uncompressedLen));
+
+                    // Pointer placeholder: FF FF FF FF
+                    section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+                }
 
                 // Filename (null-terminated)
                 section.AddRange(Encoding.ASCII.GetBytes(node.FileName ?? "unknown"));
                 section.Add(0x00);
 
-                // Raw data
-                if (node.RawFileBytes != null && node.RawFileBytes.Length > 0)
+                // Raw data (compressed or uncompressed)
+                if (dataToWrite.Length > 0)
                 {
-                    section.AddRange(node.RawFileBytes);
+                    section.AddRange(dataToWrite);
                 }
 
-                // Null terminator
-                section.Add(0x00);
+                // Note: NO null terminator after raw file data
+                // Raw files are packed tightly - next header follows directly after data
             }
 
             return section.ToArray();
+        }
+
+        /// <summary>
+        /// Compresses data using zlib.
+        /// </summary>
+        private static byte[] CompressZlib(byte[] data)
+        {
+            using var outputStream = new MemoryStream();
+            using (var zlibStream = new ZLibStream(outputStream, CompressionLevel.Optimal, leaveOpen: true))
+            {
+                zlibStream.Write(data, 0, data.Length);
+            }
+            return outputStream.ToArray();
         }
 
         /// <summary>
@@ -593,16 +694,32 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// <summary>
         /// Builds the footer section.
         /// </summary>
-        private static byte[] BuildFooterSection(string zoneName)
+        private static byte[] BuildFooterSection(string zoneName, FastFile? fastFile = null)
         {
             var footer = new List<byte>();
 
-            // CoD4/WaW footer: 12 bytes
-            footer.AddRange(new byte[]
+            if (fastFile?.IsMW2File == true)
             {
-                0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
-                0xFF, 0xFF, 0xFF, 0xFF
-            });
+                // MW2 footer: 16 bytes (same format as raw file header)
+                // FF FF FF FF [compLen=0] [len=0] FF FF FF FF
+                footer.AddRange(new byte[]
+                {
+                    0xFF, 0xFF, 0xFF, 0xFF,
+                    0x00, 0x00, 0x00, 0x00,  // compressedLen = 0
+                    0x00, 0x00, 0x00, 0x00,  // len = 0
+                    0xFF, 0xFF, 0xFF, 0xFF
+                });
+            }
+            else
+            {
+                // CoD4/WaW footer: 12 bytes
+                // FF FF FF FF [size=0] FF FF FF FF
+                footer.AddRange(new byte[]
+                {
+                    0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
+                    0xFF, 0xFF, 0xFF, 0xFF
+                });
+            }
 
             // Zone name (null-terminated with extra null)
             footer.AddRange(Encoding.ASCII.GetBytes(zoneName));
