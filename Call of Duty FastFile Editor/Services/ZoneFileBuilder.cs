@@ -258,27 +258,33 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         else
                             assetType = 0;
 
-                        // Write asset type (4 bytes) - little-endian for PC, big-endian for console
+                        // Write asset entry in [ptr][type] format for console, [type][ptr] for PC
+                        // Console mod files use: FF FF FF FF 00 00 00 XX
+                        // PC uses: XX 00 00 00 FF FF FF FF
                         if (isPC)
                         {
+                            // PC: [type][ptr] - little-endian type
                             ms.WriteByte((byte)assetType);
                             ms.WriteByte(0x00);
                             ms.WriteByte(0x00);
                             ms.WriteByte(0x00);
+                            ms.WriteByte(0xFF);
+                            ms.WriteByte(0xFF);
+                            ms.WriteByte(0xFF);
+                            ms.WriteByte(0xFF);
                         }
                         else
                         {
+                            // Console: [ptr][type] - big-endian type
+                            ms.WriteByte(0xFF);
+                            ms.WriteByte(0xFF);
+                            ms.WriteByte(0xFF);
+                            ms.WriteByte(0xFF);
                             ms.WriteByte(0x00);
                             ms.WriteByte(0x00);
                             ms.WriteByte(0x00);
                             ms.WriteByte((byte)assetType);
                         }
-
-                        // Write pointer placeholder (FF FF FF FF)
-                        ms.WriteByte(0xFF);
-                        ms.WriteByte(0xFF);
-                        ms.WriteByte(0xFF);
-                        ms.WriteByte(0xFF);
                     }
 
                     // 4. Write asset pool end marker (FF FF FF FF)
@@ -532,30 +538,21 @@ namespace Call_of_Duty_FastFile_Editor.Services
             }
 
             // Entry for each raw file
-            // MW2 format: [ptr FFFFFFFF][type] - reversed from CoD4/WaW
-            // CoD4/WaW format: [type][ptr FFFFFFFF]
+            // MW2 PS3 mod files use [ptr][type] format: FF FF FF FF 00 00 00 XX
+            // (This differs from the original game files which may use [type][ptr])
             for (int i = 0; i < rawFileCount; i++)
             {
-                if (fastFile.IsMW2File)
-                    table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, rawFileType });
-                else
-                    table.AddRange(new byte[] { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF });
+                table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, rawFileType });
             }
 
             // Entry for each localized string
             for (int i = 0; i < localizedCount; i++)
             {
-                if (fastFile.IsMW2File)
-                    table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, localizeType });
-                else
-                    table.AddRange(new byte[] { 0x00, 0x00, 0x00, localizeType, 0xFF, 0xFF, 0xFF, 0xFF });
+                table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, localizeType });
             }
 
             // Final rawfile entry (required by format)
-            if (fastFile.IsMW2File)
-                table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, rawFileType });
-            else
-                table.AddRange(new byte[] { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF });
+            table.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, rawFileType });
 
             return table.ToArray();
         }
