@@ -276,4 +276,109 @@ public static class FastFileConstants
         GameVersion.MW2 => MW2MemAlloc2,
         _ => throw new ArgumentOutOfRangeException(nameof(version))
     };
+
+    #region Raw File Header Constants
+
+    /// <summary>
+    /// Standard raw file header size for CoD4/WaW (uncompressed).
+    /// Format: [FFFFFFFF marker][size BE][FFFFFFFF marker]
+    /// </summary>
+    public const int RawFileHeaderSize_Standard = 12;
+
+    /// <summary>
+    /// MW2 compressed raw file header size (subsequent files).
+    /// Format: [FFFFFFFF marker][compressedLen BE][uncompLen BE][FFFFFFFF marker]
+    /// </summary>
+    public const int RawFileHeaderSize_MW2_Compressed = 16;
+
+    /// <summary>
+    /// MW2 compressed raw file header size (first file only).
+    /// Format: [FFFFFFFF marker][FFFFFFFF marker][compressedLen BE][uncompLen BE][FFFFFFFF marker]
+    /// </summary>
+    public const int RawFileHeaderSize_MW2_First = 20;
+
+    /// <summary>
+    /// Raw file entry marker bytes.
+    /// </summary>
+    public static readonly byte[] RawFileMarker = { 0xFF, 0xFF, 0xFF, 0xFF };
+
+    #endregion
+
+    #region Zlib Constants
+
+    /// <summary>
+    /// Zlib header first byte (CMF - Compression Method and Flags).
+    /// Value 0x78 indicates deflate compression with 32K window.
+    /// </summary>
+    public const byte ZlibHeaderByte = 0x78;
+
+    /// <summary>
+    /// Valid zlib FLG (flags) bytes that can follow the CMF byte.
+    /// </summary>
+    public static readonly byte[] ZlibValidFlags = { 0x01, 0x5E, 0x9C, 0xDA };
+
+    /// <summary>
+    /// Checks if data starts with a valid zlib header.
+    /// </summary>
+    /// <param name="data">Data to check</param>
+    /// <param name="offset">Offset to start checking at</param>
+    /// <returns>True if data starts with valid zlib header</returns>
+    public static bool HasZlibHeader(byte[] data, int offset = 0)
+    {
+        if (data == null || offset + 2 > data.Length)
+            return false;
+
+        if (data[offset] != ZlibHeaderByte)
+            return false;
+
+        return ZlibValidFlags.Contains(data[offset + 1]);
+    }
+
+    #endregion
+
+    #region Big-Endian Helpers
+
+    /// <summary>
+    /// Reads a 32-bit big-endian integer from a byte array.
+    /// </summary>
+    public static int ReadBigEndianInt32(byte[] data, int offset)
+    {
+        if (data == null || offset + 4 > data.Length)
+            throw new ArgumentException("Insufficient data for big-endian int32");
+
+        return (data[offset] << 24) |
+               (data[offset + 1] << 16) |
+               (data[offset + 2] << 8) |
+               data[offset + 3];
+    }
+
+    /// <summary>
+    /// Writes a 32-bit big-endian integer to a byte array.
+    /// </summary>
+    public static void WriteBigEndianInt32(byte[] data, int offset, int value)
+    {
+        if (data == null || offset + 4 > data.Length)
+            throw new ArgumentException("Insufficient space for big-endian int32");
+
+        data[offset] = (byte)((value >> 24) & 0xFF);
+        data[offset + 1] = (byte)((value >> 16) & 0xFF);
+        data[offset + 2] = (byte)((value >> 8) & 0xFF);
+        data[offset + 3] = (byte)(value & 0xFF);
+    }
+
+    /// <summary>
+    /// Gets big-endian bytes for a 32-bit integer.
+    /// </summary>
+    public static byte[] GetBigEndianBytes(int value)
+    {
+        return new byte[]
+        {
+            (byte)((value >> 24) & 0xFF),
+            (byte)((value >> 16) & 0xFF),
+            (byte)((value >> 8) & 0xFF),
+            (byte)(value & 0xFF)
+        };
+    }
+
+    #endregion
 }

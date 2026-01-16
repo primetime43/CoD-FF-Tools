@@ -3,7 +3,6 @@ using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
 using FastFileLib.GameDefinitions;
 using System.Diagnostics;
-using System.IO.Compression;
 using System.Text;
 
 namespace Call_of_Duty_FastFile_Editor.Services
@@ -585,7 +584,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     // Compress the data
                     if (node.RawFileBytes != null && node.RawFileBytes.Length > 0)
                     {
-                        dataToWrite = CompressZlib(node.RawFileBytes);
+                        dataToWrite = FastFileLib.CompressionHelper.CompressZlib(node.RawFileBytes);
                         compressedLen = dataToWrite.Length;
                         Debug.WriteLine($"[BuildRawFilesSection] Compressed '{node.FileName}': {uncompressedLen} -> {compressedLen} bytes");
                     }
@@ -643,19 +642,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
             }
 
             return section.ToArray();
-        }
-
-        /// <summary>
-        /// Compresses data using zlib.
-        /// </summary>
-        private static byte[] CompressZlib(byte[] data)
-        {
-            using var outputStream = new MemoryStream();
-            using (var zlibStream = new ZLibStream(outputStream, CompressionLevel.Optimal, leaveOpen: true))
-            {
-                zlibStream.Write(data, 0, data.Length);
-            }
-            return outputStream.ToArray();
         }
 
         /// <summary>
