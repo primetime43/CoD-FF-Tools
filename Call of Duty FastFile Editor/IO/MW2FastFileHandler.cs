@@ -69,6 +69,7 @@ namespace Call_of_Duty_FastFile_Editor.IO
         /// Uses FastFileLib.FastFileProcessor.CompressMW2 which handles platform differences:
         /// - PS3 uses block compression (64KB blocks with 2-byte length markers)
         /// - Xbox 360/PC uses single zlib stream compression (no block structure)
+        /// Preserves the original MW2 extended header values for PS3 compatibility.
         /// </summary>
         public override void Recompress(string ffFilePath, string zoneFilePath, FastFile openedFastFile)
         {
@@ -81,8 +82,9 @@ namespace Call_of_Duty_FastFile_Editor.IO
             versionBytes[3] = (byte)(originalVersion & 0xFF);
 
             // Use library method which handles platform-specific compression
+            // Pass the original FF path to preserve extended header values (important for PS3)
             bool isXbox360 = openedFastFile.IsXbox360;
-            FastFileProcessor.CompressMW2(zoneFilePath, ffFilePath, versionBytes, isXbox360);
+            FastFileProcessor.CompressMW2(zoneFilePath, ffFilePath, versionBytes, isXbox360, ffFilePath);
         }
 
         /// <summary>

@@ -807,6 +807,25 @@ namespace Call_of_Duty_FastFile_Editor
         }
 
         /// <summary>
+        /// Recursively searches tree nodes to find one with a matching Tag.
+        /// </summary>
+        private TreeNode FindTreeNodeByTag(TreeNodeCollection nodes, object tag)
+        {
+            foreach (TreeNode node in nodes)
+            {
+                if (ReferenceEquals(node.Tag, tag))
+                    return node;
+                if (node.Nodes.Count > 0)
+                {
+                    var found = FindTreeNodeByTag(node.Nodes, tag);
+                    if (found != null)
+                        return found;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Handles actions before selecting a new TreeView node, prompting to save unsaved changes.
         /// </summary>
         private void filesTreeView_BeforeSelect(object sender, TreeViewCancelEventArgs e)
@@ -954,28 +973,119 @@ namespace Call_of_Duty_FastFile_Editor
 
                     foreach (var node in _rawFileNodes)
                     {
+                        System.Diagnostics.Debug.WriteLine($"[SAVE] Node '{node.FileName}': HasUnsavedChanges={node.HasUnsavedChanges}, IsCompressed={node.IsCompressed}, CompressedSize={node.CompressedSize}, MaxSize={node.MaxSize}");
+
                         if (node.HasUnsavedChanges && !string.IsNullOrEmpty(node.RawFileContent))
                         {
-                            // Check if content fits within the allocated size
                             byte[] newContent = Encoding.ASCII.GetBytes(node.RawFileContent);
-                            if (newContent.Length > node.MaxSize)
+                            System.Diagnostics.Debug.WriteLine($"[SAVE] Processing '{node.FileName}': newContent.Length={newContent.Length}");
+
+                            // Handle internally compressed raw files (MW2 16-byte header format)
+                            if (node.IsCompressed && node.CompressedSize > 0)
                             {
-                                MessageBox.Show($"Raw file '{node.FileName}' content ({newContent.Length} bytes) exceeds max size ({node.MaxSize} bytes).\n\n" +
-                                                "Use 'Increase File Size' option first, or reduce content size.",
-                                                "Content Too Large",
+                                // Re-compress the content
+                                byte[] compressedContent;
+                                using (var ms = new System.IO.MemoryStream())
+                                {
+                                    using (var zlib = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionLevel.Optimal, true))
+                                    {
+                                        zlib.Write(newContent, 0, newContent.Length);
+                                    }
+                                    compressedContent = ms.ToArray();
+                                }
+
+                                System.Diagnostics.Debug.WriteLine($"[SAVE] Compressed: compressedContent.Length={compressedContent.Length}, node.CompressedSize={node.CompressedSize}");
+
+                                if (compressedContent.Length > node.CompressedSize)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"[SAVE] Compressed content exceeds slot, showing rebuild dialog");
+                                    var rebuildResult = MessageBox.Show(
+                                        $"Compressed content ({compressedContent.Length} bytes) exceeds original slot ({node.CompressedSize} bytes).\n\n" +
+                                        $"Do you want to rebuild the zone to accommodate the new content?\n\n" +
+                                        "(Note: This will convert the file to uncompressed format)",
+                                        "Rebuild Zone",
+                                        MessageBoxButtons.YesNo,
+                                        MessageBoxIcon.Question);
+
+                                    if (rebuildResult == DialogResult.Yes)
+                                    {
+                                        // Update the node with uncompressed content before rebuild
+                                        node.RawFileBytes = newContent;
+                                        node.IsCompressed = false;
+                                        node.HasUnsavedChanges = false;
+
+                                        if (RebuildZoneWithCurrentData())
+                                        {
+                                            // Recompress the zone to FF
+                                            _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+
+                                            MessageBox.Show(
+                                                $"Fast File saved to:\n\n{_openedFastFile.FfFilePath}\n\n" +
+                                                $"Zone rebuilt with compression.",
+                                                "Saved",
                                                 MessageBoxButtons.OK,
-                                                MessageBoxIcon.Warning);
-                                return;
-                            }
+                                                MessageBoxIcon.Information);
+                                            _hasUnsavedChanges = false;
+                                            if (this.Text.EndsWith("*"))
+                                                this.Text = this.Text.TrimEnd('*');
+                                        }
+                                        else
+                                        {
+                                            MessageBox.Show("Failed to rebuild zone.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                        }
+                                    }
+                                    return;
+                                }
 
-                            // Patch the content directly into the zone data at the file's offset
-                            // Clear the area first, then write new content
-                            for (int i = 0; i < node.MaxSize && node.CodeStartPosition + i < zoneData.Length; i++)
+                                // Update header fields (16-byte format: [FFFF][compLen][len][FFFF])
+                                int hdrOff = node.StartOfFileHeader;
+                                // compressedLen at offset +4
+                                zoneData[hdrOff + 4] = (byte)(compressedContent.Length >> 24);
+                                zoneData[hdrOff + 5] = (byte)(compressedContent.Length >> 16);
+                                zoneData[hdrOff + 6] = (byte)(compressedContent.Length >> 8);
+                                zoneData[hdrOff + 7] = (byte)(compressedContent.Length);
+                                // len at offset +8
+                                zoneData[hdrOff + 8] = (byte)(newContent.Length >> 24);
+                                zoneData[hdrOff + 9] = (byte)(newContent.Length >> 16);
+                                zoneData[hdrOff + 10] = (byte)(newContent.Length >> 8);
+                                zoneData[hdrOff + 11] = (byte)(newContent.Length);
+
+                                // Write compressed data (pad with zeros if smaller)
+                                System.Diagnostics.Debug.WriteLine($"[SAVE] Writing compressed data at CodeStartPosition=0x{node.CodeStartPosition:X}");
+                                for (int i = 0; i < node.CompressedSize && node.CodeStartPosition + i < zoneData.Length; i++)
+                                {
+                                    zoneData[node.CodeStartPosition + i] = i < compressedContent.Length ? compressedContent[i] : (byte)0;
+                                }
+
+                                node.RawFileBytes = newContent;
+                                node.CompressedSize = compressedContent.Length;
+                                System.Diagnostics.Debug.WriteLine($"[SAVE] Compressed write complete for '{node.FileName}'");
+                            }
+                            else
                             {
-                                zoneData[node.CodeStartPosition + i] = i < newContent.Length ? newContent[i] : (byte)0;
+                                // Standard uncompressed raw file
+                                System.Diagnostics.Debug.WriteLine($"[SAVE] Using UNCOMPRESSED path for '{node.FileName}'");
+                                if (newContent.Length > node.MaxSize)
+                                {
+                                    MessageBox.Show($"Raw file '{node.FileName}' content ({newContent.Length} bytes) exceeds max size ({node.MaxSize} bytes).\n\n" +
+                                                    "Use 'Increase File Size' option first, or reduce content size.",
+                                                    "Content Too Large",
+                                                    MessageBoxButtons.OK,
+                                                    MessageBoxIcon.Warning);
+                                    return;
+                                }
+
+                                // Patch the content directly into the zone data
+                                System.Diagnostics.Debug.WriteLine($"[SAVE] Writing uncompressed data at CodeStartPosition=0x{node.CodeStartPosition:X}");
+                                for (int i = 0; i < node.MaxSize && node.CodeStartPosition + i < zoneData.Length; i++)
+                                {
+                                    zoneData[node.CodeStartPosition + i] = i < newContent.Length ? newContent[i] : (byte)0;
+                                }
+
+                                node.RawFileBytes = newContent;
+                                System.Diagnostics.Debug.WriteLine($"[SAVE] Uncompressed write complete for '{node.FileName}'");
                             }
 
-                            node.RawFileBytes = newContent;
                             node.HasUnsavedChanges = false;
                             rawFileChangeCount++;
                         }
@@ -4242,9 +4352,9 @@ namespace Call_of_Duty_FastFile_Editor
                         foreach (var node in dirtyNodes)
                         {
                             // Select the corresponding TreeNode so SaveZoneRawFileChanges targets it
-                            var treeNode = filesTreeView.Nodes
-                                .OfType<TreeNode>()
-                                .First(t => ReferenceEquals(t.Tag, node));
+                            var treeNode = FindTreeNodeByTag(filesTreeView.Nodes, node);
+                            if (treeNode == null)
+                                continue; // Skip if node not found in tree
                             filesTreeView.SelectedNode = treeNode;
 
                             _rawFileService.SaveZoneRawFileChanges(

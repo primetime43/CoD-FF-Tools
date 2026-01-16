@@ -62,6 +62,20 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public int HeaderSize { get; set; } = 12;
 
         /// <summary>
+        /// Indicates whether this raw file's data is internally zlib compressed.
+        /// This is common in MW2 PS3 FastFiles where raw files use the 16-byte header format
+        /// with compressedLen != len.
+        /// </summary>
+        public bool IsCompressed { get; set; }
+
+        /// <summary>
+        /// The compressed size of the raw file data in bytes.
+        /// Only relevant when IsCompressed is true.
+        /// This is the actual size of the data stored in the zone file.
+        /// </summary>
+        public int CompressedSize { get; set; }
+
+        /// <summary>
         /// Backing field for CodeStartPosition when set explicitly by game-specific parsers.
         /// </summary>
         private int? _codeStartPosition;

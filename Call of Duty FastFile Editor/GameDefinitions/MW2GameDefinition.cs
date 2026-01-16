@@ -228,7 +228,9 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 Array.Copy(zoneData, fileDataOffset, compressedData, 0, compressedLen);
                 rawBytes = DecompressZlib(compressedData, len);
 
-                // Store additional info about compression
+                // Store compression info for re-compression when saving
+                node.IsCompressed = true;
+                node.CompressedSize = compressedLen;
                 node.AdditionalData = $"Compressed: {compressedLen} -> {len} bytes";
             }
             else

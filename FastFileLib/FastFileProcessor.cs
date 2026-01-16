@@ -851,6 +851,102 @@ public static class FastFileProcessor
     }
 
     /// <summary>
+    /// Compresses a zone file to MW2 FastFile format, preserving the extended header from the original FF.
+    /// </summary>
+    /// <param name="inputPath">Path to the .zone file</param>
+    /// <param name="outputPath">Path to output the .ff file</param>
+    /// <param name="versionBytes">Version bytes (4 bytes, big-endian)</param>
+    /// <param name="isXbox360">True for Xbox 360, false for PS3</param>
+    /// <param name="originalFfPath">Path to original FF file to preserve extended header from (can be same as outputPath)</param>
+    /// <returns>Number of blocks compressed (1 for Xbox 360 single stream)</returns>
+    public static int CompressMW2(string inputPath, string outputPath, byte[] versionBytes, bool isXbox360, string originalFfPath)
+    {
+        // Read extended header from original file BEFORE opening output (in case they're the same file)
+        byte[] originalExtendedHeader = null;
+        if (!string.IsNullOrEmpty(originalFfPath) && File.Exists(originalFfPath))
+        {
+            originalExtendedHeader = ReadMW2ExtendedHeader(originalFfPath);
+        }
+
+        using var br = new BinaryReader(new FileStream(inputPath, FileMode.Open, FileAccess.Read), Encoding.Default);
+        using var bw = new BinaryWriter(new FileStream(outputPath, FileMode.Create, FileAccess.Write), Encoding.Default);
+
+        // Write unsigned header (IWffu100)
+        bw.Write(FastFileConstants.UnsignedHeaderBytes);
+
+        // Write version bytes
+        bw.Write(versionBytes);
+
+        // Remember position of fileSizes field so we can update it later
+        long fileSizesPosition = -1;
+
+        // Write MW2 extended header (with placeholder fileSizes - will update after compression)
+        if (originalExtendedHeader != null)
+        {
+            // Write everything except fileSizes (last 8 bytes)
+            bw.Write(originalExtendedHeader, 0, originalExtendedHeader.Length - 8);
+            // Remember where fileSizes starts
+            fileSizesPosition = bw.BaseStream.Position;
+            // Write placeholder fileSizes (will be updated after compression)
+            bw.Write(new byte[8]);
+        }
+        else
+        {
+            WriteMW2ExtendedHeader(bw);
+        }
+
+        int blockCount = 0;
+        if (isXbox360)
+        {
+            // Xbox 360: Single zlib stream compression (no block structure)
+            byte[] zoneData = br.ReadBytes((int)br.BaseStream.Length);
+            byte[] compressedData = CompressFullZlib(zoneData);
+            bw.Write(compressedData);
+            blockCount = 1;
+        }
+        else
+        {
+            // PS3: Block-based compression with 2-byte length markers
+            while (br.BaseStream.Position < br.BaseStream.Length)
+            {
+                byte[] chunk = br.ReadBytes(BlockSize);
+                byte[] compressedChunk = CompressBlockMW2(chunk);
+
+                int compressedLength = compressedChunk.Length;
+                // Write length as 2-byte big-endian
+                bw.Write((byte)(compressedLength >> 8));
+                bw.Write((byte)(compressedLength & 0xFF));
+
+                bw.Write(compressedChunk);
+                blockCount++;
+            }
+
+            // Write end marker for block format
+            bw.Write((byte)0x00);
+            bw.Write((byte)0x01);
+        }
+
+        // Now update the fileSizes field with the actual FF file size
+        if (fileSizesPosition > 0)
+        {
+            long finalFileSize = bw.BaseStream.Position;
+            bw.BaseStream.Seek(fileSizesPosition, SeekOrigin.Begin);
+            // Write fileSize (big-endian)
+            bw.Write((byte)((finalFileSize >> 24) & 0xFF));
+            bw.Write((byte)((finalFileSize >> 16) & 0xFF));
+            bw.Write((byte)((finalFileSize >> 8) & 0xFF));
+            bw.Write((byte)(finalFileSize & 0xFF));
+            // Write maxFileSize (big-endian) - same as fileSize
+            bw.Write((byte)((finalFileSize >> 24) & 0xFF));
+            bw.Write((byte)((finalFileSize >> 16) & 0xFF));
+            bw.Write((byte)((finalFileSize >> 8) & 0xFF));
+            bw.Write((byte)(finalFileSize & 0xFF));
+        }
+
+        return blockCount;
+    }
+
+    /// <summary>
     /// Compresses a zone file to MW2 FastFile format using GameVersion enum.
     /// </summary>
     public static int CompressMW2(string inputPath, string outputPath, GameVersion gameVersion, string platform)
@@ -862,7 +958,7 @@ public static class FastFileProcessor
 
     /// <summary>
     /// Compresses a single block for MW2 format.
-    /// MW2 uses full zlib format (0x78 header) instead of stripped deflate.
+    /// MW2 PS3 uses stripped deflate (no zlib header), same as CoD4/WaW.
     /// </summary>
     public static byte[] CompressBlockMW2(byte[] uncompressedData)
     {
@@ -871,11 +967,24 @@ public static class FastFileProcessor
         {
             zlib.Write(uncompressedData, 0, uncompressedData.Length);
         }
-        return output.ToArray();
+
+        byte[] zlibData = output.ToArray();
+
+        // Strip the 2-byte zlib header, keep deflate data + Adler-32 checksum
+        // This matches the format used by the original game files
+        if (zlibData.Length > 2)
+        {
+            byte[] result = new byte[zlibData.Length - 2];
+            Array.Copy(zlibData, 2, result, 0, result.Length);
+            return result;
+        }
+
+        return zlibData;
     }
 
     /// <summary>
-    /// Writes a minimal MW2 extended header.
+    /// Writes a minimal MW2 extended header with default values.
+    /// Note: For PS3 compatibility, prefer using CompressMW2 overload that preserves original header.
     /// </summary>
     /// <param name="bw">BinaryWriter to write to</param>
     public static void WriteMW2ExtendedHeader(BinaryWriter bw)
@@ -888,11 +997,56 @@ public static class FastFileProcessor
         // entries (entryCount * 0x14 bytes) - none for minimal header
         // fileSizes (8 bytes)
 
-        bw.Write((byte)0x00);    // allowOnlineUpdate = false
+        bw.Write((byte)0x01);    // allowOnlineUpdate = true (required for PS3 patch files)
         bw.Write(new byte[8]);   // fileCreationTime = 0
-        bw.Write(new byte[4]);   // region = 0
+        bw.Write((byte)0x00);    // region byte 1
+        bw.Write((byte)0x00);    // region byte 2
+        bw.Write((byte)0x00);    // region byte 3
+        bw.Write((byte)0x01);    // region byte 4 = 1 (common value)
         bw.Write(new byte[4]);   // entryCount = 0 (no entries)
-        bw.Write(new byte[8]);   // fileSizes = 0
+        bw.Write(new byte[8]);   // fileSizes = 0 (will be calculated by game)
+    }
+
+    /// <summary>
+    /// Reads the MW2 extended header from an FF file and returns it as a byte array.
+    /// </summary>
+    /// <param name="ffPath">Path to the FF file</param>
+    /// <returns>Extended header bytes (25 bytes for no entries), or null if reading fails</returns>
+    public static byte[] ReadMW2ExtendedHeader(string ffPath)
+    {
+        try
+        {
+            using var reader = new BinaryReader(File.OpenRead(ffPath));
+            reader.BaseStream.Seek(12, SeekOrigin.Begin); // Skip magic (8) + version (4)
+
+            byte allowOnlineUpdate = reader.ReadByte();
+            byte[] fileCreationTime = reader.ReadBytes(8);
+            byte[] region = reader.ReadBytes(4);
+            byte[] entryCountBytes = reader.ReadBytes(4);
+            int entryCount = (entryCountBytes[0] << 24) | (entryCountBytes[1] << 16) |
+                            (entryCountBytes[2] << 8) | entryCountBytes[3];
+
+            // Skip entries if any (each entry is 0x14 bytes)
+            if (entryCount > 0 && entryCount < 10000)
+            {
+                reader.ReadBytes(entryCount * 0x14);
+            }
+
+            byte[] fileSizes = reader.ReadBytes(8);
+
+            // Build the header: we preserve all fields but set entryCount to 0
+            using var ms = new MemoryStream();
+            ms.WriteByte(allowOnlineUpdate);
+            ms.Write(fileCreationTime, 0, 8);
+            ms.Write(region, 0, 4);
+            ms.Write(new byte[4], 0, 4); // entryCount = 0
+            ms.Write(fileSizes, 0, 8);
+            return ms.ToArray();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     #endregion

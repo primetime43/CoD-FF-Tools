@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.IO.Compression;
+using System.Text;
 using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.UI;
 using Call_of_Duty_FastFile_Editor.Services.IO;
@@ -427,21 +428,49 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
         /// <summary>
         /// Gets the FastFileLib.GameVersion based on the currently opened FastFile.
+        /// Uses centralized detection from FastFileLib for consistency across all tools.
         /// </summary>
+        /// <exception cref="InvalidOperationException">Thrown when no zone is loaded or game version cannot be detected.</exception>
         private static GameVersion GetGameVersionFromZone()
         {
-            // Get the game version from the current zone's associated FastFile
             var zone = RawFileNode.CurrentZone;
             if (zone == null)
-                return GameVersion.WaW; // Default to WaW
+                throw new InvalidOperationException("No zone file is currently loaded. Cannot determine game version.");
 
-            // Read version from zone header - check BlockSizeLarge pattern or use header info
-            // For now, determine based on common patterns
-            // CoD4: version 0x5 (5), WaW: version 0x183 (387), MW2: version 0x114 (276)
+            // Primary detection: Use FastFileLib's centralized zone detection
+            // This reads MemAlloc1 values from the zone header which is the most reliable method
+            if (zone.Data != null && zone.Data.Length >= 12)
+            {
+                var detected = FastFileInfo.DetectGameFromZoneData(zone.Data);
+                if (detected != GameVersion.Unknown)
+                    return detected;
+            }
 
-            // Since we don't have direct access to the FF header here, default to WaW
-            // The ZonePatcher pattern matching works the same for CoD4/WaW
-            return GameVersion.WaW;
+            // Fallback: Try detecting from zone file path
+            if (!string.IsNullOrEmpty(zone.FilePath) && File.Exists(zone.FilePath))
+            {
+                var detected = FastFileInfo.DetectGameFromZone(zone.FilePath);
+                if (detected != GameVersion.Unknown)
+                    return detected;
+            }
+
+            // Final fallback: Use parent FastFile header info
+            var parentFastFile = zone.ParentFastFile;
+            if (parentFastFile != null)
+            {
+                if (parentFastFile.IsMW2File)
+                    return GameVersion.MW2;
+                if (parentFastFile.IsCod4File)
+                    return GameVersion.CoD4;
+                if (parentFastFile.IsCod5File)
+                    return GameVersion.WaW;
+            }
+
+            // If we reach here, detection completely failed - this is a critical error
+            throw new InvalidOperationException(
+                "Unable to detect game version from the zone file. " +
+                "The zone header may be corrupted or the file format is not recognized. " +
+                "Expected MemAlloc1 values: CoD4=0x0F70, WaW=0x10B0, MW2=0x03B4");
         }
 
         /// <inheritdoc/>
@@ -616,6 +645,23 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// <inheritdoc/>
         public void UpdateFileContent(string zoneFilePath, RawFileNode rawFileNode, byte[] newContent)
         {
+            System.Diagnostics.Debug.WriteLine($"[UpdateFileContent] File='{rawFileNode.FileName}', IsCompressed={rawFileNode.IsCompressed}, HeaderSize={rawFileNode.HeaderSize}");
+
+            // Handle internally compressed raw files (MW2 PS3 format)
+            if (rawFileNode.IsCompressed)
+            {
+                UpdateCompressedFileContent(zoneFilePath, rawFileNode, newContent);
+                return;
+            }
+
+            // Fallback: Try to detect MW2 compressed format if not already detected
+            if (TryDetectAndUpdateCompression(rawFileNode))
+            {
+                UpdateCompressedFileContent(zoneFilePath, rawFileNode, newContent);
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[UpdateFileContent] Using uncompressed update");
             if (newContent.Length > rawFileNode.MaxSize)
             {
                 throw new ArgumentException(
@@ -644,6 +690,137 @@ namespace Call_of_Duty_FastFile_Editor.Services
             {
                 throw new IOException(
                     $"Failed to update content for raw file '{rawFileNode.FileName}': {ioEx.Message}",
+                    ioEx
+                );
+            }
+        }
+
+        /// <summary>
+        /// Attempts to detect MW2 compressed format for a raw file node.
+        /// Updates the node's properties if compression is detected.
+        /// </summary>
+        /// <returns>True if compression was detected and properties were updated</returns>
+        private static bool TryDetectAndUpdateCompression(RawFileNode rawFileNode)
+        {
+            byte[]? zoneData = RawFileNode.CurrentZone?.Data;
+            if (zoneData == null)
+                return false;
+
+            int headerOffset = rawFileNode.StartOfFileHeader;
+
+            // Try both the current offset and 4 bytes back (pattern matching may be off for 16-byte headers)
+            int[] offsetsToTry = { headerOffset, headerOffset - 4 };
+
+            foreach (int tryOffset in offsetsToTry)
+            {
+                if (tryOffset < 0 || tryOffset + FastFileLib.FastFileConstants.RawFileHeaderSize_MW2_Compressed > zoneData.Length)
+                    continue;
+
+                // Check for MW2 16-byte header format: [FFFFFFFF][compLen][uncompLen][FFFFFFFF]
+                bool hasFirstMarker = zoneData[tryOffset..].Take(4).SequenceEqual(FastFileLib.FastFileConstants.RawFileMarker);
+                bool hasSecondMarker = zoneData[(tryOffset + 12)..].Take(4).SequenceEqual(FastFileLib.FastFileConstants.RawFileMarker);
+
+                if (!hasFirstMarker || !hasSecondMarker)
+                    continue;
+
+                // Read lengths from header
+                int compressedLen = FastFileLib.FastFileConstants.ReadBigEndianInt32(zoneData, tryOffset + 4);
+                int uncompressedLen = FastFileLib.FastFileConstants.ReadBigEndianInt32(zoneData, tryOffset + 8);
+
+                // Validate: compressed length should be positive, reasonable, and different from uncompressed
+                if (compressedLen <= 0 || compressedLen >= 10_000_000 || compressedLen == uncompressedLen)
+                    continue;
+
+                // Find data offset: header(16) + filename + null
+                int filenameStart = tryOffset + FastFileLib.FastFileConstants.RawFileHeaderSize_MW2_Compressed;
+                int filenameEnd = filenameStart;
+                while (filenameEnd < zoneData.Length && zoneData[filenameEnd] != 0)
+                    filenameEnd++;
+                int dataOffset = filenameEnd + 1;
+
+                // Verify data starts with zlib header
+                if (!FastFileLib.FastFileConstants.HasZlibHeader(zoneData, dataOffset))
+                    continue;
+
+                // Found compression - update node properties
+                System.Diagnostics.Debug.WriteLine($"[TryDetectCompression] Detected compression at 0x{tryOffset:X}");
+                rawFileNode.StartOfFileHeader = tryOffset;
+                rawFileNode.IsCompressed = true;
+                rawFileNode.CompressedSize = compressedLen;
+                rawFileNode.HeaderSize = FastFileLib.FastFileConstants.RawFileHeaderSize_MW2_Compressed;
+                rawFileNode.MaxSize = uncompressedLen;
+                rawFileNode.CodeStartPosition = dataOffset;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Updates the content of an internally compressed raw file (MW2 format).
+        /// Re-compresses the data and updates the header fields accordingly.
+        /// </summary>
+        private void UpdateCompressedFileContent(string zoneFilePath, RawFileNode rawFileNode, byte[] newContent)
+        {
+            // Compress the new content using zlib
+            byte[] compressedContent = FastFileLib.CompressionHelper.CompressZlib(newContent);
+
+            // Check if compressed content fits in the original slot
+            if (compressedContent.Length > rawFileNode.CompressedSize)
+            {
+                throw new ArgumentException(
+                    $"Compressed content size ({compressedContent.Length} bytes) exceeds the original compressed slot size ({rawFileNode.CompressedSize} bytes) for file '{rawFileNode.FileName}'.\n" +
+                    $"The zone file needs to be rebuilt to accommodate larger content."
+                );
+            }
+
+            try
+            {
+                RawFileNode.CurrentZone.ModifyZoneFile(fs =>
+                {
+                    // MW2 16-byte header format:
+                    // [FF FF FF FF] [compressedLen BE] [len BE] [FF FF FF FF] [name\0] [compressed data]
+                    // offset 0        offset 4          offset 8   offset 12
+
+                    // Update compressedLen field at StartOfFileHeader + 4 (big-endian)
+                    fs.Seek(rawFileNode.StartOfFileHeader + 4, SeekOrigin.Begin);
+                    byte[] compressedLenBytes = new byte[4];
+                    compressedLenBytes[0] = (byte)(compressedContent.Length >> 24);
+                    compressedLenBytes[1] = (byte)(compressedContent.Length >> 16);
+                    compressedLenBytes[2] = (byte)(compressedContent.Length >> 8);
+                    compressedLenBytes[3] = (byte)(compressedContent.Length);
+                    fs.Write(compressedLenBytes, 0, 4);
+
+                    // Update len (uncompressed length) field at StartOfFileHeader + 8 (big-endian)
+                    byte[] lenBytes = new byte[4];
+                    lenBytes[0] = (byte)(newContent.Length >> 24);
+                    lenBytes[1] = (byte)(newContent.Length >> 16);
+                    lenBytes[2] = (byte)(newContent.Length >> 8);
+                    lenBytes[3] = (byte)(newContent.Length);
+                    fs.Write(lenBytes, 0, 4);
+
+                    // Write compressed data at CodeStartPosition
+                    fs.Seek(rawFileNode.CodeStartPosition, SeekOrigin.Begin);
+                    fs.Write(compressedContent, 0, compressedContent.Length);
+
+                    // Pad with zeros if new compressed data is smaller than original
+                    if (compressedContent.Length < rawFileNode.CompressedSize)
+                    {
+                        var padding = new byte[rawFileNode.CompressedSize - compressedContent.Length];
+                        fs.Write(padding, 0, padding.Length);
+                    }
+                });
+
+                // Update node properties
+                rawFileNode.RawFileBytes = newContent;
+                rawFileNode.RawFileContent = System.Text.Encoding.Default.GetString(newContent);
+                rawFileNode.MaxSize = newContent.Length;
+                rawFileNode.CompressedSize = compressedContent.Length;
+            }
+            catch (IOException ioEx)
+            {
+                throw new IOException(
+                    $"Failed to update compressed content for raw file '{rawFileNode.FileName}': {ioEx.Message}",
                     ioEx
                 );
             }
@@ -787,6 +964,38 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     "Saved",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Asterisk);
+            }
+            catch (ArgumentException argEx) when (argEx.Message.Contains("compressed") || argEx.Message.Contains("Compressed"))
+            {
+                // Compressed content exceeds slot - offer to rebuild zone
+                var result = MessageBox.Show(
+                    $"{argEx.Message}\n\nDo you want to rebuild the zone to accommodate the new content?\n\n" +
+                    "(Note: This will convert the file to uncompressed format)",
+                    "Rebuild Zone",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (result == DialogResult.Yes)
+                {
+                    try
+                    {
+                        // Rebuild the zone with the new content
+                        // This creates an uncompressed version which MW2 can also read
+                        IncreaseSize(zoneFilePath, rawFileNode, updatedBytes);
+                        rawFileNode.RawFileContent = updatedText;
+                        rawFileNode.IsCompressed = false; // Mark as no longer compressed after rebuild
+
+                        MessageBox.Show(
+                            $"Raw File '{rawFileNode.FileName}' saved successfully (zone rebuilt with uncompressed format).",
+                            "Saved",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Asterisk);
+                    }
+                    catch (Exception rebuildEx)
+                    {
+                        MessageBox.Show($"Failed to rebuild zone: {rebuildEx.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
             }
             catch (IOException ioEx)
             {
