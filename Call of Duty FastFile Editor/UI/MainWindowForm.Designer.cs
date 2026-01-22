@@ -110,6 +110,7 @@ namespace Call_of_Duty_FastFile_Editor
             weaponsListView = new ListView();
             weaponsContextMenu = new ContextMenuStrip(components);
             editWeaponMenuItem = new ToolStripMenuItem();
+            advancedEditWeaponMenuItem = new ToolStripMenuItem();
             imagesTabPage = new TabPage();
             imagesInstructionLabel = new Label();
             imagesListView = new ListView();
@@ -869,16 +870,23 @@ namespace Call_of_Duty_FastFile_Editor
             //
             // weaponsContextMenu
             //
-            weaponsContextMenu.Items.AddRange(new ToolStripItem[] { editWeaponMenuItem });
+            weaponsContextMenu.Items.AddRange(new ToolStripItem[] { editWeaponMenuItem, advancedEditWeaponMenuItem });
             weaponsContextMenu.Name = "weaponsContextMenu";
-            weaponsContextMenu.Size = new Size(180, 26);
+            weaponsContextMenu.Size = new Size(180, 48);
             //
             // editWeaponMenuItem
             //
             editWeaponMenuItem.Name = "editWeaponMenuItem";
             editWeaponMenuItem.Size = new Size(179, 22);
-            editWeaponMenuItem.Text = "Edit Weapon...";
+            editWeaponMenuItem.Text = "Quick Edit...";
             editWeaponMenuItem.Click += editWeaponMenuItem_Click;
+            //
+            // advancedEditWeaponMenuItem
+            //
+            advancedEditWeaponMenuItem.Name = "advancedEditWeaponMenuItem";
+            advancedEditWeaponMenuItem.Size = new Size(179, 22);
+            advancedEditWeaponMenuItem.Text = "Advanced Edit...";
+            advancedEditWeaponMenuItem.Click += advancedEditWeaponMenuItem_Click;
             //
             // weaponsTabPage
             //
@@ -903,7 +911,7 @@ namespace Call_of_Duty_FastFile_Editor
             weaponsInstructionLabel.Padding = new Padding(0, 4, 0, 4);
             weaponsInstructionLabel.Size = new Size(400, 23);
             weaponsInstructionLabel.TabIndex = 1;
-            weaponsInstructionLabel.Text = "Double-click a weapon or right-click and select 'Edit Weapon...' to modify values.";
+            weaponsInstructionLabel.Text = "Double-click a weapon for quick edit, or right-click and select 'Advanced Edit...' for full weapon customization.";
             //
             // weaponsListView
             //
@@ -1144,6 +1152,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ListView weaponsListView;
         private ContextMenuStrip weaponsContextMenu;
         private ToolStripMenuItem editWeaponMenuItem;
+        private ToolStripMenuItem advancedEditWeaponMenuItem;
         private TabPage imagesTabPage;
         private Label imagesInstructionLabel;
         private ListView imagesListView;

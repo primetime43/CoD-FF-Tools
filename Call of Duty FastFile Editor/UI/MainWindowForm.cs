@@ -2419,6 +2419,59 @@ namespace Call_of_Duty_FastFile_Editor
         }
 
         /// <summary>
+        /// Opens the advanced weapon editor from the context menu.
+        /// </summary>
+        private void advancedEditWeaponMenuItem_Click(object? sender, EventArgs e)
+        {
+            if (weaponsListView.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select a weapon to edit.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var selectedItem = weaponsListView.SelectedItems[0];
+            var weapon = selectedItem.Tag as WeaponAsset;
+            if (weapon == null)
+            {
+                MessageBox.Show("Could not get weapon data.", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Open the advanced weapon editor dialog
+            byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
+            var gameDefinition = GameDefinitions.GameDefinitionFactory.GetDefinition(_openedFastFile);
+
+            using (var editorForm = new AdvancedWeaponEditorForm(weapon, zoneData, gameDefinition))
+            {
+                if (editorForm.ShowDialog(this) == DialogResult.OK && editorForm.ChangesSaved)
+                {
+                    // Update the ListView item with new values (re-read from zone data)
+                    var updatedWeapon = gameDefinition.ParseWeapon(zoneData, weapon.StartOffset);
+                    if (updatedWeapon != null)
+                    {
+                        // Update the weapon object with new values
+                        weapon.WeapClass = updatedWeapon.WeapClass;
+                        weapon.WeapType = updatedWeapon.WeapType;
+                        weapon.FireType = updatedWeapon.FireType;
+                        weapon.PenetrateType = updatedWeapon.PenetrateType;
+                        weapon.ImpactType = updatedWeapon.ImpactType;
+                        weapon.InventoryType = updatedWeapon.InventoryType;
+                        weapon.Damage = updatedWeapon.Damage;
+                        weapon.ClipSize = updatedWeapon.ClipSize;
+                        weapon.MaxAmmo = updatedWeapon.MaxAmmo;
+                    }
+
+                    UpdateWeaponListViewItem(selectedItem, weapon);
+
+                    // Mark as modified
+                    _hasUnsavedChanges = true;
+                }
+            }
+        }
+
+        /// <summary>
         /// Opens the weapon editor dialog for the selected weapon.
         /// </summary>
         private void EditSelectedWeapon()
