@@ -563,6 +563,10 @@ namespace Call_of_Duty_FastFile_Editor.UI
                     ChangesSaved = true;
                     MessageBox.Show($"Successfully saved {savedCount} changes.\n\nNote: Changes are in memory. Use File > Save to write to disk.",
                         "Save Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    // Close the form with OK result so MainWindowForm knows changes were saved
+                    this.DialogResult = DialogResult.OK;
+                    this.Close();
                 }
             }
             catch (Exception ex)
