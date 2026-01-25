@@ -946,230 +946,13 @@ namespace Call_of_Duty_FastFile_Editor
 
             try
             {
-                // Sync current raw file editor text to the selected node (if any)
-                if (filesTreeView.SelectedNode?.Tag is RawFileNode selectedNode)
-                {
-                    selectedNode.RawFileContent = textEditorControlEx1.Text;
-                }
-
-                // Sync current menu file editor text to the selected menu (if any)
-                if (_selectedMenuDef != null)
-                {
-                    _selectedMenuDef.StringContent = menuFilesTextEditor.Text;
-                }
-
-                // Count changes
-                int rawFileChangeCount = 0;
-                int menuChangeCount = 0;
-                int localizeChangeCount = 0;
-
-                // Debug: trace through save conditions
-                System.Diagnostics.Debug.WriteLine($"[SAVE] _hasUnsavedChanges={_hasUnsavedChanges}, _localizedEntries={_localizedEntries?.Count ?? -1}, _originalLocalizeCount={_originalLocalizeCount}");
-
-                // Apply raw file changes in place (patch directly into zone data)
-                if (_rawFileNodes != null)
-                {
-                    byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
-
-                    foreach (var node in _rawFileNodes)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[SAVE] Node '{node.FileName}': HasUnsavedChanges={node.HasUnsavedChanges}, IsCompressed={node.IsCompressed}, CompressedSize={node.CompressedSize}, MaxSize={node.MaxSize}");
-
-                        if (node.HasUnsavedChanges && !string.IsNullOrEmpty(node.RawFileContent))
-                        {
-                            byte[] newContent = Encoding.ASCII.GetBytes(node.RawFileContent);
-                            System.Diagnostics.Debug.WriteLine($"[SAVE] Processing '{node.FileName}': newContent.Length={newContent.Length}");
-
-                            // Handle internally compressed raw files (MW2 16-byte header format)
-                            if (node.IsCompressed && node.CompressedSize > 0)
-                            {
-                                // Re-compress the content
-                                byte[] compressedContent;
-                                using (var ms = new System.IO.MemoryStream())
-                                {
-                                    using (var zlib = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionLevel.Optimal, true))
-                                    {
-                                        zlib.Write(newContent, 0, newContent.Length);
-                                    }
-                                    compressedContent = ms.ToArray();
-                                }
-
-                                System.Diagnostics.Debug.WriteLine($"[SAVE] Compressed: compressedContent.Length={compressedContent.Length}, node.CompressedSize={node.CompressedSize}");
-
-                                if (compressedContent.Length > node.CompressedSize)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"[SAVE] Compressed content exceeds slot, showing rebuild dialog");
-                                    var rebuildResult = MessageBox.Show(
-                                        $"Compressed content ({compressedContent.Length} bytes) exceeds original slot ({node.CompressedSize} bytes).\n\n" +
-                                        $"Do you want to rebuild the zone to accommodate the new content?\n\n" +
-                                        "(Note: This will convert the file to uncompressed format)",
-                                        "Rebuild Zone",
-                                        MessageBoxButtons.YesNo,
-                                        MessageBoxIcon.Question);
-
-                                    if (rebuildResult == DialogResult.Yes)
-                                    {
-                                        // Update the node with uncompressed content before rebuild
-                                        node.RawFileBytes = newContent;
-                                        node.IsCompressed = false;
-                                        node.HasUnsavedChanges = false;
-
-                                        if (RebuildZoneWithCurrentData())
-                                        {
-                                            // Recompress the zone to FF
-                                            _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
-
-                                            MessageBox.Show(
-                                                $"Fast File saved to:\n\n{_openedFastFile.FfFilePath}\n\n" +
-                                                $"Zone rebuilt with compression.",
-                                                "Saved",
-                                                MessageBoxButtons.OK,
-                                                MessageBoxIcon.Information);
-                                            _hasUnsavedChanges = false;
-                                            if (this.Text.EndsWith("*"))
-                                                this.Text = this.Text.TrimEnd('*');
-                                        }
-                                        else
-                                        {
-                                            MessageBox.Show("Failed to rebuild zone.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                                        }
-                                    }
-                                    return;
-                                }
-
-                                // Update header fields (16-byte format: [FFFF][compLen][len][FFFF])
-                                int hdrOff = node.StartOfFileHeader;
-                                // compressedLen at offset +4
-                                zoneData[hdrOff + 4] = (byte)(compressedContent.Length >> 24);
-                                zoneData[hdrOff + 5] = (byte)(compressedContent.Length >> 16);
-                                zoneData[hdrOff + 6] = (byte)(compressedContent.Length >> 8);
-                                zoneData[hdrOff + 7] = (byte)(compressedContent.Length);
-                                // len at offset +8
-                                zoneData[hdrOff + 8] = (byte)(newContent.Length >> 24);
-                                zoneData[hdrOff + 9] = (byte)(newContent.Length >> 16);
-                                zoneData[hdrOff + 10] = (byte)(newContent.Length >> 8);
-                                zoneData[hdrOff + 11] = (byte)(newContent.Length);
-
-                                // Write compressed data (pad with zeros if smaller)
-                                System.Diagnostics.Debug.WriteLine($"[SAVE] Writing compressed data at CodeStartPosition=0x{node.CodeStartPosition:X}");
-                                for (int i = 0; i < node.CompressedSize && node.CodeStartPosition + i < zoneData.Length; i++)
-                                {
-                                    zoneData[node.CodeStartPosition + i] = i < compressedContent.Length ? compressedContent[i] : (byte)0;
-                                }
-
-                                node.RawFileBytes = newContent;
-                                node.CompressedSize = compressedContent.Length;
-                                System.Diagnostics.Debug.WriteLine($"[SAVE] Compressed write complete for '{node.FileName}'");
-                            }
-                            else
-                            {
-                                // Standard uncompressed raw file
-                                System.Diagnostics.Debug.WriteLine($"[SAVE] Using UNCOMPRESSED path for '{node.FileName}'");
-                                if (newContent.Length > node.MaxSize)
-                                {
-                                    MessageBox.Show($"Raw file '{node.FileName}' content ({newContent.Length} bytes) exceeds max size ({node.MaxSize} bytes).\n\n" +
-                                                    "Use 'Increase File Size' option first, or reduce content size.",
-                                                    "Content Too Large",
-                                                    MessageBoxButtons.OK,
-                                                    MessageBoxIcon.Warning);
-                                    return;
-                                }
-
-                                // Patch the content directly into the zone data
-                                System.Diagnostics.Debug.WriteLine($"[SAVE] Writing uncompressed data at CodeStartPosition=0x{node.CodeStartPosition:X}");
-                                for (int i = 0; i < node.MaxSize && node.CodeStartPosition + i < zoneData.Length; i++)
-                                {
-                                    zoneData[node.CodeStartPosition + i] = i < newContent.Length ? newContent[i] : (byte)0;
-                                }
-
-                                node.RawFileBytes = newContent;
-                                System.Diagnostics.Debug.WriteLine($"[SAVE] Uncompressed write complete for '{node.FileName}'");
-                            }
-
-                            node.HasUnsavedChanges = false;
-                            rawFileChangeCount++;
-                        }
-                    }
-                }
-
-                // Apply menu file changes in place
-                if (_menuLists != null)
-                {
-                    foreach (var menuList in _menuLists)
-                    {
-                        menuChangeCount += menuList.Menus.Count(m => m.HasUnsavedChanges);
-                    }
-                }
-
-                if (menuChangeCount > 0)
-                {
-                    ApplyMenuFileChangesToZone();
-
-                    // Reset menu dirty flags
-                    foreach (var menuList in _menuLists)
-                    {
-                        foreach (var menu in menuList.Menus)
-                        {
-                            menu.HasUnsavedChanges = false;
-                        }
-                    }
-                }
-
-                // Apply localize changes in place (if the form-level dirty flag indicates changes)
-                System.Diagnostics.Debug.WriteLine($"[SAVE] Checking localize save: _hasUnsavedChanges={_hasUnsavedChanges}, _localizeNeedsRebuild={_localizeNeedsRebuild}, entries={_localizedEntries?.Count ?? -1}");
-                if (_hasUnsavedChanges && _localizedEntries != null && _localizedEntries.Count > 0)
-                {
-                    // If import was done, force rebuild; otherwise check if we can patch in place
-                    bool canPatch = !_localizeNeedsRebuild && CanPatchLocalizeInPlace();
-                    System.Diagnostics.Debug.WriteLine($"[SAVE] CanPatchLocalizeInPlace={canPatch}");
-                    // Try to patch localize entries in place
-                    if (canPatch)
-                    {
-                        if (PatchLocalizeEntriesInPlace())
-                        {
-                            localizeChangeCount = _localizedEntries.Count; // Count all as changed (we don't track individual entries)
-                        }
-                    }
-                    else
-                    {
-                        // Can't patch in place - need to rebuild zone
-                        if (_hasUnsupportedAssets)
-                        {
-                            // Warn about unsupported assets that will be lost
-                            var unsupportedTypes = ZoneFileBuilder.GetUnsupportedAssetInfo(
-                                _openedFastFile.OpenedFastFileZone, _openedFastFile);
-                            var typeList = string.Join(", ", unsupportedTypes.Distinct().Take(5));
-
-                            var result = MessageBox.Show(
-                                $"Localize text size increased - zone must be rebuilt.\n\n" +
-                                $"This zone contains unsupported asset types ({typeList}).\n" +
-                                $"These assets will be LOST if you continue.\n\n" +
-                                $"Do you want to rebuild the zone anyway?",
-                                "Rebuild Zone",
-                                MessageBoxButtons.YesNo,
-                                MessageBoxIcon.Warning);
-
-                            if (result != DialogResult.Yes)
-                                return;
-                        }
-
-                        // Rebuild the zone with updated localize entries
-                        if (RebuildZoneWithCurrentData())
-                        {
-                            localizeChangeCount = _localizedEntries.Count;
-                            System.Diagnostics.Debug.WriteLine($"[SAVE] Zone rebuilt successfully with localize changes");
-                        }
-                        else
-                        {
-                            MessageBox.Show("Failed to rebuild zone with localize changes.",
-                                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            return;
-                        }
-                    }
-                }
+                // Apply all changes using shared helper
+                var result = ApplyAllChangesToZone();
+                if (!result.Success)
+                    return; // Error was already shown by helper
 
                 // Check if there were any changes
-                if (rawFileChangeCount == 0 && menuChangeCount == 0 && localizeChangeCount == 0)
+                if (result.RawFileChangeCount == 0 && result.MenuChangeCount == 0 && result.LocalizeChangeCount == 0)
                 {
                     MessageBox.Show("No changes to save.", "Save", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
@@ -1183,9 +966,9 @@ namespace Call_of_Duty_FastFile_Editor
 
                 // Build save message
                 var changes = new List<string>();
-                if (rawFileChangeCount > 0) changes.Add($"{rawFileChangeCount} raw file(s)");
-                if (menuChangeCount > 0) changes.Add($"{menuChangeCount} menu(s)");
-                if (localizeChangeCount > 0) changes.Add("localize entries");
+                if (result.RawFileChangeCount > 0) changes.Add($"{result.RawFileChangeCount} raw file(s)");
+                if (result.MenuChangeCount > 0) changes.Add($"{result.MenuChangeCount} menu(s)");
+                if (result.LocalizeChangeCount > 0) changes.Add("localize entries");
 
                 MessageBox.Show($"Fast File saved to:\n\n{_openedFastFile.FfFilePath}\n\n" +
                                 $"Patched {string.Join(" and ", changes)} in place. All assets preserved.",
@@ -1214,7 +997,7 @@ namespace Call_of_Duty_FastFile_Editor
 
         /// <summary>
         /// Saves the Fast File as a new file.
-        /// Patches changes in place to preserve all assets.
+        /// Uses ApplyAllChangesToZone to apply changes, then saves to the new path.
         /// </summary>
         private void saveFastFileAsToolStripMenuItem_Click(object sender, EventArgs e)
         {
@@ -1233,87 +1016,20 @@ namespace Call_of_Duty_FastFile_Editor
                 {
                     try
                     {
-                        // Sync current raw file editor text to the selected node (if any)
-                        if (filesTreeView.SelectedNode?.Tag is RawFileNode selectedNode)
-                        {
-                            selectedNode.RawFileContent = textEditorControlEx1.Text;
-                        }
-
-                        // Sync current menu file editor text to the selected menu (if any)
-                        if (_selectedMenuDef != null)
-                        {
-                            _selectedMenuDef.StringContent = menuFilesTextEditor.Text;
-                        }
-
                         string newFilePath = saveFileDialog.FileName;
                         string zoneName = Path.GetFileNameWithoutExtension(newFilePath);
                         string tempZonePath = Path.Combine(Path.GetTempPath(), zoneName + ".zone");
 
-                        // Count changes
-                        int rawFileChangeCount = 0;
-                        int menuChangeCount = 0;
-
-                        // Apply raw file changes in place (patch directly into zone data)
-                        if (_rawFileNodes != null)
-                        {
-                            byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
-
-                            foreach (var node in _rawFileNodes)
-                            {
-                                if (node.HasUnsavedChanges && !string.IsNullOrEmpty(node.RawFileContent))
-                                {
-                                    // Check if content fits within the allocated size
-                                    byte[] newContent = Encoding.ASCII.GetBytes(node.RawFileContent);
-                                    if (newContent.Length > node.MaxSize)
-                                    {
-                                        MessageBox.Show($"Raw file '{node.FileName}' content ({newContent.Length} bytes) exceeds max size ({node.MaxSize} bytes).\n\n" +
-                                                        "Use 'Increase File Size' option first, or reduce content size.",
-                                                        "Content Too Large",
-                                                        MessageBoxButtons.OK,
-                                                        MessageBoxIcon.Warning);
-                                        return;
-                                    }
-
-                                    // Patch the content directly into the zone data at the file's offset
-                                    for (int i = 0; i < node.MaxSize && node.CodeStartPosition + i < zoneData.Length; i++)
-                                    {
-                                        zoneData[node.CodeStartPosition + i] = i < newContent.Length ? newContent[i] : (byte)0;
-                                    }
-
-                                    node.RawFileBytes = newContent;
-                                    node.HasUnsavedChanges = false;
-                                    rawFileChangeCount++;
-                                }
-                            }
-                        }
-
-                        // Apply menu file changes in place
-                        if (_menuLists != null)
-                        {
-                            foreach (var menuList in _menuLists)
-                            {
-                                menuChangeCount += menuList.Menus.Count(m => m.HasUnsavedChanges);
-                            }
-
-                            if (menuChangeCount > 0)
-                            {
-                                ApplyMenuFileChangesToZone();
-
-                                // Reset menu dirty flags
-                                foreach (var menuList in _menuLists)
-                                {
-                                    foreach (var menu in menuList.Menus)
-                                    {
-                                        menu.HasUnsavedChanges = false;
-                                    }
-                                }
-                            }
-                        }
+                        // Apply all changes using shared helper (same as Save)
+                        var result = ApplyAllChangesToZone();
+                        if (!result.Success)
+                            return; // Error was already shown by helper
 
                         // Build save message
                         var changes = new List<string>();
-                        if (rawFileChangeCount > 0) changes.Add($"{rawFileChangeCount} raw file(s)");
-                        if (menuChangeCount > 0) changes.Add($"{menuChangeCount} menu(s)");
+                        if (result.RawFileChangeCount > 0) changes.Add($"{result.RawFileChangeCount} raw file(s)");
+                        if (result.MenuChangeCount > 0) changes.Add($"{result.MenuChangeCount} menu(s)");
+                        if (result.LocalizeChangeCount > 0) changes.Add("localize entries");
                         string saveMessage = changes.Count > 0
                             ? $"Patched {string.Join(" and ", changes)} in place. All assets preserved."
                             : "Zone saved with all assets preserved.";
@@ -1333,6 +1049,10 @@ namespace Call_of_Duty_FastFile_Editor
                                         MessageBoxButtons.OK,
                                         MessageBoxIcon.Asterisk);
 
+                        // Reset dirty flags after successful save
+                        _hasUnsavedChanges = false;
+                        _localizeNeedsRebuild = false;
+
                         // Then close out
                         SaveCloseFastFileAndCleanUp();
                     }
@@ -1345,6 +1065,226 @@ namespace Call_of_Duty_FastFile_Editor
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Result of applying changes to zone data.
+        /// </summary>
+        private class ApplyChangesResult
+        {
+            public bool Success { get; set; } = true;
+            public int RawFileChangeCount { get; set; }
+            public int MenuChangeCount { get; set; }
+            public int LocalizeChangeCount { get; set; }
+        }
+
+        /// <summary>
+        /// Applies all pending changes (raw files, menus, localize) to the zone data.
+        /// This is the shared logic used by both Save and Save As.
+        /// </summary>
+        /// <returns>Result indicating success and change counts.</returns>
+        private ApplyChangesResult ApplyAllChangesToZone()
+        {
+            var result = new ApplyChangesResult();
+
+            // Sync current raw file editor text to the selected node (if any)
+            if (filesTreeView.SelectedNode?.Tag is RawFileNode selectedNode)
+            {
+                selectedNode.RawFileContent = textEditorControlEx1.Text;
+            }
+
+            // Sync current menu file editor text to the selected menu (if any)
+            if (_selectedMenuDef != null)
+            {
+                _selectedMenuDef.StringContent = menuFilesTextEditor.Text;
+            }
+
+            // Apply raw file changes in place (patch directly into zone data)
+            if (_rawFileNodes != null && _openedFastFile != null)
+            {
+                byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
+
+                foreach (var node in _rawFileNodes)
+                {
+                    if (node.HasUnsavedChanges && !string.IsNullOrEmpty(node.RawFileContent))
+                    {
+                        byte[] newContent = Encoding.ASCII.GetBytes(node.RawFileContent);
+
+                        // Handle internally compressed raw files (MW2 16-byte header format)
+                        if (node.IsCompressed && node.CompressedSize > 0)
+                        {
+                            // Re-compress the content
+                            byte[] compressedContent;
+                            using (var ms = new System.IO.MemoryStream())
+                            {
+                                using (var zlib = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionLevel.Optimal, true))
+                                {
+                                    zlib.Write(newContent, 0, newContent.Length);
+                                }
+                                compressedContent = ms.ToArray();
+                            }
+
+                            if (compressedContent.Length > node.CompressedSize)
+                            {
+                                var rebuildResult = MessageBox.Show(
+                                    $"Compressed content ({compressedContent.Length} bytes) exceeds original slot ({node.CompressedSize} bytes).\n\n" +
+                                    $"Do you want to rebuild the zone to accommodate the new content?\n\n" +
+                                    "(Note: This will convert the file to uncompressed format)",
+                                    "Rebuild Zone",
+                                    MessageBoxButtons.YesNo,
+                                    MessageBoxIcon.Question);
+
+                                if (rebuildResult == DialogResult.Yes)
+                                {
+                                    // Update the node with uncompressed content before rebuild
+                                    node.RawFileBytes = newContent;
+                                    node.IsCompressed = false;
+                                    node.HasUnsavedChanges = false;
+
+                                    if (RebuildZoneWithCurrentData())
+                                    {
+                                        result.RawFileChangeCount++;
+                                        continue;
+                                    }
+                                    else
+                                    {
+                                        MessageBox.Show("Failed to rebuild zone.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                        result.Success = false;
+                                        return result;
+                                    }
+                                }
+                                result.Success = false;
+                                return result;
+                            }
+
+                            // Update header fields (16-byte format: [FFFF][compLen][len][FFFF])
+                            int hdrOff = node.StartOfFileHeader;
+                            // compressedLen at offset +4
+                            zoneData[hdrOff + 4] = (byte)(compressedContent.Length >> 24);
+                            zoneData[hdrOff + 5] = (byte)(compressedContent.Length >> 16);
+                            zoneData[hdrOff + 6] = (byte)(compressedContent.Length >> 8);
+                            zoneData[hdrOff + 7] = (byte)(compressedContent.Length);
+                            // len at offset +8
+                            zoneData[hdrOff + 8] = (byte)(newContent.Length >> 24);
+                            zoneData[hdrOff + 9] = (byte)(newContent.Length >> 16);
+                            zoneData[hdrOff + 10] = (byte)(newContent.Length >> 8);
+                            zoneData[hdrOff + 11] = (byte)(newContent.Length);
+
+                            // Write compressed data (pad with zeros if smaller)
+                            for (int i = 0; i < node.CompressedSize && node.CodeStartPosition + i < zoneData.Length; i++)
+                            {
+                                zoneData[node.CodeStartPosition + i] = i < compressedContent.Length ? compressedContent[i] : (byte)0;
+                            }
+
+                            node.RawFileBytes = newContent;
+                            node.CompressedSize = compressedContent.Length;
+                        }
+                        else
+                        {
+                            // Standard uncompressed raw file
+                            if (newContent.Length > node.MaxSize)
+                            {
+                                MessageBox.Show($"Raw file '{node.FileName}' content ({newContent.Length} bytes) exceeds max size ({node.MaxSize} bytes).\n\n" +
+                                                "Use 'Increase File Size' option first, or reduce content size.",
+                                                "Content Too Large",
+                                                MessageBoxButtons.OK,
+                                                MessageBoxIcon.Warning);
+                                result.Success = false;
+                                return result;
+                            }
+
+                            // Patch the content directly into the zone data
+                            for (int i = 0; i < node.MaxSize && node.CodeStartPosition + i < zoneData.Length; i++)
+                            {
+                                zoneData[node.CodeStartPosition + i] = i < newContent.Length ? newContent[i] : (byte)0;
+                            }
+
+                            node.RawFileBytes = newContent;
+                        }
+
+                        node.HasUnsavedChanges = false;
+                        result.RawFileChangeCount++;
+                    }
+                }
+            }
+
+            // Apply menu file changes in place
+            if (_menuLists != null)
+            {
+                foreach (var menuList in _menuLists)
+                {
+                    result.MenuChangeCount += menuList.Menus.Count(m => m.HasUnsavedChanges);
+                }
+
+                if (result.MenuChangeCount > 0)
+                {
+                    ApplyMenuFileChangesToZone();
+
+                    // Reset menu dirty flags
+                    foreach (var menuList in _menuLists)
+                    {
+                        foreach (var menu in menuList.Menus)
+                        {
+                            menu.HasUnsavedChanges = false;
+                        }
+                    }
+                }
+            }
+
+            // Apply localize changes in place (if the form-level dirty flag indicates changes)
+            if (_hasUnsavedChanges && _localizedEntries != null && _localizedEntries.Count > 0)
+            {
+                // If import was done, force rebuild; otherwise check if we can patch in place
+                bool canPatch = !_localizeNeedsRebuild && CanPatchLocalizeInPlace();
+
+                if (canPatch)
+                {
+                    if (PatchLocalizeEntriesInPlace())
+                    {
+                        result.LocalizeChangeCount = _localizedEntries.Count;
+                    }
+                }
+                else
+                {
+                    // Can't patch in place - need to rebuild zone
+                    if (_hasUnsupportedAssets)
+                    {
+                        var unsupportedTypes = ZoneFileBuilder.GetUnsupportedAssetInfo(
+                            _openedFastFile!.OpenedFastFileZone, _openedFastFile);
+                        var typeList = string.Join(", ", unsupportedTypes.Distinct().Take(5));
+
+                        var dialogResult = MessageBox.Show(
+                            $"Localize text size increased - zone must be rebuilt.\n\n" +
+                            $"This zone contains unsupported asset types ({typeList}).\n" +
+                            $"These assets will be LOST if you continue.\n\n" +
+                            $"Do you want to rebuild the zone anyway?",
+                            "Rebuild Zone",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Warning);
+
+                        if (dialogResult != DialogResult.Yes)
+                        {
+                            result.Success = false;
+                            return result;
+                        }
+                    }
+
+                    // Rebuild the zone with updated localize entries
+                    if (RebuildZoneWithCurrentData())
+                    {
+                        result.LocalizeChangeCount = _localizedEntries.Count;
+                    }
+                    else
+                    {
+                        MessageBox.Show("Failed to rebuild zone with localize changes.",
+                            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        result.Success = false;
+                        return result;
+                    }
+                }
+            }
+
+            return result;
         }
 
         /// <summary>
