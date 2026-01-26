@@ -905,7 +905,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// </remarks>
         private void SaveFileNode(string ffFilePath, string zoneFilePath, RawFileNode rawFileNode, string updatedText, FastFileHeader headerInfo)
         {
-            byte[] updatedBytes = Encoding.ASCII.GetBytes(updatedText);
+            byte[] updatedBytes = Encoding.UTF8.GetBytes(updatedText);
             int updatedSize = updatedBytes.Length;
             int originalSize = rawFileNode.MaxSize;
 

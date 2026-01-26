@@ -859,7 +859,7 @@ namespace Call_of_Duty_FastFile_Editor
                 }
                 else // DialogResult.No → discard changes
                 {
-                    // Revert the node’s content back to the last‐loaded bytes
+                    // Revert the node's content back to the last‐loaded bytes
                     var originalText = Encoding.UTF8.GetString(prevNode.RawFileBytes);
                     prevNode.RawFileContent = originalText;
                     prevNode.HasUnsavedChanges = false;
@@ -1108,7 +1108,7 @@ namespace Call_of_Duty_FastFile_Editor
                 {
                     if (node.HasUnsavedChanges && !string.IsNullOrEmpty(node.RawFileContent))
                     {
-                        byte[] newContent = Encoding.ASCII.GetBytes(node.RawFileContent);
+                        byte[] newContent = Encoding.UTF8.GetBytes(node.RawFileContent);
 
                         // Handle internally compressed raw files (MW2 16-byte header format)
                         if (node.IsCompressed && node.CompressedSize > 0)
