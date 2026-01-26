@@ -997,7 +997,7 @@ namespace Call_of_Duty_FastFile_Editor
 
         /// <summary>
         /// Saves the Fast File as a new file.
-        /// Uses ApplyAllChangesToZone to apply changes, then saves to the new path.
+        /// Performs a normal Save first, then copies the FF to the new location.
         /// </summary>
         private void saveFastFileAsToolStripMenuItem_Click(object sender, EventArgs e)
         {
@@ -1011,19 +1011,27 @@ namespace Call_of_Duty_FastFile_Editor
             {
                 saveFileDialog.Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*";
                 saveFileDialog.Title = "Save Fast File As";
+                saveFileDialog.FileName = Path.GetFileName(_openedFastFile.FfFilePath);
 
                 if (saveFileDialog.ShowDialog() == DialogResult.OK)
                 {
                     try
                     {
                         string newFilePath = saveFileDialog.FileName;
-                        string zoneName = Path.GetFileNameWithoutExtension(newFilePath);
-                        string tempZonePath = Path.Combine(Path.GetTempPath(), zoneName + ".zone");
 
                         // Apply all changes using shared helper (same as Save)
                         var result = ApplyAllChangesToZone();
                         if (!result.Success)
                             return; // Error was already shown by helper
+
+                        // Write the modified zone data to the existing zone file
+                        File.WriteAllBytes(_openedFastFile.ZoneFilePath, _openedFastFile.OpenedFastFileZone.Data);
+
+                        // Recompress to the original FF path first
+                        _fastFileHandler.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+
+                        // Now copy the saved FF to the new location
+                        File.Copy(_openedFastFile.FfFilePath, newFilePath, overwrite: true);
 
                         // Build save message
                         var changes = new List<string>();
@@ -1031,18 +1039,8 @@ namespace Call_of_Duty_FastFile_Editor
                         if (result.MenuChangeCount > 0) changes.Add($"{result.MenuChangeCount} menu(s)");
                         if (result.LocalizeChangeCount > 0) changes.Add("localize entries");
                         string saveMessage = changes.Count > 0
-                            ? $"Patched {string.Join(" and ", changes)} in place. All assets preserved."
-                            : "Zone saved with all assets preserved.";
-
-                        // Write the modified zone data to temp file
-                        File.WriteAllBytes(tempZonePath, _openedFastFile.OpenedFastFileZone.Data);
-
-                        // Recompress to new FF path
-                        _fastFileHandler?.Recompress(newFilePath, tempZonePath, _openedFastFile);
-
-                        // Clean up temp file
-                        if (File.Exists(tempZonePath))
-                            File.Delete(tempZonePath);
+                            ? $"Patched {string.Join(" and ", changes)}."
+                            : "No changes to save.";
 
                         MessageBox.Show($"Fast File saved to:\n\n{newFilePath}\n\n{saveMessage}",
                                         "Saved",
@@ -1053,8 +1051,11 @@ namespace Call_of_Duty_FastFile_Editor
                         _hasUnsavedChanges = false;
                         _localizeNeedsRebuild = false;
 
-                        // Then close out
-                        SaveCloseFastFileAndCleanUp();
+                        // Remove asterisk from title
+                        if (this.Text.EndsWith("*"))
+                        {
+                            this.Text = this.Text.TrimEnd('*');
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1143,8 +1144,14 @@ namespace Call_of_Duty_FastFile_Editor
 
                                     if (RebuildZoneWithCurrentData())
                                     {
-                                        result.RawFileChangeCount++;
-                                        continue;
+                                        // Zone was rebuilt - all raw file content is now in the new zone
+                                        // Mark all nodes as saved and return (old offsets are now invalid)
+                                        foreach (var n in _rawFileNodes!)
+                                        {
+                                            n.HasUnsavedChanges = false;
+                                        }
+                                        result.RawFileChangeCount = _rawFileNodes.Count(n => !string.IsNullOrEmpty(n.RawFileContent));
+                                        return result;
                                     }
                                     else
                                     {
