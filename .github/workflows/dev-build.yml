@@ -52,6 +52,16 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-tool
 
+    - name: Build and Publish FastFile CLI
+      run: |
+        dotnet publish "FastFileCLI/FastFileCLI.csproj" `
+          -c Release `
+          -r win-x64 `
+          --self-contained false `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o ./publish-cli
+
     - name: Upload Main Editor
       uses: actions/upload-artifact@v4
       with:
@@ -73,6 +83,13 @@ jobs:
         path: ./publish-tool/FastFileToolGUI.exe
         retention-days: 14
 
+    - name: Upload FastFile CLI
+      uses: actions/upload-artifact@v4
+      with:
+        name: FastFileCLI-Dev
+        path: ./publish-cli/ffcli.exe
+        retention-days: 14
+
     - name: Upload All Tools Bundle
       uses: actions/upload-artifact@v4
       with:
@@ -81,4 +98,5 @@ jobs:
           ./publish/Call of Duty FastFile Editor.exe
           ./publish-compiler/FastFileCompilerGUI.exe
           ./publish-tool/FastFileToolGUI.exe
+          ./publish-cli/ffcli.exe
         retention-days: 14

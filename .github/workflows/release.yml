@@ -70,6 +70,16 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-converter
 
+    - name: Build and Publish FastFile CLI
+      run: |
+        dotnet publish "FastFileCLI/FastFileCLI.csproj" `
+          -c Release `
+          -r win-x64 `
+          --self-contained false `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o ./publish-cli
+
     - name: List published files
       run: |
         Write-Host "Main Editor:"
@@ -80,6 +90,8 @@ jobs:
         Get-ChildItem -Path ./publish-tool -Recurse
         Write-Host "Converter GUI:"
         Get-ChildItem -Path ./publish-converter -Recurse
+        Write-Host "CLI:"
+        Get-ChildItem -Path ./publish-cli -Recurse
 
     - name: Get version from tag
       id: get_version
@@ -104,5 +116,6 @@ jobs:
           ./publish-compiler/FastFileCompilerGUI.exe
           ./publish-tool/FastFileToolGUI.exe
           ./publish-converter/FastFileConverter.exe
+          ./publish-cli/ffcli.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

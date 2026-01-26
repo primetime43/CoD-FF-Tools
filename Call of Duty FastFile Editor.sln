@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileLib", "FastFileLib\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileConverterGUI", "FastFileConverterGUI\FastFileConverterGUI.csproj", "{9DECFCB0-C319-4238-930F-11AB5782F581}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileCLI", "FastFileCLI\FastFileCLI.csproj", "{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -83,6 +85,18 @@ Global
 		{9DECFCB0-C319-4238-930F-11AB5782F581}.Release|x64.Build.0 = Release|Any CPU
 		{9DECFCB0-C319-4238-930F-11AB5782F581}.Release|x86.ActiveCfg = Release|Any CPU
 		{9DECFCB0-C319-4238-930F-11AB5782F581}.Release|x86.Build.0 = Release|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Debug|x64.Build.0 = Debug|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Debug|x86.Build.0 = Debug|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Release|x64.ActiveCfg = Release|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Release|x64.Build.0 = Release|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Release|x86.ActiveCfg = Release|Any CPU
+		{F3082B82-E1B6-49EA-AF3C-6B22E7F106AD}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
