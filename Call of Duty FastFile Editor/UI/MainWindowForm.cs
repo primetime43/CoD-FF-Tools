@@ -886,7 +886,7 @@ namespace Call_of_Duty_FastFile_Editor
 
                 if (result == DialogResult.Yes)
                 {
-                    // Save the previous node
+                    // Save the previous node into the zone bytes...
                     _rawFileService.SaveZoneRawFileChanges(
                         filesTreeView,
                         _openedFastFile.FfFilePath,
@@ -896,6 +896,24 @@ namespace Call_of_Duty_FastFile_Editor
                         _openedFastFile
                     );
                     prevNode.HasUnsavedChanges = false;
+
+                    // ...then push that into the .ff. Without this, the subsequent File > Save
+                    // sees HasUnsavedChanges = false for every node (we just cleared the only
+                    // dirty one), bails with "No changes to save", and the edit silently
+                    // vanishes the next time the FF is reopened (issue #14).
+                    try
+                    {
+                        _fastFileHandler?.Recompress(_openedFastFile.FfFilePath,
+                                                     _openedFastFile.ZoneFilePath,
+                                                     _openedFastFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        FastFileLib.Logging.LogService.Error("Switch",
+                            $"Recompress to FF failed during save-on-switch: {ex.Message}", ex);
+                        MessageBox.Show($"Saved zone changes but recompressing to .ff failed:\n\n{ex.Message}",
+                            "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
                 else if (result == DialogResult.Cancel)
                 {
@@ -1724,6 +1742,22 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
 
             _rawFileService.RenameRawFile(filesTreeView, _openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _rawFileNodes, _openedFastFile);
+
+            // Recompress to .ff so the rename actually reaches the game (issue #14 family).
+            // The rename modifies the zone bytes directly without setting any HasUnsavedChanges,
+            // so File > Save would otherwise see no work to do.
+            try
+            {
+                _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+            }
+            catch (Exception ex)
+            {
+                FastFileLib.Logging.LogService.Error("Rename",
+                    $"Recompress to FF failed after rename: {ex.Message}", ex);
+                MessageBox.Show($"Renamed in the zone, but recompressing to .ff failed:\n\n{ex.Message}",
+                    "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
             ReloadAllRawFileNodesAndUI();
         }
 
@@ -4417,7 +4451,7 @@ namespace Call_of_Duty_FastFile_Editor
 
                     if (result == DialogResult.Yes)
                     {
-                        // Save each dirty file
+                        // Save each dirty file's content into the zone bytes.
                         foreach (var node in dirtyNodes)
                         {
                             // Select the corresponding TreeNode so SaveZoneRawFileChanges targets it
@@ -4435,6 +4469,24 @@ namespace Call_of_Duty_FastFile_Editor
                                 _openedFastFile
                             );
                             node.HasUnsavedChanges = false;
+                        }
+
+                        // Recompress the modified zone into the .ff on disk. Without this, the
+                        // changes only live in the .zone file and the actual .ff the game loads
+                        // keeps its original mtime + bytes (issue #14). There's no opportunity to
+                        // save again after this since the editor is closing.
+                        try
+                        {
+                            _fastFileHandler?.Recompress(_openedFastFile.FfFilePath,
+                                                         _openedFastFile.ZoneFilePath,
+                                                         _openedFastFile);
+                        }
+                        catch (Exception ex)
+                        {
+                            FastFileLib.Logging.LogService.Error("Close",
+                                $"Recompress to FF failed during save-on-close: {ex.Message}", ex);
+                            MessageBox.Show($"Saved zone changes but recompressing to .ff failed:\n\n{ex.Message}",
+                                "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         }
                     }
                     else if (result == DialogResult.Cancel)
