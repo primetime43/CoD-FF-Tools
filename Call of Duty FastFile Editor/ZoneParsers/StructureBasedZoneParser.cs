@@ -393,7 +393,9 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 }
                 else if (_isCod5)
                 {
-                    if (_isPC)
+                    // Wii uses the PC asset type enum (no pixelshader/vertexshader slots),
+                    // even though it's big-endian. So store in the PC-typed field, not the PS3 one.
+                    if (_isPC || _isWii)
                         record.AssetType_COD5_PC = (CoD5AssetTypePC)assetTypeInt;
                     else if (_isXbox360)
                         record.AssetType_COD5_Xbox360 = (CoD5AssetTypeXbox360)assetTypeInt;

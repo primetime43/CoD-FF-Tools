@@ -4233,7 +4233,9 @@ namespace Call_of_Duty_FastFile_Editor
                 return (int)record.AssetType_COD4_Xbox360;
             if (_openedFastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
-            if (_openedFastFile.IsCod5File && _openedFastFile.IsPC)
+            // Wii uses the PC enum (no shader asset slots) - the type byte lives in
+            // AssetType_COD5_PC even though Wii is big-endian.
+            if (_openedFastFile.IsCod5File && (_openedFastFile.IsPC || _openedFastFile.IsWii))
                 return (int)record.AssetType_COD5_PC;
             if (_openedFastFile.IsCod5File && _openedFastFile.IsXbox360)
                 return (int)record.AssetType_COD5_Xbox360;

@@ -36,6 +36,9 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         private static readonly CoD5PCGameDefinition _cod5PC = new();
         private static readonly MW2GameDefinition _mw2PC = new(isXbox360: false, isPC: true);
 
+        // Wii (big-endian like PS3 but PC-style asset type IDs; 56-byte header)
+        private static readonly CoD5WiiGameDefinition _cod5Wii = new();
+
         /// <summary>
         /// Gets the appropriate game definition for the given FastFile.
         /// Automatically selects PS3 or Xbox 360 variant based on the file's signature.
@@ -47,6 +50,16 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public static IGameDefinition GetDefinition(FastFile fastFile)
         {
             bool isXbox360 = fastFile.IsSigned;
+
+            // Wii first - it's big-endian like PS3 but uses PC-style asset type IDs and a
+            // 56-byte zone header. Detected via FastFile.IsWii (set when the version bytes
+            // match a known Wii version, e.g. 0x19B for WaW Wii).
+            if (fastFile.IsWii)
+            {
+                if (fastFile.IsCod5File)
+                    return _cod5Wii;
+                // CoD4 Wii not yet implemented; fall through to PS3 fallback.
+            }
 
             // Check if PC platform was explicitly set
             if (fastFile.IsPC)
