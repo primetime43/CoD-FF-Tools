@@ -213,7 +213,16 @@ public partial class Form1 : Form
             Visible = false
         };
 
+        var viewLogsButton = new Button
+        {
+            Text = "View Logs...",
+            Width = 100,
+            Height = 35
+        };
+        viewLogsButton.Click += (_, _) => new FastFileLib.WinForms.LogViewerForm().Show(this);
+
         buttonPanel.Controls.Add(_convertButton);
+        buttonPanel.Controls.Add(viewLogsButton);
         buttonPanel.Controls.Add(_progressBar);
 
         // Log section

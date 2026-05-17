@@ -1,3 +1,5 @@
+using FastFileLib.Logging;
+
 namespace FastFileConverterGUI;
 
 static class Program
@@ -8,9 +10,10 @@ static class Program
     [STAThread]
     static void Main()
     {
-        // To customize application configuration such as set high DPI settings or default font,
-        // see https://aka.ms/applicationconfiguration.
+        TraceCapture.Install();
+        LogService.Info("App", "FastFile Converter starting");
+
         ApplicationConfiguration.Initialize();
         Application.Run(new Form1());
-    }    
+    }
 }

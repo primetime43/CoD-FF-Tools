@@ -1,4 +1,4 @@
-namespace Call_of_Duty_FastFile_Editor.UI
+namespace FastFileLib.WinForms
 {
     partial class LogsTabPage
     {
@@ -30,8 +30,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 if (components != null) components.Dispose();
                 // Unsubscribe from the static LogService events when the control is disposed
                 // so leftover handlers don't reference a disposed control.
-                FastFileLib.Logging.LogService.EntryAdded -= OnEntryAdded;
-                FastFileLib.Logging.LogService.Cleared    -= OnCleared;
+                global::FastFileLib.Logging.LogService.EntryAdded -= OnEntryAdded;
+                global::FastFileLib.Logging.LogService.Cleared    -= OnCleared;
             }
             base.Dispose(disposing);
         }
@@ -75,40 +75,30 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 this.countLabel
             });
 
-            // ---- filterLabel
             this.filterLabel.Text = "Severity:";
-
-            // ---- severityFilter
             this.severityFilter.AutoSize = false;
             this.severityFilter.Width = 100;
             this.severityFilter.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
 
-            // ---- categoryLabel
             this.categoryLabel.Text = "Category:";
-
-            // ---- categoryFilter
             this.categoryFilter.AutoSize = false;
             this.categoryFilter.Width = 160;
             this.categoryFilter.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
 
-            // ---- clearButton
             this.clearButton.Text = "Clear";
             this.clearButton.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
             this.clearButton.ToolTipText = "Clear all log entries from memory";
 
-            // ---- exportButton
             this.exportButton.Text = "Export...";
             this.exportButton.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
             this.exportButton.ToolTipText = "Save all entries to a .log text file";
 
-            // ---- autoScrollButton
             this.autoScrollButton.Text = "Auto-scroll";
             this.autoScrollButton.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
             this.autoScrollButton.CheckOnClick = true;
             this.autoScrollButton.Checked = true;
             this.autoScrollButton.ToolTipText = "Scroll to the newest entry as it arrives";
 
-            // ---- countLabel
             this.countLabel.Text = "0 entries";
             this.countLabel.Alignment = System.Windows.Forms.ToolStripItemAlignment.Right;
 
@@ -135,7 +125,6 @@ namespace Call_of_Duty_FastFile_Editor.UI
             this.colMessage.Text = "Message";
             this.colMessage.Width = 900;
 
-            // ---- LogsTabPage (UserControl)
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.Controls.Add(this.logListView);

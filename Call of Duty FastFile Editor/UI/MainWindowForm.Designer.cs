@@ -1,6 +1,6 @@
 using ICSharpCode.TextEditor;
 using ICSharpCode.TextEditorEx;
-using Call_of_Duty_FastFile_Editor.UI;
+using FastFileLib.WinForms;
 
 namespace Call_of_Duty_FastFile_Editor
 {

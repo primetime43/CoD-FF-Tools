@@ -10,6 +10,11 @@ public partial class MainForm : Form
         PopulateGameVersionComboBox();
     }
 
+    private void viewLogsLabel_Click(object? sender, EventArgs e)
+    {
+        new FastFileLib.WinForms.LogViewerForm().Show(this);
+    }
+
     private void PopulateGameVersionComboBox()
     {
         gameVersionComboBox.Items.Clear();

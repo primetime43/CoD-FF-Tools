@@ -16,9 +16,6 @@
     <Compile Update="UI\ImagePreviewForm.cs">
       <SubType>Form</SubType>
     </Compile>
-    <Compile Update="UI\LogsTabPage.cs">
-      <SubType>UserControl</SubType>
-    </Compile>
     <Compile Update="UI\RawFileSearcherForm.cs">
       <SubType>Form</SubType>
     </Compile>

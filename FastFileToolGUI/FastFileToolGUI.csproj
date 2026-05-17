@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FastFileLib\FastFileLib.csproj" />
+    <ProjectReference Include="..\FastFileLib.WinForms\FastFileLib.WinForms.csproj" />
   </ItemGroup>
 
 </Project>

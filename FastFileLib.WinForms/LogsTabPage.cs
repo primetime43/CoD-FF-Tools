@@ -1,23 +1,21 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.IO;
-using System.Linq;
 using System.Windows.Forms;
 using FastFileLib.Logging;
 
-namespace Call_of_Duty_FastFile_Editor.UI
+namespace FastFileLib.WinForms
 {
     /// <summary>
-    /// Tab content showing live log entries from <see cref="LogService"/> with severity
-    /// + category filters, clear, export, and auto-scroll controls. Subscribes to
-    /// LogService events; safe to add/remove from the UI lifecycle.
+    /// UserControl showing live log entries from <see cref="LogService"/> with severity and
+    /// category filters, clear, export, and auto-scroll. Can be embedded directly in a tab
+    /// or hosted in a <see cref="LogViewerForm"/> popup. Thread-safe - marshals LogService
+    /// events to the UI thread.
     /// </summary>
     public partial class LogsTabPage : UserControl
     {
         private const string AllCategories = "(All)";
 
-        // Static-color map per severity for visual scanning
         private static readonly Dictionary<LogSeverity, Color> SeverityColors = new()
         {
             { LogSeverity.Debug,   Color.Gray },
@@ -26,14 +24,12 @@ namespace Call_of_Duty_FastFile_Editor.UI
             { LogSeverity.Error,   Color.Firebrick },
         };
 
-        // Categories we've already added to the dropdown, kept in a set so we don't add dupes
         private readonly HashSet<string> _knownCategories = new(StringComparer.OrdinalIgnoreCase);
 
         public LogsTabPage()
         {
             InitializeComponent();
 
-            // Severity filter values: All + each level
             severityFilter.Items.Add("All");
             foreach (var sev in Enum.GetValues<LogSeverity>())
                 severityFilter.Items.Add(sev.ToString());
@@ -57,11 +53,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
             LogService.EntryAdded += OnEntryAdded;
             LogService.Cleared    += OnCleared;
 
-            // Hydrate from any entries already captured before we attached
             RefreshAll();
         }
-
-        // ---- Event handlers (may fire on any thread; marshal to UI) ----
 
         private void OnEntryAdded(object? sender, LogEntry e)
         {
@@ -83,18 +76,14 @@ namespace Call_of_Duty_FastFile_Editor.UI
             else { RefreshAll(); }
         }
 
-        // ---- UI updates ----
-
         private void AddEntryToUi(LogEntry e)
         {
-            // Track new categories
             if (!_knownCategories.Contains(e.Category))
             {
                 _knownCategories.Add(e.Category);
                 categoryFilter.Items.Add(e.Category);
             }
 
-            // Apply current filter
             if (!PassesFilter(e)) { UpdateCountLabel(); return; }
 
             var item = BuildListItem(e);
@@ -113,8 +102,6 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 logListView.Items.Clear();
 
                 var entries = LogService.GetAll();
-
-                // Rebuild category dropdown to reflect known categories
                 foreach (var e in entries)
                 {
                     if (!_knownCategories.Contains(e.Category))
@@ -156,15 +143,12 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
         private bool PassesFilter(LogEntry e)
         {
-            // Severity
             if (severityFilter.SelectedIndex > 0)
             {
-                // SelectedIndex 0 == "All"; 1+ map to enum values in declaration order
                 var minSeverity = (LogSeverity)(severityFilter.SelectedIndex - 1);
                 if (e.Severity < minSeverity) return false;
             }
 
-            // Category
             string selectedCategory = categoryFilter.SelectedItem as string ?? AllCategories;
             if (selectedCategory != AllCategories &&
                 !string.Equals(e.Category, selectedCategory, StringComparison.OrdinalIgnoreCase))

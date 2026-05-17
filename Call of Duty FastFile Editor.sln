@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileCLI", "FastFileCLI\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileCLI.Tests", "FastFileCLI.Tests\FastFileCLI.Tests.csproj", "{BA93292F-DEE8-4DDE-BE87-986D5738C7B4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileLib.WinForms", "FastFileLib.WinForms\FastFileLib.WinForms.csproj", "{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -111,6 +113,18 @@ Global
 		{BA93292F-DEE8-4DDE-BE87-986D5738C7B4}.Release|x64.Build.0 = Release|Any CPU
 		{BA93292F-DEE8-4DDE-BE87-986D5738C7B4}.Release|x86.ActiveCfg = Release|Any CPU
 		{BA93292F-DEE8-4DDE-BE87-986D5738C7B4}.Release|x86.Build.0 = Release|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Debug|x64.Build.0 = Debug|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Debug|x86.Build.0 = Debug|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|x64.ActiveCfg = Release|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|x64.Build.0 = Release|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|x86.ActiveCfg = Release|Any CPU
+		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

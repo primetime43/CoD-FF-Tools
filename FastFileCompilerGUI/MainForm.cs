@@ -753,6 +753,11 @@ public partial class MainForm : Form
         Close();
     }
 
+    private void viewLogsMenuItem_Click(object sender, EventArgs e)
+    {
+        new FastFileLib.WinForms.LogViewerForm().Show(this);
+    }
+
     private void aboutMenuItem_Click(object sender, EventArgs e)
     {
         MessageBox.Show(

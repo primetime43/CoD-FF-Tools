@@ -67,6 +67,8 @@ partial class MainForm
         // Menu strip
         this.menuStrip = new MenuStrip();
         this.fileToolStripMenuItem = new ToolStripMenuItem();
+        this.viewToolStripMenuItem = new ToolStripMenuItem();
+        this.viewLogsMenuItem = new ToolStripMenuItem();
         this.newProjectMenuItem = new ToolStripMenuItem();
         this.loadExistingFFMenuItem = new ToolStripMenuItem();
         this.toolStripSeparator1 = new ToolStripSeparator();
@@ -89,6 +91,7 @@ partial class MainForm
         //
         this.menuStrip.Items.AddRange(new ToolStripItem[] {
             this.fileToolStripMenuItem,
+            this.viewToolStripMenuItem,
             this.helpToolStripMenuItem
         });
         this.menuStrip.Location = new Point(0, 0);
@@ -130,6 +133,22 @@ partial class MainForm
         this.exitMenuItem.Name = "exitMenuItem";
         this.exitMenuItem.Text = "E&xit";
         this.exitMenuItem.Click += new EventHandler(this.exitMenuItem_Click);
+
+        //
+        // viewToolStripMenuItem
+        //
+        this.viewToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] {
+            this.viewLogsMenuItem
+        });
+        this.viewToolStripMenuItem.Name = "viewToolStripMenuItem";
+        this.viewToolStripMenuItem.Text = "&View";
+
+        //
+        // viewLogsMenuItem
+        //
+        this.viewLogsMenuItem.Name = "viewLogsMenuItem";
+        this.viewLogsMenuItem.Text = "&Logs...";
+        this.viewLogsMenuItem.Click += new EventHandler(this.viewLogsMenuItem_Click);
 
         //
         // helpToolStripMenuItem
@@ -547,5 +566,7 @@ partial class MainForm
     private ToolStripMenuItem exitMenuItem;
     private ToolStripMenuItem helpToolStripMenuItem;
     private ToolStripMenuItem aboutMenuItem;
+    private ToolStripMenuItem viewToolStripMenuItem;
+    private ToolStripMenuItem viewLogsMenuItem;
     private ToolTip toolTip;
 }
