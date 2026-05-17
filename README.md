@@ -6,11 +6,12 @@ Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives
 
 | Game | PS3 | Xbox 360 | PC | Wii |
 |------|-----|----------|-----|-----|
-| CoD4: Modern Warfare | Full | Full | Extract | Extract |
-| WaW: World at War | Full | Full | Extract | Extract |
+| CoD4: Modern Warfare | Full | Full | Partial | Extract |
+| WaW: World at War | Full | Full | Partial | **Partial** |
 | MW2: Modern Warfare 2 | Full | Needs Tested | Extract | - |
 
-**Full** = decompress, edit assets, recompress
+**Full** = decompress, edit all asset types, recompress
+**Partial** = decompress, edit rawfile + localize, recompress (other asset types listed but skipped)
 **Extract** = decompress to zone only (no asset editing)
 
 ## Asset Support

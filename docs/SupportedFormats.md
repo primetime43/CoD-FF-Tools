@@ -7,7 +7,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 | Game | PS3 | Xbox 360 | PC | Wii |
 |------|-----|----------|-----|-----|
 | CoD4: Modern Warfare | ✅ Full | ✅ Full | 🟡 Partial | ⚠️ Extract |
-| WaW: World at War | ✅ Full | ✅ Full | 🟡 Partial | ⚠️ Extract |
+| WaW: World at War | ✅ Full | ✅ Full | 🟡 Partial | 🟡 Partial |
 | MW2: Modern Warfare 2 | ✅ Full | 🔬 Untested | ⚠️ Extract | ➖ |
 
 ### Version IDs
@@ -31,6 +31,13 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 - Editable asset types on PC: **rawfile** (.cfg / .gsc / .csc / etc.) and **localize**.
 - Other asset types (weapon, menufile, xanim, stringtable, material, techset, image) are detected and listed but not yet parsed on PC.
 
+### Wii Notes
+- WaW Wii uses a **single zlib stream** like PC (not block format), but the zone is **big-endian** like PS3.
+- Zone header is **56 bytes** (8 blockSize slots — has an extra `BlockSizeIndex` slot that PS3 doesn't).
+- Asset entries use the **PC-style enum** (no `pixelshader` or `vertexshader` types), so the same enum mapping `CoD5AssetTypePC` is used for both PC and Wii — just with BE byte order on Wii.
+- Editable asset types on Wii: **rawfile** and **localize** (same scope as PC).
+- Save support has the same engine as PC's single-zlib-stream path; round-trip not yet verified against an actual Wii in-game test.
+
 ### Xbox 360 Notes
 - Xbox 360 requires a **patched XEX** to load modified FastFiles
 - Original signed FastFiles are converted to unsigned format when saving
@@ -40,13 +47,13 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 
 ## Platform Compression Formats
 
-| Game | PS3 | Xbox 360 | PC |
-|------|-----|----------|-----|
-| CoD4 | Block (raw deflate) | Block (raw deflate) | Single stream (zlib) ¹ |
-| WaW | Block (raw deflate) | Block (raw deflate) | Single stream (zlib) |
-| MW2 | Block (raw deflate) | Single stream (zlib) | Single stream (zlib) |
+| Game | PS3 | Xbox 360 | PC | Wii |
+|------|-----|----------|-----|-----|
+| CoD4 | Block (raw deflate) | Block (raw deflate) | Single stream (zlib) ¹ | Single stream (zlib) ¹ |
+| WaW | Block (raw deflate) | Block (raw deflate) | Single stream (zlib) | Single stream (zlib) |
+| MW2 | Block (raw deflate) | Single stream (zlib) | Single stream (zlib) | ➖ |
 
-¹ Verified directly for WaW PC against 5 retail samples; CoD4 PC presumed same shape but no samples available to confirm.
+¹ Verified directly for WaW PC and WaW Wii against retail samples; CoD4 PC/Wii presumed same shape but no samples available to confirm.
 
 ### Block vs Single Stream
 - **Block compression**: Data split into 64KB chunks, each compressed separately with 2-byte length prefix
@@ -174,7 +181,7 @@ When a zone is rebuilt (due to size changes or import):
 - Xbox 360 requires patched XEX to load modified FastFiles
 - Cannot edit binary assets (models, textures, sounds, etc.)
 - PC WaW/CoD4: rawfile and localize editing supported; other asset types are listed but not parsed/editable yet
-- Wii versions: extract only, no recompression support
+- Wii WaW: rawfile and localize editing supported; same scope as PC
 - Some edge cases in localize parsing for unusual character encodings
 
 ---
