@@ -694,17 +694,40 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private void LoadRawFilesTreeView()
         {
-            // Clear existing nodes to avoid duplication
+            // Apply current filter (empty filter shows everything)
+            LoadRawFilesTreeView(rawFilesSearchTextBox?.Text);
+        }
+
+        /// <summary>
+        /// Populates the file tree, optionally filtered to only show files whose name
+        /// contains <paramref name="filter"/> (case-insensitive). Pass null/empty to show all.
+        /// </summary>
+        private void LoadRawFilesTreeView(string? filter)
+        {
             filesTreeView.Nodes.Clear();
             filesTreeView.BeginUpdate();
 
             try
             {
-                // Dictionary to hold folder nodes for quick lookup
                 var folderNodes = new Dictionary<string, TreeNode>(StringComparer.OrdinalIgnoreCase);
 
-                // Sort raw file nodes alphabetically by filename for display
-                var sortedNodes = _rawFileNodes.OrderBy(n => n.FileName, StringComparer.OrdinalIgnoreCase).ToList();
+                var sourceNodes = _rawFileNodes.OrderBy(n => n.FileName, StringComparer.OrdinalIgnoreCase);
+                bool isFiltering = !string.IsNullOrEmpty(filter);
+                if (isFiltering)
+                {
+                    sourceNodes = sourceNodes
+                        .Where(n => n.FileName?.IndexOf(filter!, StringComparison.OrdinalIgnoreCase) >= 0)
+                        .OrderBy(n => n.FileName, StringComparer.OrdinalIgnoreCase);
+                }
+                var sortedNodes = sourceNodes.ToList();
+
+                // Update the count label
+                if (rawFilesSearchCountLabel != null)
+                {
+                    rawFilesSearchCountLabel.Text = isFiltering
+                        ? $"{sortedNodes.Count} of {_rawFileNodes.Count}"
+                        : $"{_rawFileNodes.Count} files";
+                }
 
                 foreach (var rawFileNode in sortedNodes)
                 {
@@ -740,6 +763,10 @@ namespace Call_of_Duty_FastFile_Editor
 
                 // Sort root-level nodes (folders first, then files, all alphabetically)
                 SortTreeNodes(filesTreeView.Nodes);
+
+                // When filtering, expand all folder nodes so matches aren't hidden
+                if (isFiltering)
+                    filesTreeView.ExpandAll();
             }
             finally
             {
@@ -747,6 +774,24 @@ namespace Call_of_Duty_FastFile_Editor
             }
 
             UIManager.SetRawFileTreeNodeColors(filesTreeView);
+        }
+
+        // -----------------------------------------------------------------
+        //  Raw files inline search/filter
+        // -----------------------------------------------------------------
+
+        private void rawFilesSearchTextBox_TextChanged(object sender, EventArgs e)
+        {
+            // Re-render the tree with the current filter text. Empty text shows everything.
+            if (_rawFileNodes == null) return;
+            LoadRawFilesTreeView(rawFilesSearchTextBox.Text);
+        }
+
+        private void rawFilesSearchClearButton_Click(object sender, EventArgs e)
+        {
+            if (rawFilesSearchTextBox.Text.Length > 0)
+                rawFilesSearchTextBox.Clear();  // triggers TextChanged → re-renders tree
+            rawFilesSearchTextBox.Focus();
         }
 
         /// <summary>

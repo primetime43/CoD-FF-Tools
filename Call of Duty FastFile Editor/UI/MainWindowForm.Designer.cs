@@ -23,6 +23,10 @@ namespace Call_of_Duty_FastFile_Editor
         {
             components = new System.ComponentModel.Container();
             filesTreeView = new TreeView();
+            rawFilesSearchPanel = new Panel();
+            rawFilesSearchTextBox = new TextBox();
+            rawFilesSearchCountLabel = new Label();
+            rawFilesSearchClearButton = new Button();
             contextMenuStripRawFiles = new ContextMenuStrip(components);
             exportFileMenuItem = new ToolStripMenuItem();
             exportContentOnlyMenuItem = new ToolStripMenuItem();
@@ -524,7 +528,47 @@ namespace Call_of_Duty_FastFile_Editor
             // splitContainer1.Panel1
             // 
             splitContainer1.Panel1.Controls.Add(filesTreeView);
+            splitContainer1.Panel1.Controls.Add(rawFilesSearchPanel);
             splitContainer1.Panel1.Padding = new Padding(8, 0, 0, 0);
+            //
+            // rawFilesSearchPanel - inline filter bar above the file tree
+            //
+            rawFilesSearchPanel.Controls.Add(rawFilesSearchTextBox);
+            rawFilesSearchPanel.Controls.Add(rawFilesSearchClearButton);
+            rawFilesSearchPanel.Controls.Add(rawFilesSearchCountLabel);
+            rawFilesSearchPanel.Dock = DockStyle.Top;
+            rawFilesSearchPanel.Height = 30;
+            rawFilesSearchPanel.Name = "rawFilesSearchPanel";
+            rawFilesSearchPanel.Padding = new Padding(0, 4, 4, 0);
+            //
+            // rawFilesSearchTextBox
+            //
+            rawFilesSearchTextBox.Location = new Point(0, 4);
+            rawFilesSearchTextBox.Name = "rawFilesSearchTextBox";
+            rawFilesSearchTextBox.Size = new Size(220, 23);
+            rawFilesSearchTextBox.PlaceholderText = "Filter files by name...";
+            rawFilesSearchTextBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            rawFilesSearchTextBox.TextChanged += rawFilesSearchTextBox_TextChanged;
+            //
+            // rawFilesSearchClearButton - small X to clear the filter
+            //
+            rawFilesSearchClearButton.Name = "rawFilesSearchClearButton";
+            rawFilesSearchClearButton.Text = "X";
+            rawFilesSearchClearButton.Size = new Size(24, 23);
+            rawFilesSearchClearButton.Location = new Point(225, 4);
+            rawFilesSearchClearButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            rawFilesSearchClearButton.UseVisualStyleBackColor = true;
+            rawFilesSearchClearButton.FlatStyle = FlatStyle.Standard;
+            rawFilesSearchClearButton.Click += rawFilesSearchClearButton_Click;
+            //
+            // rawFilesSearchCountLabel - shows "N files" or "M of N files" when filtering
+            //
+            rawFilesSearchCountLabel.AutoSize = true;
+            rawFilesSearchCountLabel.Location = new Point(255, 8);
+            rawFilesSearchCountLabel.Name = "rawFilesSearchCountLabel";
+            rawFilesSearchCountLabel.ForeColor = SystemColors.GrayText;
+            rawFilesSearchCountLabel.Text = "";
+            rawFilesSearchCountLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             // 
             // splitContainer1.Panel2
             // 
@@ -1107,6 +1151,10 @@ namespace Call_of_Duty_FastFile_Editor
         #endregion
 
         private TreeView filesTreeView;
+        private Panel rawFilesSearchPanel;
+        private TextBox rawFilesSearchTextBox;
+        private Button rawFilesSearchClearButton;
+        private Label rawFilesSearchCountLabel;
         private MenuStrip menuStripTopToolbar;
         private ToolStripMenuItem fileToolStripMenuItem;
         private ToolStripMenuItem openFastFileToolStripMenuItem;
