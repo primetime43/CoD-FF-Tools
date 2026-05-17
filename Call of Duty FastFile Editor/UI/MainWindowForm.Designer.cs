@@ -52,6 +52,7 @@ namespace Call_of_Duty_FastFile_Editor
             optionsToolStripMenuItem = new ToolStripMenuItem();
             fileInfoToolStripMenuItem = new ToolStripMenuItem();
             zoneHexViewToolStripMenuItem = new ToolStripMenuItem();
+            fileReportToolStripMenuItem = new ToolStripMenuItem();
             rawFileToolsMenuItem = new ToolStripMenuItem();
             reloadRawFilesPatternMatchingToolStripMenuItem = new ToolStripMenuItem();
             increaseRawFileSizeToolStripMenuItem = new ToolStripMenuItem();
@@ -345,7 +346,7 @@ namespace Call_of_Duty_FastFile_Editor
             //
             // viewToolStripMenuItem
             //
-            viewToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { fileInfoToolStripMenuItem, zoneHexViewToolStripMenuItem });
+            viewToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { fileInfoToolStripMenuItem, zoneHexViewToolStripMenuItem, fileReportToolStripMenuItem });
             viewToolStripMenuItem.Name = "viewToolStripMenuItem";
             viewToolStripMenuItem.Size = new Size(53, 24);
             viewToolStripMenuItem.Text = "View";
@@ -364,6 +365,14 @@ namespace Call_of_Duty_FastFile_Editor
             zoneHexViewToolStripMenuItem.Size = new Size(195, 24);
             zoneHexViewToolStripMenuItem.Text = "Zone Hex View";
             zoneHexViewToolStripMenuItem.Click += zoneHexViewToolStripMenuItem_Click;
+            //
+            // fileReportToolStripMenuItem
+            //
+            fileReportToolStripMenuItem.Name = "fileReportToolStripMenuItem";
+            fileReportToolStripMenuItem.Size = new Size(195, 24);
+            fileReportToolStripMenuItem.Text = "File Report...";
+            fileReportToolStripMenuItem.Enabled = false;
+            fileReportToolStripMenuItem.Click += new System.EventHandler(this.fileReportToolStripMenuItem_Click);
             //
             // optionsToolStripMenuItem
             //
@@ -1100,6 +1109,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem optionsToolStripMenuItem;
         private ToolStripMenuItem fileInfoToolStripMenuItem;
         private ToolStripMenuItem zoneHexViewToolStripMenuItem;
+        private ToolStripMenuItem fileReportToolStripMenuItem;
         private ToolStripMenuItem helpToolStripMenuItem;
         private ToolStripMenuItem supportedFormatsToolStripMenuItem;
         private ToolStripMenuItem renameRawFileToolStripMenuItem;

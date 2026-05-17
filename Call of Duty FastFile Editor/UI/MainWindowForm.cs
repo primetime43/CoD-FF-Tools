@@ -685,6 +685,7 @@ namespace Call_of_Duty_FastFile_Editor
             saveFastFileAsToolStripMenuItem.Enabled = true;
             localizeToolsMenuItem.Enabled = _localizedEntries != null && _localizedEntries.Count > 0;
             fileInfoToolStripMenuItem.Enabled = true;
+            fileReportToolStripMenuItem.Enabled = true;
         }
 
         /// <summary>
@@ -4328,6 +4329,7 @@ namespace Call_of_Duty_FastFile_Editor
             saveFastFileToolStripMenuItem.Enabled = false;
             saveFastFileAsToolStripMenuItem.Enabled = false;
             fileInfoToolStripMenuItem.Enabled = false;
+            fileReportToolStripMenuItem.Enabled = false;
             this.SetProgramTitle();
         }
 
@@ -4683,6 +4685,18 @@ namespace Call_of_Duty_FastFile_Editor
             var hexForm = new ZoneHexViewForm(zoneData, assetRecords, zone,
                 _rawFileNodes, _localizedEntries, _stringTables, _weapons, _xanims, _images, _techSets, _menuLists);
             hexForm.Show();
+        }
+
+        private void fileReportToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (_openedFastFile == null)
+            {
+                MessageBox.Show("Open a .ff first", "No File Loaded", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var reportForm = new FileReportForm(_openedFastFile, _rawFileNodes, _localizedEntries);
+            reportForm.Show();
         }
 
         /// <summary>
