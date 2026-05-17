@@ -1553,10 +1553,30 @@ namespace Call_of_Duty_FastFile_Editor
                         return;
                     }
 
+                    // Recompress the modified zone back to the FF on disk. Without this step
+                    // the user's inject lives only in the .zone file - File > Save then sees
+                    // no "dirty" raw file nodes (inject bypasses HasUnsavedChanges) and bails
+                    // with "No changes to save", so the .ff on disk keeps its original 2020
+                    // mtime and the edit never reaches the game. (Root cause of issue #14.)
+                    try
+                    {
+                        _fastFileHandler?.Recompress(_openedFastFile.FfFilePath,
+                                                     _openedFastFile.ZoneFilePath,
+                                                     _openedFastFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        FastFileLib.Logging.LogService.Error("Inject",
+                            $"Recompress to FF failed after inject of '{rawFileName}': {ex.Message}", ex);
+                        MessageBox.Show($"Inject updated the zone, but recompressing to .ff failed:\n\n{ex.Message}",
+                            "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
                     RefreshZoneData();
                     ReloadAllRawFileNodesAndUI();
-                    MessageBox.Show($"File '{rawFileName}' was successfully updated in the zone file.",
-                        "Update Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show($"File '{rawFileName}' was successfully injected and saved to the FastFile.",
+                        "Inject Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
         }
