@@ -39,6 +39,31 @@ public static class FastFileProcessor
             br.BaseStream.Position = 12;
         }
 
+        // Fast path: Xbox 360 signed streaming format (retail CoD4/WaW Xbox 360).
+        // Layout: IWff0100 magic + 4B version + IWffs100 streaming magic at 0x0C +
+        //         ~16KB hash table/auth from 0x14..0x400C + single deflate stream at 0x400C.
+        // The generic signed scan below misses this when the inner stream is raw deflate
+        // (no zlib header), so handle it directly here.
+        bool isXbox360Streaming = HasXbox360StreamingMagic(br);
+        if (isXbox360Streaming)
+        {
+            int blocks = TryDecompressXbox360Streaming(br, bw);
+            if (blocks > 0)
+                return blocks;
+
+            // Streaming format detected but neither zlib nor raw deflate worked at 0x400C.
+            // This is almost always an unsupported compression (e.g., Xbox 360 LZX) - bail
+            // with a clear message rather than falling through to the generic block decoder,
+            // which would produce a misleading "Too many decompression errors" message after
+            // accidentally decoding hash-table noise.
+            throw new InvalidDataException(
+                "Xbox 360 signed streaming format detected (IWff0100 + IWffs100), but the " +
+                $"compressed stream at offset 0x{FastFileConstants.Xbox360SignedZlibStart:X} " +
+                "could not be decompressed with zlib or raw deflate. The file may use a " +
+                "compression method (such as LZX) that this tool does not support, or the " +
+                "stream may be corrupted.");
+        }
+
         // For signed Xbox 360 files or dev build versions, try scanning for zlib header
         if (info.IsSigned || IsDevBuildVersion(info.Version))
         {
@@ -78,6 +103,124 @@ public static class FastFileProcessor
     {
         // MW2 dev build version (0xFD = 253)
         return version == GameDefinitions.MW2Definition.DevBuildVersionValue;
+    }
+
+    /// <summary>
+    /// Detects Xbox 360 signed streaming format by checking for the IWffs100 magic at offset 0x0C.
+    /// Retail CoD4/WaW Xbox 360 files use this layout:
+    ///   0x00 IWff0100  (outer signed magic)
+    ///   0x08 version   (4 bytes, big-endian)
+    ///   0x0C IWffs100  (streaming magic)
+    ///   0x14 hash table + auth (~16KB, ends at 0x400C)
+    ///   0x400C compressed stream
+    /// </summary>
+    private static bool HasXbox360StreamingMagic(BinaryReader br)
+    {
+        long savedPos = br.BaseStream.Position;
+        try
+        {
+            if (br.BaseStream.Length < FastFileConstants.Xbox360SignedZlibStart + 2)
+                return false;
+
+            br.BaseStream.Position = 0x0C;
+            byte[] bytes = br.ReadBytes(8);
+            return bytes.Length == 8 &&
+                   Encoding.ASCII.GetString(bytes) == FastFileConstants.StreamingHeader;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            br.BaseStream.Position = savedPos;
+        }
+    }
+
+    /// <summary>
+    /// Decompresses an Xbox 360 signed streaming FastFile. The compressed stream sits at a
+    /// fixed offset (0x400C) after the hash table and auth blob, and may be either standard
+    /// zlib (78 XX header) or raw deflate. We try both before giving up.
+    /// </summary>
+    private static int TryDecompressXbox360Streaming(BinaryReader br, BinaryWriter bw)
+    {
+        long outputStartPos = bw.BaseStream.Position;
+        int streamStart = FastFileConstants.Xbox360SignedZlibStart;
+
+        try
+        {
+            br.BaseStream.Position = 0;
+            byte[] fileData = br.ReadBytes((int)br.BaseStream.Length);
+
+            if (fileData.Length <= streamStart + 2)
+                return 0;
+
+            int streamLength = fileData.Length - streamStart;
+
+            // Try ZLibStream first if the stream has a zlib header
+            if (FastFileConstants.HasZlibHeader(fileData, streamStart))
+            {
+                bw.BaseStream.Position = outputStartPos;
+                bw.BaseStream.SetLength(outputStartPos);
+                try
+                {
+                    using var input = new MemoryStream(fileData, streamStart, streamLength);
+                    using (var zlib = new ZLibStream(input, CompressionMode.Decompress))
+                    {
+                        zlib.CopyTo(bw.BaseStream);
+                    }
+
+                    if (bw.BaseStream.Length - outputStartPos > 10240)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[FastFileProcessor] Xbox 360 streaming (zlib) decompressed from 0x{streamStart:X}, output size: {bw.BaseStream.Length - outputStartPos}");
+                        return 1;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[FastFileProcessor] Xbox 360 streaming zlib attempt failed: {ex.Message}");
+                }
+            }
+
+            // Fall back to raw deflate (no zlib header)
+            bw.BaseStream.Position = outputStartPos;
+            bw.BaseStream.SetLength(outputStartPos);
+            try
+            {
+                using var input = new MemoryStream(fileData, streamStart, streamLength);
+                using (var deflate = new DeflateStream(input, CompressionMode.Decompress))
+                {
+                    deflate.CopyTo(bw.BaseStream);
+                }
+
+                if (bw.BaseStream.Length - outputStartPos > 10240)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[FastFileProcessor] Xbox 360 streaming (raw deflate) decompressed from 0x{streamStart:X}, output size: {bw.BaseStream.Length - outputStartPos}");
+                    return 1;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[FastFileProcessor] Xbox 360 streaming raw deflate attempt failed: {ex.Message}");
+            }
+
+            // Both attempts failed - reset output and let caller try other strategies
+            bw.BaseStream.Position = outputStartPos;
+            bw.BaseStream.SetLength(outputStartPos);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[FastFileProcessor] Xbox 360 streaming decompression error: {ex.Message}");
+            bw.BaseStream.Position = outputStartPos;
+            bw.BaseStream.SetLength(outputStartPos);
+            return 0;
+        }
     }
 
     /// <summary>
