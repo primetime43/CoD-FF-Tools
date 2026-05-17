@@ -10,9 +10,6 @@ namespace Call_of_Duty_FastFile_Editor.Models
     /// </summary>
     public class RawFileNode : IAssetRecordUpdatable
     {
-        // Backing field for the header bytes.
-        private byte[] _header;
-
         /// <summary>
         /// Has this file’s content been edited (but not yet saved) in the UI?
         /// </summary>

@@ -42,9 +42,11 @@ public partial class MainForm : Form
                 // Load and decompress the FastFile
                 Invoke(() => UpdateStatus("Decompressing..."));
 
-                var decompressor = new Decompressor();
                 var zonePath = Path.ChangeExtension(ffPath, ".zone");
-                decompressor.DecompressToFile(ffPath, zonePath);
+                // FastFileProcessor handles all platforms (PC single-stream, MW2 extended header,
+                // signed Xbox 360 streaming, Wii). The older Decompressor class only knew about
+                // block format and choked on PC files.
+                FastFileProcessor.Decompress(ffPath, zonePath);
 
                 Invoke(() => UpdateStatus("Parsing zone file..."));
 

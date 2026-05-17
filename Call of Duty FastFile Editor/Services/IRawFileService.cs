@@ -70,22 +70,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// <param name="newContent">The new content whose length determines the new size.</param>
         void IncreaseSize(string zoneFilePath, RawFileNode rawFileNode, byte[] newContent);
 
-        /// <summary>
-        /// Appends a brand‑new raw file entry to the end of the asset pool in the zone file.
-        /// The file must include the zone header (FF FF FF FF markers).
-        /// </summary>
-        /// <param name="zoneFilePath">Path to the decompressed Zone File (.zone).</param>
-        /// <param name="filePath">Path to the external file to inject (must include its own header).</param>
-        /// <param name="expectedSize">The expected data size for this entry.</param>
-        void AppendNewRawFile(string zoneFilePath, string filePath, int expectedSize);
-
-        /// <summary>
-        /// Injects a plain file (without zone header) by creating the header structure.
-        /// </summary>
-        /// <param name="zoneFilePath">Path to the decompressed Zone File (.zone).</param>
-        /// <param name="filePath">Path to the plain file to inject.</param>
-        /// <param name="gamePath">The game path for this file (e.g., "maps/mp/gametypes/dm.gsc").</param>
-        void InjectPlainFile(string zoneFilePath, string filePath, string gamePath);
 
         /// <summary>
         /// Adjusts the maximum size of a raw file node by padding with zeros or shifting data.
