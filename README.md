@@ -36,7 +36,7 @@ Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives
 | FastFile Editor | Edit raw files, localized strings, weapons, and menus inside existing FastFiles |
 | FastFile Compiler | Build new FastFiles from scratch using raw files and localized strings |
 | FastFile Converter | Convert FastFiles between platforms (PS3, Xbox 360) |
-| FastFile Tool | Simple extract/repack utility for zone files |
+| FastFile Extractor | Simple extract/repack utility for zone files |
 
 ## Screenshots
 
@@ -84,7 +84,7 @@ Grab the latest build from [Releases](https://github.com/primetime43/CoD-FF-Tool
 | Call of Duty FastFile Editor | Main editor GUI |
 | FastFileCompilerGUI | FastFile creation GUI |
 | FastFileConverterGUI | Platform conversion GUI |
-| FastFileToolGUI | Extract/repack GUI |
+| FastFileExtractor | Extract/repack GUI (FF ⇄ zone) |
 
 ## Contributing
 

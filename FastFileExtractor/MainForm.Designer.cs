@@ -1,4 +1,4 @@
-namespace FastFileToolGUI;
+namespace FastFileExtractor;
 
 partial class MainForm
 {
@@ -336,7 +336,7 @@ partial class MainForm
         titleLabel.Name = "titleLabel";
         titleLabel.Size = new Size(295, 25);
         titleLabel.TabIndex = 2;
-        titleLabel.Text = "FastFile Tool - Extract && Pack";
+        titleLabel.Text = "FastFile Extractor - Extract && Pack";
         //
         // subtitleLabel
         //
@@ -361,7 +361,7 @@ partial class MainForm
         MinimumSize = new Size(550, 400);
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "FastFile Tool v3.1.0";
+        Text = "FastFile Extractor v3.1.0";
         DragDrop += MainForm_DragDrop;
         DragEnter += MainForm_DragEnter;
         tabControl.ResumeLayout(false);

@@ -50,15 +50,15 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-compiler
 
-    - name: Build and Publish FastFile Tool GUI
+    - name: Build and Publish FastFile Extractor
       run: |
-        dotnet publish "FastFileToolGUI/FastFileToolGUI.csproj" `
+        dotnet publish "FastFileExtractor/FastFileExtractor.csproj" `
           -c Release `
           -r win-x64 `
           --self-contained false `
           -p:PublishSingleFile=true `
           -p:IncludeNativeLibrariesForSelfExtract=true `
-          -o ./publish-tool
+          -o ./publish-extractor
 
     - name: Build and Publish FastFile Converter GUI
       run: |
@@ -86,8 +86,8 @@ jobs:
         Get-ChildItem -Path ./publish -Recurse
         Write-Host "Compiler GUI:"
         Get-ChildItem -Path ./publish-compiler -Recurse
-        Write-Host "Tool GUI:"
-        Get-ChildItem -Path ./publish-tool -Recurse
+        Write-Host "Extractor:"
+        Get-ChildItem -Path ./publish-extractor -Recurse
         Write-Host "Converter GUI:"
         Get-ChildItem -Path ./publish-converter -Recurse
         Write-Host "CLI:"
@@ -114,7 +114,7 @@ jobs:
         files: |
           ./publish/Call of Duty FastFile Editor.exe
           ./publish-compiler/FastFileCompilerGUI.exe
-          ./publish-tool/FastFileToolGUI.exe
+          ./publish-extractor/FastFileExtractor.exe
           ./publish-converter/FastFileConverter.exe
           ./publish-cli/ffcli.exe
       env:

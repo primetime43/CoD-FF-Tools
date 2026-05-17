@@ -42,15 +42,15 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-compiler
 
-    - name: Build and Publish FastFile Tool GUI
+    - name: Build and Publish FastFile Extractor
       run: |
-        dotnet publish "FastFileToolGUI/FastFileToolGUI.csproj" `
+        dotnet publish "FastFileExtractor/FastFileExtractor.csproj" `
           -c Release `
           -r win-x64 `
           --self-contained false `
           -p:PublishSingleFile=true `
           -p:IncludeNativeLibrariesForSelfExtract=true `
-          -o ./publish-tool
+          -o ./publish-extractor
 
     - name: Build and Publish FastFile CLI
       run: |
@@ -76,11 +76,11 @@ jobs:
         path: ./publish-compiler/FastFileCompilerGUI.exe
         retention-days: 14
 
-    - name: Upload FastFile Tool GUI
+    - name: Upload FastFile Extractor
       uses: actions/upload-artifact@v4
       with:
-        name: FastFileToolGUI-Dev
-        path: ./publish-tool/FastFileToolGUI.exe
+        name: FastFileExtractor-Dev
+        path: ./publish-extractor/FastFileExtractor.exe
         retention-days: 14
 
     - name: Upload FastFile CLI
@@ -97,6 +97,6 @@ jobs:
         path: |
           ./publish/Call of Duty FastFile Editor.exe
           ./publish-compiler/FastFileCompilerGUI.exe
-          ./publish-tool/FastFileToolGUI.exe
+          ./publish-extractor/FastFileExtractor.exe
           ./publish-cli/ffcli.exe
         retention-days: 14

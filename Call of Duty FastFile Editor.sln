@@ -7,8 +7,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Call of Duty FastFile Edito
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "FastFileCompilerGUI", "FastFileCompilerGUI\FastFileCompilerGUI.csproj", "{C1C6E444-3C85-44BC-BD18-13E9B7E6F1BA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileToolGUI", "FastFileToolGUI\FastFileToolGUI.csproj", "{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileLib", "FastFileLib\FastFileLib.csproj", "{641BBCA4-A708-464B-BB8B-B3C8D4BB9F53}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileConverterGUI", "FastFileConverterGUI\FastFileConverterGUI.csproj", "{9DECFCB0-C319-4238-930F-11AB5782F581}"
@@ -18,6 +16,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileCLI.Tests", "FastFileCLI.Tests\FastFileCLI.Tests.csproj", "{BA93292F-DEE8-4DDE-BE87-986D5738C7B4}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileLib.WinForms", "FastFileLib.WinForms\FastFileLib.WinForms.csproj", "{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FastFileExtractor", "FastFileExtractor\FastFileExtractor.csproj", "{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -53,18 +53,6 @@ Global
 		{C1C6E444-3C85-44BC-BD18-13E9B7E6F1BA}.Release|x64.Build.0 = Release|Any CPU
 		{C1C6E444-3C85-44BC-BD18-13E9B7E6F1BA}.Release|x86.ActiveCfg = Release|Any CPU
 		{C1C6E444-3C85-44BC-BD18-13E9B7E6F1BA}.Release|x86.Build.0 = Release|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Debug|x64.Build.0 = Debug|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Debug|x86.Build.0 = Debug|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Release|Any CPU.Build.0 = Release|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Release|x64.ActiveCfg = Release|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Release|x64.Build.0 = Release|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Release|x86.ActiveCfg = Release|Any CPU
-		{AF7832D3-0E8B-41C3-B548-3F720C4D8D6A}.Release|x86.Build.0 = Release|Any CPU
 		{641BBCA4-A708-464B-BB8B-B3C8D4BB9F53}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{641BBCA4-A708-464B-BB8B-B3C8D4BB9F53}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{641BBCA4-A708-464B-BB8B-B3C8D4BB9F53}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -125,6 +113,18 @@ Global
 		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|x64.Build.0 = Release|Any CPU
 		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|x86.ActiveCfg = Release|Any CPU
 		{A0551C2B-4F69-4F9A-BD9D-224BB01F0FC8}.Release|x86.Build.0 = Release|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Debug|x64.Build.0 = Debug|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Debug|x86.Build.0 = Debug|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Release|x64.ActiveCfg = Release|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Release|x64.Build.0 = Release|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Release|x86.ActiveCfg = Release|Any CPU
+		{BFF97EAE-FE91-4593-AA10-70AB77BAE6E7}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

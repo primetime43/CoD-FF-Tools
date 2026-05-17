@@ -1,6 +1,6 @@
 using FastFileLib.Logging;
 
-namespace FastFileToolGUI;
+namespace FastFileExtractor;
 
 static class Program
 {
@@ -8,7 +8,7 @@ static class Program
     static void Main()
     {
         TraceCapture.Install();
-        LogService.Info("App", "FastFile Tool starting");
+        LogService.Info("App", "FastFile Extractor starting");
 
         ApplicationConfiguration.Initialize();
         Application.Run(new MainForm());

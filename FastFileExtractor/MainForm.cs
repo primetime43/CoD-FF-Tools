@@ -1,6 +1,6 @@
 using FastFileLib;
 
-namespace FastFileToolGUI;
+namespace FastFileExtractor;
 
 public partial class MainForm : Form
 {
