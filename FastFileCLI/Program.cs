@@ -445,8 +445,9 @@ class Program
         Console.WriteLine("== Zone Header ==");
         bool isXbox360 = info.Platform == "Xbox 360";
         bool isPC = info.IsPC;
+        bool isWii = info.IsWii;
         var gv = info.GameVersion;
-        int hdrSize = FastFileConstants.GetZoneHeaderSize(gv, isXbox360, isPC);
+        int hdrSize = FastFileConstants.GetZoneHeaderSize(gv, isXbox360, isPC, isWii);
 
         if (zone.Length < hdrSize)
         {
@@ -461,7 +462,7 @@ class Program
             uint blockTemp    = readU32(zone, 0x08);
             uint blockLarge   = readU32(zone, 0x18);
             uint blockVertex  = hdrSize >= 0x34 ? readU32(zone, 0x20) : 0;
-            int  slOffset     = FastFileConstants.GetScriptStringCountOffset(gv, isXbox360, isPC);
+            int  slOffset     = FastFileConstants.GetScriptStringCountOffset(gv, isXbox360, isPC, isWii);
             uint scriptCount  = readU32(zone, slOffset);
             uint assetCount   = readU32(zone, slOffset + 8);
 

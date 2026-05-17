@@ -127,6 +127,7 @@ public static class FastFileConstants
     public const int ZoneHeaderSize_Xbox360 = 0x30;  // MW2 Xbox 360 only
     public const int ZoneHeaderSize_PS3 = 0x34;      // PS3, CoD4 (all platforms), WaW (all platforms)
     public const int ZoneHeaderSize_PC = 0x34;       // PC WaW = same 52-byte layout as PS3 (verified vs real samples)
+    public const int ZoneHeaderSize_Wii = 0x38;      // WaW Wii = 56-byte layout (8 blockSize slots, includes BlockSizeIndex)
 
     // XFile structure offsets (common to all platforms)
     public const int ZoneSizeOffset = 0x00;
@@ -157,14 +158,23 @@ public static class FastFileConstants
     public const int AssetCountOffset_PC = 0x2C;
     public const int AssetsPtrOffset_PC = 0x30;
 
+    // XAssetList offsets - Wii (8 blockSize slots so XAssetList starts +4 vs PS3)
+    public const int ScriptStringCountOffset_Wii = 0x28;
+    public const int ScriptStringsPtrOffset_Wii = 0x2C;
+    public const int AssetCountOffset_Wii = 0x30;
+    public const int AssetsPtrOffset_Wii = 0x34;
+
     /// <summary>
     /// Gets the zone header size for the given game and platform.
-    /// CoD4 and WaW use PS3-style offsets on ALL platforms.
-    /// Only MW2 Xbox 360 uses the smaller 48-byte header.
+    /// - Wii uses a 56-byte layout (8 blockSize slots, includes BlockSizeIndex)
+    /// - MW2 Xbox 360 uses a 48-byte layout (no BlockSizeVertex)
+    /// - Everything else uses the 52-byte PS3 layout
     /// </summary>
-    public static int GetZoneHeaderSize(GameVersion version, bool isXbox360, bool isPC)
+    public static int GetZoneHeaderSize(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        // CoD4 and WaW use PS3-style header on all platforms
+        if (isWii) return ZoneHeaderSize_Wii;
+
+        // CoD4 and WaW use PS3-style header on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)
             return ZoneHeaderSize_PS3;
 
@@ -177,12 +187,12 @@ public static class FastFileConstants
 
     /// <summary>
     /// Gets the AssetCount offset for the given game and platform.
-    /// CoD4 and WaW use PS3-style offsets on ALL platforms.
-    /// Only MW2 Xbox 360 uses Xbox 360-specific offsets.
     /// </summary>
-    public static int GetAssetCountOffset(GameVersion version, bool isXbox360, bool isPC)
+    public static int GetAssetCountOffset(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        // CoD4 and WaW use PS3-style offsets on all platforms
+        if (isWii) return AssetCountOffset_Wii;
+
+        // CoD4 and WaW use PS3-style offsets on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)
             return AssetCountOffset_PS3;
 
@@ -195,12 +205,12 @@ public static class FastFileConstants
 
     /// <summary>
     /// Gets the ScriptStringCount offset for the given game and platform.
-    /// CoD4 and WaW use PS3-style offsets on ALL platforms.
-    /// Only MW2 Xbox 360 uses Xbox 360-specific offsets.
     /// </summary>
-    public static int GetScriptStringCountOffset(GameVersion version, bool isXbox360, bool isPC)
+    public static int GetScriptStringCountOffset(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        // CoD4 and WaW use PS3-style offsets on all platforms
+        if (isWii) return ScriptStringCountOffset_Wii;
+
+        // CoD4 and WaW use PS3-style offsets on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)
             return ScriptStringCountOffset_PS3;
 

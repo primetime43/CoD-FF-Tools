@@ -27,16 +27,19 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private readonly bool _isMW2;
         private readonly bool _isXbox360;
         private readonly bool _isPC;
+        private readonly bool _isWii;
         private readonly bool _isBigEndian;
         private readonly int _headerSize;
 
         // Platform-specific header sizes:
         // Xbox 360 (MW2 only): XFile (32 bytes = 6 blocks) + XAssetList (16 bytes) = 48 bytes (0x30)
-        // PS3/CoD4/WaW (all platforms): XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
-        // PC: XFile (40 bytes = 8 blocks) + XAssetList (16 bytes) = 56 bytes (0x38)
+        // PS3/CoD4/WaW (all non-Wii): XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
+        // PC WaW: same 52-byte layout as PS3 (verified against retail samples)
+        // Wii: XFile (40 bytes = 8 blocks) + XAssetList (16 bytes) = 56 bytes (0x38) - has BlockSizeIndex
         private const int HEADER_SIZE_XBOX360 = 0x30;
         private const int HEADER_SIZE_PS3 = 0x34;
-        private const int HEADER_SIZE_PC = 0x38;
+        private const int HEADER_SIZE_PC = 0x34;
+        private const int HEADER_SIZE_WII = 0x38;
 
         public StructureBasedZoneParser(ZoneFile zone)
         {
@@ -47,19 +50,22 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             _isMW2 = zone.ParentFastFile?.IsMW2File ?? false;
             _isXbox360 = zone.ParentFastFile?.IsXbox360 ?? false;
             _isPC = zone.ParentFastFile?.IsPC ?? false;
-            _isBigEndian = !_isPC; // PC uses little-endian, consoles use big-endian
+            _isWii = zone.ParentFastFile?.IsWii ?? false;
+            // Wii uses PowerPC (big-endian) like PS3/Xbox 360. PC is the only LE platform.
+            _isBigEndian = !_isPC;
 
-            // Set header size based on platform and game
-            // CoD4 and WaW use the same zone structure across all platforms (PS3-style 52-byte header)
-            // Only MW2 Xbox 360 uses the smaller 48-byte header
-            if (_isXbox360 && !_isCod4 && !_isCod5)
+            // Set header size based on platform
+            if (_isWii)
+                _headerSize = HEADER_SIZE_WII;
+            else if (_isXbox360 && !_isCod4 && !_isCod5)
                 _headerSize = HEADER_SIZE_XBOX360;
             else if (_isPC)
                 _headerSize = HEADER_SIZE_PC;
             else
                 _headerSize = HEADER_SIZE_PS3;
 
-            Debug.WriteLine($"[StructureParser] Game: {(_isCod4 ? "CoD4" : (_isCod5 ? "WaW" : "MW2"))}, Platform: {(_isXbox360 ? "Xbox 360" : (_isPC ? "PC" : "PS3"))}, Header size: 0x{_headerSize:X}");
+            string platformName = _isWii ? "Wii" : (_isXbox360 ? "Xbox 360" : (_isPC ? "PC" : "PS3"));
+            Debug.WriteLine($"[StructureParser] Game: {(_isCod4 ? "CoD4" : (_isCod5 ? "WaW" : "MW2"))}, Platform: {platformName}, Header size: 0x{_headerSize:X}");
         }
 
         /// <summary>

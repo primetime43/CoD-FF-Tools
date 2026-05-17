@@ -42,5 +42,12 @@
         public const int PC_ScriptStringsPtrOffset = 0x28;
         public const int PC_AssetCountOffset = 0x2C;
         public const int PC_AssetsPtrOffset = 0x30;
+
+        // XAssetList offsets for Wii (8 blocks = 40 bytes XFile header, includes BlockSizeIndex)
+        // Verified against WaW Wii credits.zone. Big-endian, asset entries [type BE][ptr].
+        public const int Wii_ScriptStringCountOffset = 0x28;
+        public const int Wii_ScriptStringsPtrOffset = 0x2C;
+        public const int Wii_AssetCountOffset = 0x30;
+        public const int Wii_AssetsPtrOffset = 0x34;
     }
 }
