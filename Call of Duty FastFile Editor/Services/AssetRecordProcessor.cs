@@ -33,13 +33,12 @@ namespace Call_of_Duty_FastFile_Editor.Services
             // Create the result container.
             AssetRecordCollection result = new AssetRecordCollection();
 
-            // PC zone asset parsing is not yet supported - only show asset pool records
+            // PC zone parsing is incremental - currently only rawfile and localize are supported.
+            // CoD5PCGameDefinition.IsSupportedAssetType returns false for other types, so they
+            // get skipped by the loop below (no need to bail entirely).
             if (openedFastFile.IsPC)
             {
-                Debug.WriteLine($"[AssetRecordProcessor] PC zone asset parsing not supported. Returning empty result.");
-                Debug.WriteLine($"[AssetRecordProcessor] Asset pool contains {zoneAssetRecords.Count} records.");
-                // Return empty result - the asset pool records are still available in the zone file
-                return result;
+                Debug.WriteLine($"[AssetRecordProcessor] PC zone: parsing supported asset types (rawfile, localize). Asset pool: {zoneAssetRecords.Count} records.");
             }
 
             // Keep track of the index and end offset of the last successfully parsed asset record.
@@ -374,13 +373,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     result.RawFileNodes.Select(n => n.FileName),
                     StringComparer.OrdinalIgnoreCase);
 
-                // Count expected rawfiles from the asset pool
-                int expectedRawFileCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
+                // Count remaining rawfiles in the asset pool starting from where structure parsing
+                // stopped. This already excludes the rawfiles parsed in the earlier loop, so we do
+                // NOT subtract result.RawFileNodes.Count again - doing so caused a negative value
+                // (e.g., patch.ff: 11 remaining - 12 already parsed = -1) which made the while loop
+                // never execute.
+                int remainingRawFiles = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
                     structureParsingStoppedAtIndex, gameDefinition.RawFileAssetType);
-                int alreadyParsedRawFiles = result.RawFileNodes.Count;
-                int remainingRawFiles = expectedRawFileCount - alreadyParsedRawFiles;
 
-                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedRawFileCount} rawfiles, already parsed {alreadyParsedRawFiles}, remaining {remainingRawFiles}");
+                Debug.WriteLine($"[AssetRecordProcessor] Remaining rawfiles to find via pattern matching: {remainingRawFiles}");
 
                 int currentOffset = searchStartOffset;
                 int rawFilesParsed = 0;
@@ -437,12 +438,13 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 // For localized entries, use the asset pool to know exactly how many to expect
                 // Then parse them sequentially (NOT pattern scanning the entire zone)
-                int expectedLocalizeCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
+                // Same off-by-N fix as rawfiles above: count from where structure parsing stopped,
+                // don't subtract already-parsed (which would be wrong if any localize entries were
+                // parsed in earlier passes).
+                int remainingLocalizes = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
                     structureParsingStoppedAtIndex, gameDefinition.LocalizeAssetType);
-                int alreadyParsedLocalizes = result.LocalizedEntries.Count;
-                int remainingLocalizes = expectedLocalizeCount - alreadyParsedLocalizes;
 
-                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedLocalizeCount} localizes, already parsed {alreadyParsedLocalizes}, remaining {remainingLocalizes}");
+                Debug.WriteLine($"[AssetRecordProcessor] Remaining localize entries to find via pattern matching: {remainingLocalizes}");
 
                 if (remainingLocalizes > 0)
                 {

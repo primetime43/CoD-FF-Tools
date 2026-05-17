@@ -1,3 +1,4 @@
+using Call_of_Duty_FastFile_Editor.Constants;
 using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.Services;
 using Call_of_Duty_FastFile_Editor.ZoneParsers;
@@ -1011,9 +1012,10 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             if (string.IsNullOrEmpty(name) || name.Length < 3 || name.Length > 256)
                 return false;
 
-            // Must contain at least one of the valid file extensions
-            string[] validExtensions = { ".gsc", ".csc", ".rmb", ".def", ".str", ".cfg", ".menu", ".txt", ".csv", ".vision", ".arena", ".atr", ".sun" };
-            bool hasValidExtension = validExtensions.Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+            // Must end with one of the valid rawfile extensions. Single-sourced from
+            // RawFileConstants so adding/removing an extension in one place takes effect everywhere.
+            bool hasValidExtension = RawFileConstants.FileNamePatternStrings
+                .Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
             if (!hasValidExtension)
                 return false;
 

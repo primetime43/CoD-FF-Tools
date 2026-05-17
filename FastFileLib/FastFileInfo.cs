@@ -199,20 +199,23 @@ public class FastFileInfo
             _ => platform
         };
 
+        // PC files store the version little-endian on disk; consoles/Wii are big-endian.
+        // Verified against real PC WaW samples (`83 01 00 00` = LE 0x183).
         return version switch
         {
             // CoD4 versions
-            GameVersion.CoD4 when normalizedPlatform == "PC" => new byte[] { 0x00, 0x00, 0x00, 0x05 },
+            GameVersion.CoD4 when normalizedPlatform == "PC"  => new byte[] { 0x05, 0x00, 0x00, 0x00 }, // 0x05 LE
             GameVersion.CoD4 when normalizedPlatform == "Wii" => new byte[] { 0x00, 0x00, 0x01, 0xA2 },
-            GameVersion.CoD4 => new byte[] { 0x00, 0x00, 0x00, 0x01 }, // PS3/Xbox 360 share same version
+            GameVersion.CoD4 => new byte[] { 0x00, 0x00, 0x00, 0x01 }, // PS3/Xbox 360 share same version (BE)
 
             // WaW versions
+            GameVersion.WaW when normalizedPlatform == "PC"  => new byte[] { 0x83, 0x01, 0x00, 0x00 }, // 0x183 LE
             GameVersion.WaW when normalizedPlatform == "Wii" => new byte[] { 0x00, 0x00, 0x01, 0x9B },
-            GameVersion.WaW => new byte[] { 0x00, 0x00, 0x01, 0x83 }, // PS3/Xbox 360/PC share same version
+            GameVersion.WaW => new byte[] { 0x00, 0x00, 0x01, 0x83 }, // PS3/Xbox 360 (BE)
 
             // MW2 versions
-            GameVersion.MW2 when normalizedPlatform == "PC" => new byte[] { 0x00, 0x00, 0x01, 0x14 },
-            GameVersion.MW2 => new byte[] { 0x00, 0x00, 0x01, 0x0D }, // PS3/Xbox 360 share same version
+            GameVersion.MW2 when normalizedPlatform == "PC"  => new byte[] { 0x14, 0x01, 0x00, 0x00 }, // 0x114 LE
+            GameVersion.MW2 => new byte[] { 0x00, 0x00, 0x01, 0x0D }, // PS3/Xbox 360 (BE)
 
             _ => new byte[] { 0x00, 0x00, 0x00, 0x01 }
         };

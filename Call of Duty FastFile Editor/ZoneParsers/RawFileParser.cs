@@ -193,6 +193,14 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         /// <returns>The first matching RawFileNode or null if none is found.</returns>
 
         public static RawFileNode ExtractSingleRawFileNodeWithPattern(byte[] fileData, int startOffset = 0)
+            => ExtractSingleRawFileNodeWithPattern(fileData, startOffset, isLittleEndian: false);
+
+        /// <summary>
+        /// Pattern-match a single rawfile starting at <paramref name="startOffset"/>. Used as a
+        /// fallback when structure-based sequential parsing loses its place (e.g. after an
+        /// unsupported asset type). Size field is read big-endian for console, little-endian for PC.
+        /// </summary>
+        public static RawFileNode ExtractSingleRawFileNodeWithPattern(byte[] fileData, int startOffset, bool isLittleEndian)
         {
             Debug.WriteLine("================================ Start of raw file node search =============================================");
             Debug.WriteLine($"[ExtractSingleRawFileNodeWithPattern] Starting search at 0x{startOffset:X}");
@@ -203,7 +211,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             string[] validExtensions = patternStrings;
 
             int currentSearchOffset = startOffset;
-            int maxFalsePositives = 100; // Limit false positives to avoid infinite loops
+            // Raised from 100 to 10000 for PC WaW: rawfiles are interleaved with binary asset data
+            // (techsets, materials, xanims) that contain many spurious .cfg/.gsc/etc byte sequences.
+            // The outer while-loop is still bounded by zone length, so this is just a safety net.
+            int maxFalsePositives = 10000;
             int falsePositiveCount = 0;
 
             // Loop to handle false positives - continue searching when pattern match fails validation
@@ -277,9 +288,11 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 // Calculate the start-of-header (assuming a 4-byte FF marker precedes the size field).
                 int startOfHeaderPosition = sizePosition - 4;
 
-                // Read and validate the size
-                int maxSize = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(fileData, sizePosition));
-                Debug.WriteLine($"[ExtractSingleRawFileNodeWithPattern] Found size = {maxSize} at offset 0x{sizePosition:X}.");
+                // Read and validate the size (LE on PC, BE on console)
+                int maxSize = isLittleEndian
+                    ? BitConverter.ToInt32(fileData, sizePosition)
+                    : IPAddress.NetworkToHostOrder(BitConverter.ToInt32(fileData, sizePosition));
+                Debug.WriteLine($"[ExtractSingleRawFileNodeWithPattern] Found size = {maxSize} at offset 0x{sizePosition:X} ({(isLittleEndian ? "LE" : "BE")}).");
 
                 // Validate size is reasonable (> 0 and < 5MB)
                 if (maxSize <= 0 || maxSize > 5 * 1024 * 1024)
@@ -365,11 +378,12 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         /// </summary>
         public static RawFileNode ExtractSingleRawFileNodeWithPattern(byte[] fileData, int startOffset, IGameDefinition gameDefinition)
         {
-            // For non-MW2 games, use the standard pattern matching
+            // For non-MW2 games, use the standard pattern matching with the right endianness.
+            // PC WaW/CoD4 zones are little-endian; consoles are big-endian.
             // MW2 can have ShortName "MW2", "MW2 (Xbox)", or "MW2 (PC)"
             if (!gameDefinition.ShortName.StartsWith("MW2"))
             {
-                return ExtractSingleRawFileNodeWithPattern(fileData, startOffset);
+                return ExtractSingleRawFileNodeWithPattern(fileData, startOffset, isLittleEndian: gameDefinition.IsPC);
             }
 
             Debug.WriteLine("================================ Start of MW2 raw file node search =============================================");
@@ -640,9 +654,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             if (string.IsNullOrEmpty(name) || name.Length < 3 || name.Length > 256)
                 return false;
 
-            // Must contain at least one of the valid file extensions
-            string[] validExtensions = { ".gsc", ".csc", ".rmb", ".def", ".str", ".cfg", ".menu", ".txt", ".csv", ".vision", ".arena", ".atr", ".sun" };
-            bool hasValidExtension = validExtensions.Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+            // Must end with one of the valid rawfile extensions. Single-sourced from
+            // RawFileConstants so adding/removing an extension in one place takes effect everywhere.
+            bool hasValidExtension = RawFileConstants.FileNamePatternStrings
+                .Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
             if (!hasValidExtension)
                 return false;
 

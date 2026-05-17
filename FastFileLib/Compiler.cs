@@ -59,6 +59,13 @@ public class Compiler
             return CompileXbox360Signed(zoneData);
         }
 
+        // PC WaW/CoD4 use a different layout: IWffu100 + LE version + single zlib stream.
+        // No 64KB blocks, no end marker. Verified against real PC WaW samples.
+        if (string.Equals(_platform, "PC", StringComparison.OrdinalIgnoreCase))
+        {
+            return CompilePc(zoneData);
+        }
+
         var fastFile = new List<byte>();
 
         // Build FastFile header (12 bytes for CoD4/WaW)
@@ -73,6 +80,32 @@ public class Compiler
         fastFile.AddRange(new byte[] { 0x00, 0x01 });
 
         return fastFile.ToArray();
+    }
+
+    /// <summary>
+    /// PC variant: 12-byte header (magic + LE version) followed by a single zlib stream
+    /// covering the entire zone. No block prefixes, no end marker.
+    /// </summary>
+    private byte[] CompilePc(byte[] zoneData)
+    {
+        using var output = new MemoryStream();
+
+        // 8-byte unsigned magic
+        output.Write(Encoding.ASCII.GetBytes(FastFileConstants.UnsignedHeader));
+
+        // 4-byte version (FastFileInfo returns LE bytes when platform="PC")
+        output.Write(FastFileInfo.GetVersionBytes(_gameVersion, "PC"));
+
+        // Single zlib stream covering the entire zone.
+        // CompressionLevel.Optimal produces 78 9C; SmallestSize produces 78 DA.
+        // Real PC WaW samples use 78 01 (no compression / low) but any valid zlib
+        // variant is loadable by the engine.
+        using (var zlib = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true))
+        {
+            zlib.Write(zoneData, 0, zoneData.Length);
+        }
+
+        return output.ToArray();
     }
 
     /// <summary>

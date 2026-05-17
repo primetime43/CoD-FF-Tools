@@ -4,11 +4,11 @@
     /// Zone file header offsets based on XFile and XAssetList structures.
     /// Reference: https://codresearch.dev/index.php/FastFiles_and_Zone_files_(MW2)
     ///
-    /// IMPORTANT: Xbox 360 has 6 block sizes, PS3/PC has 7-8 block sizes.
-    /// This affects the offsets of XAssetList fields!
-    /// - Xbox 360: XFile = 32 bytes (6 blocks), XAssetList starts at 0x20
-    /// - PS3: XFile = 36 bytes (7 blocks), XAssetList starts at 0x24
-    /// - PC: XFile = 40 bytes (8 blocks), XAssetList starts at 0x28
+    /// IMPORTANT: Block-count differs by platform/game.
+    /// - Xbox 360 MW2: XFile = 32 bytes (6 blocks), XAssetList starts at 0x20
+    /// - PS3 (all games), PC WaW: XFile = 36 bytes (7 blocks), XAssetList starts at 0x24
+    /// PC WaW was previously assumed to have 8 blocks; verified against real samples
+    /// (default.ff/patch.ff/patch_mp.ff) - it uses the same 52-byte layout as PS3.
     /// </summary>
     public static class ZoneFileHeaderConstants
     {
@@ -35,10 +35,12 @@
         public const int Xbox360_AssetCountOffset = 0x28;
         public const int Xbox360_AssetsPtrOffset = 0x2C;
 
-        // XAssetList offsets for PC (8 blocks = 40 bytes XFile header)
-        public const int PC_ScriptStringCountOffset = 0x28;
-        public const int PC_ScriptStringsPtrOffset = 0x2C;
-        public const int PC_AssetCountOffset = 0x30;
-        public const int PC_AssetsPtrOffset = 0x34;
+        // XAssetList offsets for PC WaW (7 blocks = 36 bytes XFile header, SAME as PS3)
+        // Verified against real PC WaW samples - PC uses the PS3-style 52-byte header,
+        // NOT a 56-byte variant. Asset entries are [type][ptr] LE.
+        public const int PC_ScriptStringCountOffset = 0x24;
+        public const int PC_ScriptStringsPtrOffset = 0x28;
+        public const int PC_AssetCountOffset = 0x2C;
+        public const int PC_AssetsPtrOffset = 0x30;
     }
 }

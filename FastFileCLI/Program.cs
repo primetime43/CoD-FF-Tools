@@ -425,7 +425,7 @@ class Program
         // --- Decompression attempt ---
         byte[]? zone = null;
         string? decompressError = null;
-        try { zone = new Decompressor().Decompress(path); }
+        try { zone = DecompressFf(path); }
         catch (Exception ex) { decompressError = ex.Message; }
 
         if (zone != null)
@@ -454,16 +454,20 @@ class Program
         }
         else
         {
-            uint zoneSize     = ReadU32BE(zone, 0x00);
-            uint blockTemp    = ReadU32BE(zone, 0x08);
-            uint blockLarge   = ReadU32BE(zone, 0x18);
-            uint blockVertex  = hdrSize >= 0x34 ? ReadU32BE(zone, 0x20) : 0;
+            // PC zones store everything little-endian; console zones are big-endian.
+            Func<byte[], int, uint> readU32 = isPC ? (Func<byte[], int, uint>)ReadU32LE : ReadU32BE;
+
+            uint zoneSize     = readU32(zone, 0x00);
+            uint blockTemp    = readU32(zone, 0x08);
+            uint blockLarge   = readU32(zone, 0x18);
+            uint blockVertex  = hdrSize >= 0x34 ? readU32(zone, 0x20) : 0;
             int  slOffset     = FastFileConstants.GetScriptStringCountOffset(gv, isXbox360, isPC);
-            uint scriptCount  = ReadU32BE(zone, slOffset);
-            uint assetCount   = ReadU32BE(zone, slOffset + 8);
+            uint scriptCount  = readU32(zone, slOffset);
+            uint assetCount   = readU32(zone, slOffset + 8);
 
             Console.WriteLine($"  Header size:        {hdrSize} (0x{hdrSize:X})");
-            Console.WriteLine($"  ZoneSize:           0x{zoneSize:X8}");
+            Console.WriteLine($"  Endianness:         {(isPC ? "little-endian (PC)" : "big-endian (console)")}");
+            Console.WriteLine($"  ZoneSize:           0x{zoneSize:X8} ({zoneSize:N0})");
             Console.WriteLine($"  BlockSizeTemp:      0x{blockTemp:X8}");
             Console.WriteLine($"  BlockSizeLarge:     0x{blockLarge:X8}");
             if (hdrSize >= 0x34)
@@ -471,10 +475,13 @@ class Program
             Console.WriteLine($"  ScriptStringCount:  {scriptCount}");
             Console.WriteLine($"  AssetCount:         {assetCount}");
 
-            // MemAlloc validation
-            uint expected = ExpectedMemAlloc1(gv, isXbox360);
-            if (expected != 0 && blockTemp != expected)
-                issues.Add($"Zone BlockSizeTemp 0x{blockTemp:X} != expected 0x{expected:X} for {info.GameName} {info.Platform}");
+            // MemAlloc validation - PC computes per-zone, no fixed value to validate against.
+            if (!isPC)
+            {
+                uint expected = ExpectedMemAlloc1(gv, isXbox360);
+                if (expected != 0 && blockTemp != expected)
+                    issues.Add($"Zone BlockSizeTemp 0x{blockTemp:X} != expected 0x{expected:X} for {info.GameName} {info.Platform}");
+            }
 
             // --- Asset pool type counts ---
             int poolStart = hdrSize;
@@ -558,11 +565,12 @@ class Program
         var info = FastFileInfo.FromFile(inputPath);
         Console.WriteLine($"  Game: {info.GameName}, Platform: {info.Platform}");
 
-        byte[] zoneData = new Decompressor().Decompress(inputPath);
-        File.WriteAllBytes(outputPath, zoneData);
+        // Use FastFileProcessor (writes to file directly) - handles all platforms
+        FastFileProcessor.Decompress(inputPath, outputPath);
+        long outputSize = new FileInfo(outputPath).Length;
 
         Console.WriteLine($"  Output: {outputPath}");
-        Console.WriteLine($"  Zone size: {FastFileInfo.FormatFileSize(zoneData.Length)}");
+        Console.WriteLine($"  Zone size: {FastFileInfo.FormatFileSize(outputSize)}");
         return 0;
     }
 
@@ -844,13 +852,35 @@ class Program
         if (ext == ".ff" || ext == ".ffm")
         {
             Console.WriteLine($"Decompressing {Path.GetFileName(inputPath)}...");
-            return new Decompressor().Decompress(inputPath);
+            return DecompressFf(inputPath);
         }
         return File.ReadAllBytes(inputPath);
     }
 
+    /// <summary>
+    /// Decompresses an FF using FastFileProcessor (handles all platforms: PS3 blocks,
+    /// PC single-stream, MW2, signed Xbox 360 streaming, Wii). The older Decompressor
+    /// class only handles block format and chokes on PC files.
+    /// </summary>
+    static byte[] DecompressFf(string inputPath)
+    {
+        string tempZone = Path.GetTempFileName();
+        try
+        {
+            FastFileProcessor.Decompress(inputPath, tempZone);
+            return File.ReadAllBytes(tempZone);
+        }
+        finally
+        {
+            try { File.Delete(tempZone); } catch { /* ignore */ }
+        }
+    }
+
     static uint ReadU32BE(byte[] data, int offset) =>
         (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
+
+    static uint ReadU32LE(byte[] data, int offset) =>
+        (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24));
 
     static string HexBytes(byte[] data, int offset, int length)
     {

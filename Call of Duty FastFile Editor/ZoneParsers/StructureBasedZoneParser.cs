@@ -159,6 +159,20 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         _data[assetPoolStart + 5] == 0x00 && _data[assetPoolStart + 6] == 0x00 &&
                         _data[assetPoolStart + 7] == 0x00)
                     {
+                        // Ambiguity: a run of Format A entries [type][ptr][type][ptr]... shifted by
+                        // +4 bytes looks identical to Format B [ptr][type][ptr][type]... Check 4 bytes
+                        // back - if Format A LE matches there, that's the real start (we overshot due
+                        // to tag-section end miscalculation).
+                        if (assetPoolStart >= 4 &&
+                            _data[assetPoolStart - 3] == 0x00 && _data[assetPoolStart - 2] == 0x00 &&
+                            _data[assetPoolStart - 1] == 0x00 &&
+                            _data[assetPoolStart] == 0xFF && _data[assetPoolStart + 1] == 0xFF &&
+                            _data[assetPoolStart + 2] == 0xFF && _data[assetPoolStart + 3] == 0xFF)
+                        {
+                            assetPoolStart -= 4;
+                            Debug.WriteLine($"[StructureParser] Format B LE match adjusted -4 bytes to Format A LE at 0x{assetPoolStart:X}");
+                            break;
+                        }
                         Debug.WriteLine($"[StructureParser] Found Format B (LE) asset pool at 0x{assetPoolStart:X}");
                         break;
                     }

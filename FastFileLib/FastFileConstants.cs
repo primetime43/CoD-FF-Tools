@@ -126,7 +126,7 @@ public static class FastFileConstants
     /// </summary>
     public const int ZoneHeaderSize_Xbox360 = 0x30;  // MW2 Xbox 360 only
     public const int ZoneHeaderSize_PS3 = 0x34;      // PS3, CoD4 (all platforms), WaW (all platforms)
-    public const int ZoneHeaderSize_PC = 0x38;       // PC
+    public const int ZoneHeaderSize_PC = 0x34;       // PC WaW = same 52-byte layout as PS3 (verified vs real samples)
 
     // XFile structure offsets (common to all platforms)
     public const int ZoneSizeOffset = 0x00;
@@ -152,10 +152,10 @@ public static class FastFileConstants
     public const int AssetsPtrOffset_Xbox360 = 0x2C;
 
     // XAssetList offsets - PC
-    public const int ScriptStringCountOffset_PC = 0x28;
-    public const int ScriptStringsPtrOffset_PC = 0x2C;
-    public const int AssetCountOffset_PC = 0x30;
-    public const int AssetsPtrOffset_PC = 0x34;
+    public const int ScriptStringCountOffset_PC = 0x24;
+    public const int ScriptStringsPtrOffset_PC = 0x28;
+    public const int AssetCountOffset_PC = 0x2C;
+    public const int AssetsPtrOffset_PC = 0x30;
 
     /// <summary>
     /// Gets the zone header size for the given game and platform.

@@ -20,6 +20,16 @@ namespace Call_of_Duty_FastFile_Editor.IO
         /// </summary>
         public override void Recompress(string ffFilePath, string zoneFilePath, FastFile openedFastFile)
         {
+            // PC WaW: single zlib stream + LE version, NOT block format.
+            // Delegate to FastFileLib.Compiler which knows the PC layout.
+            if (openedFastFile.IsPC)
+            {
+                byte[] zoneData = File.ReadAllBytes(zoneFilePath);
+                byte[] ffData = new Compiler(GameVersion.WaW, "PC").Compile(zoneData);
+                File.WriteAllBytes(ffFilePath, ffData);
+                return;
+            }
+
             if (openedFastFile.IsSigned)
             {
                 // Xbox 360 signed files use streaming format - use library method
