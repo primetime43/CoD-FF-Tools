@@ -4737,6 +4737,7 @@ namespace Call_of_Duty_FastFile_Editor
             if (openFileDialog.ShowDialog() != DialogResult.OK)
                 return;
 
+            FastFileLib.Logging.LogService.Info("FileOpen", $"Opening FastFile: {openFileDialog.FileName}");
             await OpenFastFileAutoDetectAsync(openFileDialog.FileName);
         }
 

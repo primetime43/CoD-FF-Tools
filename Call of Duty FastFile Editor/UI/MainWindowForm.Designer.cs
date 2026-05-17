@@ -1,5 +1,6 @@
 using ICSharpCode.TextEditor;
 using ICSharpCode.TextEditorEx;
+using Call_of_Duty_FastFile_Editor.UI;
 
 namespace Call_of_Duty_FastFile_Editor
 {
@@ -120,6 +121,8 @@ namespace Call_of_Duty_FastFile_Editor
             stringTablesListView = new ListView();
             zoneFileTabPage = new TabPage();
             zoneInfoDataGridView = new DataGridView();
+            logsTabPage = new TabPage();
+            logsTabContent = new LogsTabPage();
             bindingSource1 = new BindingSource(components);
             reportIssuesToolStripMenuItem = new ToolStripMenuItem();
             contextMenuStripRawFiles.SuspendLayout();
@@ -149,6 +152,7 @@ namespace Call_of_Duty_FastFile_Editor
             imagesTabPage.SuspendLayout();
             stringTablesTabPage.SuspendLayout();
             zoneFileTabPage.SuspendLayout();
+            logsTabPage.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).BeginInit();
             ((System.ComponentModel.ISupportInitialize)bindingSource1).BeginInit();
             SuspendLayout();
@@ -607,6 +611,7 @@ namespace Call_of_Duty_FastFile_Editor
             mainTabControl.Controls.Add(tagsTabPage);
             mainTabControl.Controls.Add(assetPoolTabPage);
             mainTabControl.Controls.Add(zoneFileTabPage);
+            mainTabControl.Controls.Add(logsTabPage);
             mainTabControl.Dock = DockStyle.Fill;
             mainTabControl.Location = new Point(0, 28);
             mainTabControl.Name = "mainTabControl";
@@ -1033,6 +1038,18 @@ namespace Call_of_Duty_FastFile_Editor
             zoneInfoDataGridView.Size = new Size(493, 432);
             zoneInfoDataGridView.TabIndex = 0;
             zoneInfoDataGridView.MouseDown += dataGrid_MouseDownCopy;
+            //
+            // logsTabPage
+            //
+            logsTabContent.Dock = DockStyle.Fill;
+            logsTabPage.Controls.Add(logsTabContent);
+            logsTabPage.Location = new Point(4, 24);
+            logsTabPage.Name = "logsTabPage";
+            logsTabPage.Padding = new Padding(3);
+            logsTabPage.Size = new Size(1442, 749);
+            logsTabPage.TabIndex = 12;
+            logsTabPage.Text = "Logs";
+            logsTabPage.UseVisualStyleBackColor = true;
             // 
             // reportIssuesToolStripMenuItem
             // 
@@ -1080,6 +1097,7 @@ namespace Call_of_Duty_FastFile_Editor
             imagesTabPage.ResumeLayout(false);
             stringTablesTabPage.ResumeLayout(false);
             zoneFileTabPage.ResumeLayout(false);
+            logsTabPage.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).EndInit();
             ((System.ComponentModel.ISupportInitialize)bindingSource1).EndInit();
             ResumeLayout(false);
@@ -1136,6 +1154,8 @@ namespace Call_of_Duty_FastFile_Editor
         private TabPage rawFilesPage;
         private TabPage zoneFileTabPage;
         private DataGridView zoneInfoDataGridView;
+        private TabPage logsTabPage;
+        private LogsTabPage logsTabContent;
         private BindingSource bindingSource1;
         private TabPage tagsTabPage;
         private ListView tagsListView;
