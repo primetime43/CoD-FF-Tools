@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <!--
+    Reference the CLI project so its build is triggered as part of `dotnet test`.
+    ReferenceOutputAssembly=false because we don't link against it - we spawn its
+    built dll as a subprocess. The dll lands next to the test dll via the
+    OutputItemType=Content/CopyToOutputDirectory rule below.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\FastFileCLI\FastFileCLI.csproj" />
+    <ProjectReference Include="..\FastFileLib\FastFileLib.csproj" />
+  </ItemGroup>
+
+</Project>

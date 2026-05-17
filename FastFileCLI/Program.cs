@@ -1,317 +1,51 @@
+using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using FastFileLib;
 
 namespace FastFileCLI;
 
+/// <summary>
+/// FastFile CLI - a text-based debugging and batch-processing tool for CoD FastFiles.
+///
+/// Design philosophy: this is NOT a second GUI. It exists to do things the GUIs can't:
+///   - paste-into-a-bug-report style diagnostics  (`ffcli report file.ff`)
+///   - shell-loop batch operations               (`ffcli info *.ff`)
+///   - machine-readable output for scripts       (`ffcli info file.ff --json`)
+/// Interactive prompts have been removed in favor of these focused use cases.
+/// </summary>
 class Program
 {
+    // Set when we detect a drag-and-drop launch (a file was dropped onto ffcli.exe in
+    // Windows Explorer). Used to decide whether to pause at the end so the user can
+    // read the report before the auto-launched console window closes.
+    private static bool _dragDropMode;
+
     static int Main(string[] args)
     {
-        // Interactive mode when no arguments provided
-        if (args.Length == 0)
-        {
-            return InteractiveMode();
-        }
-
-        string command = args[0].ToLower();
-        int result;
-
         try
         {
-            result = command switch
-            {
-                "info" => InfoCommand(args.Skip(1).ToArray()),
-                "decompress" or "d" => DecompressCommand(args.Skip(1).ToArray()),
-                "compress" or "c" => CompressCommand(args.Skip(1).ToArray()),
-                "list" or "ls" => ListCommand(args.Skip(1).ToArray()),
-                "extract" or "x" => ExtractCommand(args.Skip(1).ToArray()),
-                "patch" or "p" => PatchCommand(args.Skip(1).ToArray()),
-                "help" or "-h" or "--help" => Help(args.Skip(1).ToArray()),
-                _ => UnknownCommand(command)
-            };
+            return Dispatch(args);
         }
-        catch (Exception ex)
+        finally
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
-            if (Environment.GetEnvironmentVariable("FFCLI_DEBUG") != null)
+            // Pause when:
+            //   - debugger attached (F5 in VS),
+            //   - launched via drag-and-drop and the output isn't redirected.
+            // Ctrl+F5 in VS injects its own pause, so we don't need to handle that.
+            // Terminal use and piped output stay clean.
+            bool shouldPause = Debugger.IsAttached
+                            || (_dragDropMode && !Console.IsOutputRedirected);
+            if (shouldPause)
             {
-                Console.Error.WriteLine(ex.StackTrace);
-            }
-            result = 1;
-        }
-
-        return result;
-    }
-
-    static int InteractiveMode()
-    {
-        while (true)
-        {
-            Console.Clear();
-            Console.WriteLine("===========================================");
-            Console.WriteLine("  FastFile CLI Tool - Interactive Mode");
-            Console.WriteLine("===========================================");
-            Console.WriteLine();
-            Console.WriteLine("  1. Show FastFile Info");
-            Console.WriteLine("  2. Decompress FastFile to Zone");
-            Console.WriteLine("  3. Compress Zone to FastFile");
-            Console.WriteLine("  4. List Raw Files");
-            Console.WriteLine("  5. Extract Raw Files");
-            Console.WriteLine("  6. Patch Raw File");
-            Console.WriteLine();
-            Console.WriteLine("  0. Exit");
-            Console.WriteLine();
-            Console.Write("Select an option: ");
-
-            var key = Console.ReadKey();
-            Console.WriteLine();
-            Console.WriteLine();
-
-            try
-            {
-                switch (key.KeyChar)
-                {
-                    case '1':
-                        InteractiveInfo();
-                        break;
-                    case '2':
-                        InteractiveDecompress();
-                        break;
-                    case '3':
-                        InteractiveCompress();
-                        break;
-                    case '4':
-                        InteractiveList();
-                        break;
-                    case '5':
-                        InteractiveExtract();
-                        break;
-                    case '6':
-                        InteractivePatch();
-                        break;
-                    case '0':
-                    case 'q':
-                    case 'Q':
-                        return 0;
-                    default:
-                        Console.WriteLine("Invalid option. Press any key to continue...");
-                        Console.ReadKey();
-                        break;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Error: {ex.Message}");
-                if (Environment.GetEnvironmentVariable("FFCLI_DEBUG") != null)
-                {
-                    Console.Error.WriteLine(ex.StackTrace);
-                }
                 Console.WriteLine();
-                Console.WriteLine("Press any key to continue...");
-                Console.ReadKey();
+                Console.Write("Press any key to continue...");
+                Console.ReadKey(intercept: true);
             }
         }
     }
 
-    static string PromptForFile(string prompt, bool mustExist = true)
-    {
-        Console.Write(prompt);
-        string? path = Console.ReadLine()?.Trim().Trim('"');
-
-        if (string.IsNullOrEmpty(path))
-            throw new ArgumentException("No file path provided.");
-
-        if (mustExist && !File.Exists(path))
-            throw new FileNotFoundException($"File not found: {path}");
-
-        return path;
-    }
-
-    static string PromptForDirectory(string prompt)
-    {
-        Console.Write(prompt);
-        string? path = Console.ReadLine()?.Trim().Trim('"');
-
-        if (string.IsNullOrEmpty(path))
-            throw new ArgumentException("No directory path provided.");
-
-        return path;
-    }
-
-    static string? PromptOptional(string prompt)
-    {
-        Console.Write(prompt);
-        string? input = Console.ReadLine()?.Trim();
-        return string.IsNullOrEmpty(input) ? null : input;
-    }
-
-    static void WaitForKey()
-    {
-        Console.WriteLine();
-        Console.WriteLine("Press any key to continue...");
-        Console.ReadKey();
-    }
-
-    static void InteractiveInfo()
-    {
-        Console.WriteLine("--- Show FastFile Info ---");
-        string path = PromptForFile("Enter FastFile path: ");
-        Console.WriteLine();
-        InfoCommand(new[] { path });
-        WaitForKey();
-    }
-
-    static void InteractiveDecompress()
-    {
-        Console.WriteLine("--- Decompress FastFile ---");
-        string input = PromptForFile("Enter FastFile path: ");
-        string? output = PromptOptional("Output zone path (Enter for default): ");
-        Console.WriteLine();
-
-        var args = string.IsNullOrEmpty(output)
-            ? new[] { input }
-            : new[] { input, output };
-        DecompressCommand(args);
-        WaitForKey();
-    }
-
-    static void InteractiveCompress()
-    {
-        Console.WriteLine("--- Compress Zone to FastFile ---");
-        string input = PromptForFile("Enter zone file path: ");
-        string output = PromptForFile("Enter output FastFile path: ", mustExist: false);
-
-        Console.WriteLine();
-        Console.WriteLine("Select game:");
-        Console.WriteLine("  1. World at War (default)");
-        Console.WriteLine("  2. Call of Duty 4");
-        Console.WriteLine("  3. Modern Warfare 2");
-        Console.Write("Choice [1]: ");
-        var gameKey = Console.ReadKey();
-        Console.WriteLine();
-
-        string game = gameKey.KeyChar switch
-        {
-            '2' => "cod4",
-            '3' => "mw2",
-            _ => "waw"
-        };
-
-        Console.WriteLine();
-        Console.WriteLine("Select platform:");
-        Console.WriteLine("  1. PS3 (default)");
-        Console.WriteLine("  2. Xbox 360");
-        Console.WriteLine("  3. PC");
-        Console.Write("Choice [1]: ");
-        var platKey = Console.ReadKey();
-        Console.WriteLine();
-
-        string platform = platKey.KeyChar switch
-        {
-            '2' => "xbox",
-            '3' => "pc",
-            _ => "ps3"
-        };
-
-        Console.WriteLine();
-        CompressCommand(new[] { input, output, "--game", game, "--platform", platform });
-        WaitForKey();
-    }
-
-    static void InteractiveList()
-    {
-        Console.WriteLine("--- List Raw Files ---");
-        string path = PromptForFile("Enter FastFile or zone path: ");
-        Console.Write("Show detailed info? (y/N): ");
-        var verboseKey = Console.ReadKey();
-        Console.WriteLine();
-        Console.WriteLine();
-
-        var args = (verboseKey.KeyChar == 'y' || verboseKey.KeyChar == 'Y')
-            ? new[] { path, "-v" }
-            : new[] { path };
-        ListCommand(args);
-        WaitForKey();
-    }
-
-    static void InteractiveExtract()
-    {
-        Console.WriteLine("--- Extract Raw Files ---");
-        string input = PromptForFile("Enter FastFile or zone path: ");
-        string output = PromptForDirectory("Enter output directory: ");
-        string? filter = PromptOptional("Filter pattern (Enter for all): ");
-        Console.WriteLine();
-
-        var args = new List<string> { input, output };
-        if (!string.IsNullOrEmpty(filter))
-        {
-            args.Add("--filter");
-            args.Add(filter);
-        }
-
-        ExtractCommand(args.ToArray());
-        WaitForKey();
-    }
-
-    static void InteractivePatch()
-    {
-        Console.WriteLine("--- Patch Raw File ---");
-        string zone = PromptForFile("Enter zone file path: ");
-
-        // Show available files first
-        Console.WriteLine();
-        Console.WriteLine("Loading raw files...");
-        byte[] zoneData = File.ReadAllBytes(zone);
-        var rawFiles = FindRawFiles(zoneData);
-
-        Console.WriteLine($"Found {rawFiles.Count} raw file(s):");
-        for (int i = 0; i < Math.Min(rawFiles.Count, 20); i++)
-        {
-            Console.WriteLine($"  {rawFiles[i].Name}");
-        }
-        if (rawFiles.Count > 20)
-        {
-            Console.WriteLine($"  ... and {rawFiles.Count - 20} more");
-        }
-        Console.WriteLine();
-
-        Console.Write("Enter raw file name to patch: ");
-        string? rawFileName = Console.ReadLine()?.Trim();
-        if (string.IsNullOrEmpty(rawFileName))
-            throw new ArgumentException("No raw file name provided.");
-
-        string contentPath = PromptForFile("Enter content file path: ");
-        Console.WriteLine();
-
-        PatchCommand(new[] { zone, rawFileName, contentPath });
-        WaitForKey();
-    }
-
-    static void PrintUsage()
-    {
-        Console.WriteLine("FastFile CLI Tool - CoD FastFile manipulation utility");
-        Console.WriteLine();
-        Console.WriteLine("Usage: ffcli <command> [options]");
-        Console.WriteLine();
-        Console.WriteLine("Commands:");
-        Console.WriteLine("  info <file.ff>                    Show FastFile information");
-        Console.WriteLine("  decompress, d <file.ff> [out]     Decompress FastFile to zone");
-        Console.WriteLine("  compress, c <file.zone> <out.ff>  Compress zone to FastFile");
-        Console.WriteLine("  list, ls <file.ff|zone>           List raw files");
-        Console.WriteLine("  extract, x <file> <dir>           Extract raw files to directory");
-        Console.WriteLine("  patch, p <file.zone> <name> <in>  Patch raw file content");
-        Console.WriteLine("  help [command]                    Show help for a command");
-        Console.WriteLine();
-        Console.WriteLine("Examples:");
-        Console.WriteLine("  ffcli info patch_mp.ff");
-        Console.WriteLine("  ffcli d patch_mp.ff");
-        Console.WriteLine("  ffcli ls patch_mp.zone");
-        Console.WriteLine("  ffcli x patch_mp.zone ./extracted");
-        Console.WriteLine();
-        Console.WriteLine("Set FFCLI_DEBUG=1 for verbose error output.");
-    }
-
-    static int Help(string[] args)
+    static int Dispatch(string[] args)
     {
         if (args.Length == 0)
         {
@@ -319,26 +53,118 @@ class Program
             return 0;
         }
 
+        // Drag-and-drop shortcut: if every arg looks like a FastFile/zone path, run
+        // 'report' on them. Windows passes dropped files as positional args, so
+        // dropping patch_mp.ff onto ffcli.exe lands here as `ffcli "C:\...\patch_mp.ff"`.
+        if (args.All(LooksLikeDroppedFile))
+        {
+            _dragDropMode = true;
+            Console.WriteLine($"Detected {args.Length} dropped file(s) - running 'report'");
+            Console.WriteLine();
+            return ReportCommand(args);
+        }
+
         string command = args[0].ToLower();
-        switch (command)
+        try
+        {
+            return command switch
+            {
+                "info"                       => InfoCommand(args.Skip(1).ToArray()),
+                "report" or "r"              => ReportCommand(args.Skip(1).ToArray()),
+                "decompress" or "d"          => DecompressCommand(args.Skip(1).ToArray()),
+                "compress"   or "c"          => CompressCommand(args.Skip(1).ToArray()),
+                "list"       or "ls"         => ListCommand(args.Skip(1).ToArray()),
+                "extract"    or "x"          => ExtractCommand(args.Skip(1).ToArray()),
+                "patch"      or "p"          => PatchCommand(args.Skip(1).ToArray()),
+                "help"       or "-h" or "--help" => Help(args.Skip(1).ToArray()),
+                _                            => UnknownCommand(command)
+            };
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Error: {ex.Message}");
+            if (Environment.GetEnvironmentVariable("FFCLI_DEBUG") != null)
+                Console.Error.WriteLine(ex.StackTrace);
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// True if the arg is the absolute or relative path to an existing file with
+    /// a FastFile-ish extension. Used to detect Windows Explorer drag-and-drop launches.
+    /// </summary>
+    static bool LooksLikeDroppedFile(string arg)
+    {
+        if (string.IsNullOrWhiteSpace(arg)) return false;
+        string ext = Path.GetExtension(arg).ToLowerInvariant();
+        if (ext != ".ff" && ext != ".ffm" && ext != ".zone") return false;
+        return File.Exists(arg);
+    }
+
+    // -----------------------------------------------------------------
+    //  Help / usage
+    // -----------------------------------------------------------------
+
+    static void PrintUsage()
+    {
+        Console.WriteLine("FastFile CLI - CoD FastFile debugging & batch tool");
+        Console.WriteLine();
+        Console.WriteLine("Usage: ffcli <command> [options]");
+        Console.WriteLine();
+        Console.WriteLine("Commands:");
+        Console.WriteLine("  info <file.ff> [--json]                Print FastFile header info");
+        Console.WriteLine("  report, r <file.ff>                    Full diagnostic report (for bug reports)");
+        Console.WriteLine("  decompress, d <file.ff> [out.zone]     Decompress to a zone file");
+        Console.WriteLine("  compress, c <file.zone> <out.ff>       Compress a zone into a FastFile");
+        Console.WriteLine("  list, ls <file.ff|.zone> [-v]          List raw files in a FF/zone");
+        Console.WriteLine("  extract, x <file> <dir> [--filter X]   Extract raw files");
+        Console.WriteLine("  patch, p <file.zone> <name> <content>  Patch a raw file in place");
+        Console.WriteLine("  help [command]                         Detailed help for a command");
+        Console.WriteLine();
+        Console.WriteLine("Globs: most read commands accept shell-style wildcards.");
+        Console.WriteLine("  ffcli info *.ff");
+        Console.WriteLine("  ffcli report patch_*.ff");
+        Console.WriteLine();
+        Console.WriteLine("Bug reports: include the output of `ffcli report your.ff`.");
+        Console.WriteLine("Debug: set FFCLI_DEBUG=1 for stack traces.");
+    }
+
+    static int Help(string[] args)
+    {
+        if (args.Length == 0) { PrintUsage(); return 0; }
+
+        switch (args[0].ToLower())
         {
             case "info":
-                Console.WriteLine("Usage: ffcli info <file.ff>");
+                Console.WriteLine("Usage: ffcli info <file.ff> [--json]");
                 Console.WriteLine();
-                Console.WriteLine("Display information about a FastFile:");
-                Console.WriteLine("  - Game (CoD4, WaW, MW2)");
-                Console.WriteLine("  - Platform (PS3, Xbox 360, PC)");
-                Console.WriteLine("  - Version number");
-                Console.WriteLine("  - File size");
-                Console.WriteLine("  - Signed status (Xbox 360)");
+                Console.WriteLine("Prints header info: magic, version, game, platform, signed status, file size.");
+                Console.WriteLine("--json emits a machine-readable object (array if multiple files).");
+                Console.WriteLine("File argument accepts globs: ffcli info *.ff");
+                break;
+
+            case "report":
+            case "r":
+                Console.WriteLine("Usage: ffcli report <file.ff>");
+                Console.WriteLine();
+                Console.WriteLine("Prints a full diagnostic report including:");
+                Console.WriteLine("  - FastFile header (magic, version, detected game/platform)");
+                Console.WriteLine("  - MW2 extended header (if MW2)");
+                Console.WriteLine("  - Xbox 360 streaming header + hash table layout (if signed)");
+                Console.WriteLine("  - Compressed data stream start/length/end-marker");
+                Console.WriteLine("  - Zone header (if decompression succeeds), with MemAlloc validation");
+                Console.WriteLine("  - Asset pool type counts");
+                Console.WriteLine("  - Detected format issues");
+                Console.WriteLine();
+                Console.WriteLine("Designed to be pasted into bug reports - it tells you everything a maintainer");
+                Console.WriteLine("would need to ask for before diagnosing a decompression or format problem.");
+                Console.WriteLine("File argument accepts globs: ffcli report patch_*.ff");
                 break;
 
             case "decompress":
             case "d":
                 Console.WriteLine("Usage: ffcli decompress <file.ff> [output.zone]");
-                Console.WriteLine();
-                Console.WriteLine("Decompress a FastFile to a zone file.");
-                Console.WriteLine("If output is not specified, uses <filename>.zone");
+                Console.WriteLine("Default output: <inputname>.zone");
                 break;
 
             case "compress":
@@ -346,46 +172,37 @@ class Program
                 Console.WriteLine("Usage: ffcli compress <file.zone> <output.ff> [options]");
                 Console.WriteLine();
                 Console.WriteLine("Options:");
-                Console.WriteLine("  --game <cod4|waw|mw2>      Target game (default: auto-detect)");
+                Console.WriteLine("  --game <cod4|waw|mw2>      Target game (default: waw)");
                 Console.WriteLine("  --platform <ps3|xbox|pc>   Target platform (default: ps3)");
-                Console.WriteLine("  --signed                   Create Xbox 360 signed format");
-                Console.WriteLine("  --original <file.ff>       Original FF for signed format hash table");
+                Console.WriteLine("  --signed                   Use Xbox 360 signed format (requires --original)");
+                Console.WriteLine("  --original <file.ff>       Original FF for signed-format hash table preservation");
                 break;
 
             case "list":
             case "ls":
-                Console.WriteLine("Usage: ffcli list <file.ff|file.zone> [options]");
-                Console.WriteLine();
-                Console.WriteLine("Options:");
-                Console.WriteLine("  --verbose, -v    Show detailed info (offsets, sizes)");
-                Console.WriteLine();
-                Console.WriteLine("List all raw files in a FastFile or zone file.");
+                Console.WriteLine("Usage: ffcli list <file.ff|.zone> [-v|--verbose]");
+                Console.WriteLine("Lists raw files; -v adds offset + size columns.");
                 break;
 
             case "extract":
             case "x":
-                Console.WriteLine("Usage: ffcli extract <file.ff|file.zone> <output_dir> [options]");
+                Console.WriteLine("Usage: ffcli extract <file.ff|.zone> <output_dir> [options]");
                 Console.WriteLine();
                 Console.WriteLine("Options:");
-                Console.WriteLine("  --filter <pattern>   Only extract files matching pattern");
-                Console.WriteLine("  --flat               Don't preserve directory structure");
-                Console.WriteLine();
-                Console.WriteLine("Extract raw files from a FastFile or zone file.");
+                Console.WriteLine("  --filter <pattern>    Only extract files whose name contains <pattern>");
+                Console.WriteLine("  --flat                Don't preserve directory structure");
                 break;
 
             case "patch":
             case "p":
                 Console.WriteLine("Usage: ffcli patch <file.zone> <rawfile_name> <content_file>");
                 Console.WriteLine();
-                Console.WriteLine("Patch a raw file's content in a zone file.");
-                Console.WriteLine("The content file will replace the existing raw file data.");
-                Console.WriteLine();
-                Console.WriteLine("Note: Content must fit in the existing slot. Use the GUI");
-                Console.WriteLine("editor if you need to increase file sizes.");
+                Console.WriteLine("Replaces the contents of a raw file in place. Content must fit in the");
+                Console.WriteLine("existing slot - use the GUI editor to grow a raw file.");
                 break;
 
             default:
-                Console.WriteLine($"Unknown command: {command}");
+                Console.WriteLine($"Unknown command: {args[0]}");
                 return 1;
         }
         return 0;
@@ -394,37 +211,331 @@ class Program
     static int UnknownCommand(string command)
     {
         Console.Error.WriteLine($"Unknown command: {command}");
-        Console.Error.WriteLine("Run 'ffcli help' for usage information.");
+        Console.Error.WriteLine("Run 'ffcli help' for usage.");
         return 1;
     }
+
+    // -----------------------------------------------------------------
+    //  info
+    // -----------------------------------------------------------------
 
     static int InfoCommand(string[] args)
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: ffcli info <file.ff>");
+            Console.Error.WriteLine("Usage: ffcli info <file.ff> [--json]");
             return 1;
         }
 
-        string filePath = args[0];
-        if (!File.Exists(filePath))
+        bool json = args.Any(a => a == "--json");
+        var paths = ExpandFileArgs(args.Where(a => !a.StartsWith("--")));
+        if (paths.Count == 0)
         {
-            Console.Error.WriteLine($"File not found: {filePath}");
+            Console.Error.WriteLine("No files matched.");
             return 1;
         }
 
-        var info = FastFileInfo.FromFile(filePath);
-        var fileInfo = new FileInfo(filePath);
+        if (json)
+        {
+            var results = paths.Select(BuildInfoObject).ToList();
+            // Single file: emit object. Multiple: emit array.
+            object output = results.Count == 1 ? (object)results[0] : results;
+            Console.WriteLine(JsonSerializer.Serialize(output, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
 
-        Console.WriteLine($"File:      {Path.GetFileName(filePath)}");
-        Console.WriteLine($"Size:      {FastFileInfo.FormatFileSize(fileInfo.Length)}");
-        Console.WriteLine($"Game:      {info.GameName}");
-        Console.WriteLine($"Platform:  {info.Platform}");
-        Console.WriteLine($"Version:   0x{info.Version:X8}");
-        Console.WriteLine($"Signed:    {(info.IsSigned ? "Yes" : "No")}");
-
+        bool first = true;
+        foreach (var path in paths)
+        {
+            if (!first) Console.WriteLine();
+            first = false;
+            PrintInfoText(path);
+        }
         return 0;
     }
+
+    static object BuildInfoObject(string path)
+    {
+        var info = FastFileInfo.FromFile(path);
+        var fi = new FileInfo(path);
+        return new
+        {
+            file = Path.GetFileName(path),
+            path,
+            size_bytes = fi.Length,
+            size_pretty = FastFileInfo.FormatFileSize(fi.Length),
+            magic = info.Magic,
+            version_hex = $"0x{info.Version:X8}",
+            game = info.GameName,
+            platform = info.Platform,
+            studio = info.Studio,
+            signed = info.IsSigned,
+            is_pc = info.IsPC,
+            is_wii = info.IsWii
+        };
+    }
+
+    static void PrintInfoText(string path)
+    {
+        var info = FastFileInfo.FromFile(path);
+        var fi = new FileInfo(path);
+        Console.WriteLine($"File:      {Path.GetFileName(path)}");
+        Console.WriteLine($"Size:      {FastFileInfo.FormatFileSize(fi.Length)} ({fi.Length:N0} bytes)");
+        Console.WriteLine($"Magic:     {info.Magic}");
+        Console.WriteLine($"Version:   0x{info.Version:X8}");
+        Console.WriteLine($"Game:      {info.GameName}");
+        Console.WriteLine($"Platform:  {info.Platform}");
+        Console.WriteLine($"Studio:    {info.Studio}");
+        Console.WriteLine($"Signed:    {(info.IsSigned ? "Yes" : "No")}");
+    }
+
+    // -----------------------------------------------------------------
+    //  report — the bug-report-friendly diagnostic dump
+    // -----------------------------------------------------------------
+
+    static int ReportCommand(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.Error.WriteLine("Usage: ffcli report <file.ff>");
+            return 1;
+        }
+
+        var paths = ExpandFileArgs(args);
+        if (paths.Count == 0)
+        {
+            Console.Error.WriteLine("No files matched.");
+            return 1;
+        }
+
+        bool first = true;
+        foreach (var path in paths)
+        {
+            if (!first) { Console.WriteLine(); Console.WriteLine(new string('=', 70)); Console.WriteLine(); }
+            first = false;
+            PrintReport(path);
+        }
+        return 0;
+    }
+
+    static void PrintReport(string path)
+    {
+        byte[] ff;
+        try { ff = File.ReadAllBytes(path); }
+        catch (Exception ex) { Console.Error.WriteLine($"Cannot read {path}: {ex.Message}"); return; }
+
+        Console.WriteLine($"=== FastFile Report ===");
+        Console.WriteLine($"File: {Path.GetFileName(path)}");
+        Console.WriteLine($"Path: {path}");
+        Console.WriteLine($"Size: 0x{ff.Length:X} ({ff.Length:N0} bytes)");
+        Console.WriteLine();
+
+        // --- FastFile header ---
+        Console.WriteLine("== FastFile Header ==");
+        if (ff.Length < 12)
+        {
+            Console.WriteLine("  ERROR: file too small to contain a header (< 12 bytes).");
+            return;
+        }
+
+        FastFileInfo info;
+        try { info = FastFileInfo.FromFile(path); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ERROR parsing header: {ex.Message}");
+            Console.WriteLine($"  First 16 bytes: {HexBytes(ff, 0, Math.Min(16, ff.Length))}");
+            return;
+        }
+
+        Console.WriteLine($"  Magic:    {info.Magic}");
+        Console.WriteLine($"  Version:  0x{info.Version:X8}");
+        Console.WriteLine($"  Game:     {info.GameName}");
+        Console.WriteLine($"  Platform: {info.Platform}");
+        Console.WriteLine($"  Studio:   {info.Studio}");
+        Console.WriteLine($"  Signed:   {(info.IsSigned ? "Yes" : "No")}");
+        Console.WriteLine($"  First 16 bytes: {HexBytes(ff, 0, 16)}");
+        Console.WriteLine();
+
+        var issues = new List<string>();
+
+        // --- MW2 extended header ---
+        if (info.GameName.StartsWith("MW2") && ff.Length >= 12 + 25)
+        {
+            Console.WriteLine("== MW2 Extended Header (DB_Header) ==");
+            int pos = 12;
+            byte allowOnlineUpdate = ff[pos];
+            uint region = ReadU32BE(ff, pos + 9);
+            uint entryCount = ReadU32BE(ff, pos + 13);
+
+            Console.WriteLine($"  allowOnlineUpdate: 0x{allowOnlineUpdate:X2}");
+            Console.WriteLine($"  region:            0x{region:X8}");
+            Console.WriteLine($"  entryCount:        {entryCount}");
+
+            if (entryCount < 10000)
+            {
+                int fileSizesOff = pos + 17 + (int)entryCount * 0x14;
+                if (fileSizesOff + 8 <= ff.Length)
+                {
+                    uint storedFileSize = ReadU32BE(ff, fileSizesOff);
+                    uint storedMaxFileSize = ReadU32BE(ff, fileSizesOff + 4);
+                    Console.WriteLine($"  fileSize (stored): 0x{storedFileSize:X} ({storedFileSize:N0} bytes)");
+                    Console.WriteLine($"  maxFileSize:       0x{storedMaxFileSize:X}");
+                    if (storedFileSize != 0 && storedFileSize != ff.Length)
+                        issues.Add($"MW2 stored fileSize (0x{storedFileSize:X}) != actual FF size (0x{ff.Length:X})");
+                }
+            }
+            Console.WriteLine();
+        }
+
+        // --- Xbox 360 streaming header (IWff0100 + IWffs100) ---
+        bool hasStreaming = ff.Length >= FastFileConstants.Xbox360SignedZlibStart
+                         && Encoding.ASCII.GetString(ff, 0x0C, 8) == FastFileConstants.StreamingHeader;
+        if (hasStreaming)
+        {
+            Console.WriteLine("== Xbox 360 Streaming Header ==");
+            Console.WriteLine($"  IWffs100 magic at:    0x0C");
+            Console.WriteLine($"  Hash table:           0x{FastFileConstants.Xbox360SignedHashTableStart:X} .. 0x{FastFileConstants.Xbox360SignedHashTableEnd:X}");
+            Console.WriteLine($"  Auth data:            0x{FastFileConstants.Xbox360SignedHashTableEnd:X} .. 0x{FastFileConstants.Xbox360SignedAuthDataEnd:X}");
+            Console.WriteLine($"  Compressed stream at: 0x{FastFileConstants.Xbox360SignedZlibStart:X}");
+            int s = FastFileConstants.Xbox360SignedZlibStart;
+            if (s + 2 <= ff.Length)
+            {
+                Console.WriteLine($"  Stream first 2 bytes: 0x{ff[s]:X2} 0x{ff[s + 1]:X2}" +
+                    $" {(FastFileConstants.HasZlibHeader(ff, s) ? "(zlib header)" : "(raw deflate or other)")}");
+            }
+            Console.WriteLine();
+        }
+
+        // --- Compressed data ---
+        int dataStart;
+        if (hasStreaming) dataStart = FastFileConstants.Xbox360SignedZlibStart;
+        else if (info.GameName.StartsWith("MW2")) dataStart = 12 + 25;
+        else dataStart = 12;
+
+        Console.WriteLine("== Compressed Data ==");
+        Console.WriteLine($"  Stream start:  0x{dataStart:X}");
+        Console.WriteLine($"  Stream length: 0x{ff.Length - dataStart:X} ({ff.Length - dataStart:N0} bytes)");
+        if (ff.Length >= 2)
+        {
+            byte b0 = ff[^2], b1 = ff[^1];
+            string marker = b0 == 0x00 && b1 == 0x01 ? "block-format end marker" : "(no end marker)";
+            Console.WriteLine($"  Last 2 bytes:  0x{b0:X2} 0x{b1:X2}  {marker}");
+        }
+
+        // --- Decompression attempt ---
+        byte[]? zone = null;
+        string? decompressError = null;
+        try { zone = new Decompressor().Decompress(path); }
+        catch (Exception ex) { decompressError = ex.Message; }
+
+        if (zone != null)
+            Console.WriteLine($"  Decompressed:  0x{zone.Length:X} ({zone.Length:N0} bytes) [OK]");
+        else
+            Console.WriteLine($"  Decompressed:  FAILED - {decompressError}");
+        Console.WriteLine();
+
+        if (zone == null)
+        {
+            Console.WriteLine("Cannot report on zone contents because decompression failed.");
+            if (issues.Count > 0) PrintIssues(issues);
+            return;
+        }
+
+        // --- Zone header ---
+        Console.WriteLine("== Zone Header ==");
+        bool isXbox360 = info.Platform == "Xbox 360";
+        bool isPC = info.IsPC;
+        var gv = info.GameVersion;
+        int hdrSize = FastFileConstants.GetZoneHeaderSize(gv, isXbox360, isPC);
+
+        if (zone.Length < hdrSize)
+        {
+            Console.WriteLine($"  ERROR: zone too small for expected header size {hdrSize}");
+        }
+        else
+        {
+            uint zoneSize     = ReadU32BE(zone, 0x00);
+            uint blockTemp    = ReadU32BE(zone, 0x08);
+            uint blockLarge   = ReadU32BE(zone, 0x18);
+            uint blockVertex  = hdrSize >= 0x34 ? ReadU32BE(zone, 0x20) : 0;
+            int  slOffset     = FastFileConstants.GetScriptStringCountOffset(gv, isXbox360, isPC);
+            uint scriptCount  = ReadU32BE(zone, slOffset);
+            uint assetCount   = ReadU32BE(zone, slOffset + 8);
+
+            Console.WriteLine($"  Header size:        {hdrSize} (0x{hdrSize:X})");
+            Console.WriteLine($"  ZoneSize:           0x{zoneSize:X8}");
+            Console.WriteLine($"  BlockSizeTemp:      0x{blockTemp:X8}");
+            Console.WriteLine($"  BlockSizeLarge:     0x{blockLarge:X8}");
+            if (hdrSize >= 0x34)
+                Console.WriteLine($"  BlockSizeVertex:    0x{blockVertex:X8}");
+            Console.WriteLine($"  ScriptStringCount:  {scriptCount}");
+            Console.WriteLine($"  AssetCount:         {assetCount}");
+
+            // MemAlloc validation
+            uint expected = ExpectedMemAlloc1(gv, isXbox360);
+            if (expected != 0 && blockTemp != expected)
+                issues.Add($"Zone BlockSizeTemp 0x{blockTemp:X} != expected 0x{expected:X} for {info.GameName} {info.Platform}");
+
+            // --- Asset pool type counts ---
+            int poolStart = hdrSize;
+            int poolEnd = poolStart + (int)assetCount * 8;
+            if (poolEnd <= zone.Length && assetCount > 0 && assetCount < 100_000)
+            {
+                Console.WriteLine();
+                Console.WriteLine("== Asset Pool ==");
+                Console.WriteLine($"  Range:    0x{poolStart:X} .. 0x{poolEnd:X}");
+                Console.WriteLine($"  Entries:  {assetCount}");
+
+                // Detect entry layout
+                int typeOff = 3;
+                bool leftIsPtr = zone[poolStart] == 0xFF && zone[poolStart + 1] == 0xFF
+                              && zone[poolStart + 2] == 0xFF && zone[poolStart + 3] == 0xFF;
+                bool rightIsPtr = zone[poolStart + 4] == 0xFF && zone[poolStart + 5] == 0xFF
+                               && zone[poolStart + 6] == 0xFF && zone[poolStart + 7] == 0xFF;
+                if (leftIsPtr && !rightIsPtr) typeOff = 7;
+                Console.WriteLine($"  Layout:   {(typeOff == 3 ? "[type][ptr]" : "[ptr][type]")}");
+
+                var counts = new Dictionary<byte, int>();
+                for (int i = 0; i + 8 <= poolEnd - poolStart; i += 8)
+                {
+                    byte t = zone[poolStart + i + typeOff];
+                    counts[t] = counts.GetValueOrDefault(t) + 1;
+                }
+                Console.WriteLine($"  Type counts:");
+                foreach (var kv in counts.OrderByDescending(kv => kv.Value))
+                    Console.WriteLine($"    0x{kv.Key:X2}  count={kv.Value}");
+            }
+        }
+
+        if (issues.Count > 0)
+        {
+            Console.WriteLine();
+            PrintIssues(issues);
+        }
+    }
+
+    static void PrintIssues(List<string> issues)
+    {
+        Console.WriteLine("== Issues Detected ==");
+        foreach (var s in issues)
+            Console.WriteLine($"  ! {s}");
+    }
+
+    static uint ExpectedMemAlloc1(GameVersion gv, bool isXbox360)
+    {
+        return gv switch
+        {
+            GameVersion.CoD4 => FastFileLib.GameDefinitions.CoD4Definition.MemAlloc1Value,
+            GameVersion.WaW  => isXbox360 ? FastFileLib.GameDefinitions.CoD5Definition.Xbox360MemAlloc1Value
+                                          : FastFileLib.GameDefinitions.CoD5Definition.MemAlloc1Value,
+            GameVersion.MW2  => FastFileLib.GameDefinitions.MW2Definition.MemAlloc1Value,
+            _ => 0
+        };
+    }
+
+    // -----------------------------------------------------------------
+    //  decompress / compress
+    // -----------------------------------------------------------------
 
     static int DecompressCommand(string[] args)
     {
@@ -441,12 +552,9 @@ class Program
             return 1;
         }
 
-        string outputPath = args.Length > 1
-            ? args[1]
-            : Path.ChangeExtension(inputPath, ".zone");
+        string outputPath = args.Length > 1 ? args[1] : Path.ChangeExtension(inputPath, ".zone");
 
         Console.WriteLine($"Decompressing: {Path.GetFileName(inputPath)}");
-
         var info = FastFileInfo.FromFile(inputPath);
         Console.WriteLine($"  Game: {info.GameName}, Platform: {info.Platform}");
 
@@ -455,7 +563,6 @@ class Program
 
         Console.WriteLine($"  Output: {outputPath}");
         Console.WriteLine($"  Zone size: {FastFileInfo.FormatFileSize(zoneData.Length)}");
-
         return 0;
     }
 
@@ -469,15 +576,13 @@ class Program
 
         string inputPath = args[0];
         string outputPath = args[1];
-
         if (!File.Exists(inputPath))
         {
             Console.Error.WriteLine($"File not found: {inputPath}");
             return 1;
         }
 
-        // Parse options
-        GameVersion gameVersion = GameVersion.WaW; // default
+        GameVersion gameVersion = GameVersion.WaW;
         string platform = "PS3";
         bool signed = false;
         string? originalFf = null;
@@ -487,11 +592,7 @@ class Program
             switch (args[i].ToLower())
             {
                 case "--game":
-                    if (i + 1 >= args.Length)
-                    {
-                        Console.Error.WriteLine("--game requires a value (cod4, waw, mw2)");
-                        return 1;
-                    }
+                    if (i + 1 >= args.Length) { Console.Error.WriteLine("--game requires a value"); return 1; }
                     gameVersion = args[++i].ToLower() switch
                     {
                         "cod4" => GameVersion.CoD4,
@@ -500,13 +601,8 @@ class Program
                         _ => throw new ArgumentException($"Unknown game: {args[i]}")
                     };
                     break;
-
                 case "--platform":
-                    if (i + 1 >= args.Length)
-                    {
-                        Console.Error.WriteLine("--platform requires a value (ps3, xbox, pc)");
-                        return 1;
-                    }
+                    if (i + 1 >= args.Length) { Console.Error.WriteLine("--platform requires a value"); return 1; }
                     platform = args[++i].ToLower() switch
                     {
                         "ps3" => "PS3",
@@ -515,18 +611,12 @@ class Program
                         _ => throw new ArgumentException($"Unknown platform: {args[i]}")
                     };
                     break;
-
                 case "--signed":
                     signed = true;
                     platform = "Xbox360";
                     break;
-
                 case "--original":
-                    if (i + 1 >= args.Length)
-                    {
-                        Console.Error.WriteLine("--original requires a file path");
-                        return 1;
-                    }
+                    if (i + 1 >= args.Length) { Console.Error.WriteLine("--original requires a file path"); return 1; }
                     originalFf = args[++i];
                     break;
             }
@@ -536,13 +626,12 @@ class Program
         Console.WriteLine($"  Game: {gameVersion}, Platform: {platform}");
 
         byte[] zoneData = File.ReadAllBytes(inputPath);
-
         Compiler compiler;
         if (signed)
         {
             if (string.IsNullOrEmpty(originalFf))
             {
-                Console.Error.WriteLine("Signed format requires --original <file.ff> for hash table");
+                Console.Error.WriteLine("Signed format requires --original <file.ff>");
                 return 1;
             }
             compiler = Compiler.ForXbox360Signed(gameVersion, originalFf);
@@ -557,15 +646,18 @@ class Program
 
         Console.WriteLine($"  Output: {outputPath}");
         Console.WriteLine($"  FF size: {FastFileInfo.FormatFileSize(ffData.Length)}");
-
         return 0;
     }
+
+    // -----------------------------------------------------------------
+    //  list / extract / patch
+    // -----------------------------------------------------------------
 
     static int ListCommand(string[] args)
     {
         if (args.Length == 0)
         {
-            Console.Error.WriteLine("Usage: ffcli list <file.ff|file.zone>");
+            Console.Error.WriteLine("Usage: ffcli list <file.ff|.zone>");
             return 1;
         }
 
@@ -578,21 +670,7 @@ class Program
 
         bool verbose = args.Any(a => a == "-v" || a == "--verbose");
 
-        // Determine if FF or zone
-        byte[] zoneData;
-        string extension = Path.GetExtension(inputPath).ToLower();
-
-        if (extension == ".ff" || extension == ".ffm")
-        {
-            Console.WriteLine($"Decompressing {Path.GetFileName(inputPath)}...");
-            zoneData = new Decompressor().Decompress(inputPath);
-        }
-        else
-        {
-            zoneData = File.ReadAllBytes(inputPath);
-        }
-
-        // Find raw files using pattern matching
+        byte[] zoneData = LoadZoneData(inputPath);
         var rawFiles = FindRawFiles(zoneData);
 
         Console.WriteLine();
@@ -604,18 +682,12 @@ class Program
             Console.WriteLine($"{"Name",-50} {"Offset",10} {"Size",10}");
             Console.WriteLine(new string('-', 72));
             foreach (var rf in rawFiles)
-            {
                 Console.WriteLine($"{rf.Name,-50} {rf.DataOffset,10} {rf.Size,10}");
-            }
         }
         else
         {
-            foreach (var rf in rawFiles)
-            {
-                Console.WriteLine($"  {rf.Name}");
-            }
+            foreach (var rf in rawFiles) Console.WriteLine($"  {rf.Name}");
         }
-
         return 0;
     }
 
@@ -623,13 +695,12 @@ class Program
     {
         if (args.Length < 2)
         {
-            Console.Error.WriteLine("Usage: ffcli extract <file.ff|file.zone> <output_dir>");
+            Console.Error.WriteLine("Usage: ffcli extract <file.ff|.zone> <output_dir>");
             return 1;
         }
 
         string inputPath = args[0];
         string outputDir = args[1];
-
         if (!File.Exists(inputPath))
         {
             Console.Error.WriteLine($"File not found: {inputPath}");
@@ -638,17 +709,12 @@ class Program
 
         string? filter = null;
         bool flat = false;
-
         for (int i = 2; i < args.Length; i++)
         {
             switch (args[i].ToLower())
             {
                 case "--filter":
-                    if (i + 1 >= args.Length)
-                    {
-                        Console.Error.WriteLine("--filter requires a pattern");
-                        return 1;
-                    }
+                    if (i + 1 >= args.Length) { Console.Error.WriteLine("--filter requires a pattern"); return 1; }
                     filter = args[++i];
                     break;
                 case "--flat":
@@ -657,40 +723,19 @@ class Program
             }
         }
 
-        // Determine if FF or zone
-        byte[] zoneData;
-        string extension = Path.GetExtension(inputPath).ToLower();
-
-        if (extension == ".ff" || extension == ".ffm")
-        {
-            Console.WriteLine($"Decompressing {Path.GetFileName(inputPath)}...");
-            zoneData = new Decompressor().Decompress(inputPath);
-        }
-        else
-        {
-            zoneData = File.ReadAllBytes(inputPath);
-        }
-
+        byte[] zoneData = LoadZoneData(inputPath);
         var rawFiles = FindRawFiles(zoneData);
-
-        // Apply filter
         if (!string.IsNullOrEmpty(filter))
-        {
             rawFiles = rawFiles.Where(rf => rf.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
 
         Console.WriteLine($"Extracting {rawFiles.Count} file(s) to {outputDir}");
-
         Directory.CreateDirectory(outputDir);
-        int extracted = 0;
 
+        int extracted = 0;
         foreach (var rf in rawFiles)
         {
             string outputPath;
-            if (flat)
-            {
-                outputPath = Path.Combine(outputDir, Path.GetFileName(rf.Name));
-            }
+            if (flat) outputPath = Path.Combine(outputDir, Path.GetFileName(rf.Name));
             else
             {
                 outputPath = Path.Combine(outputDir, rf.Name.Replace('/', Path.DirectorySeparatorChar));
@@ -700,7 +745,6 @@ class Program
             byte[] content = new byte[rf.Size];
             Array.Copy(zoneData, rf.DataOffset, content, 0, rf.Size);
             File.WriteAllBytes(outputPath, content);
-
             Console.WriteLine($"  {rf.Name}");
             extracted++;
         }
@@ -721,17 +765,8 @@ class Program
         string rawFileName = args[1];
         string contentPath = args[2];
 
-        if (!File.Exists(zonePath))
-        {
-            Console.Error.WriteLine($"Zone file not found: {zonePath}");
-            return 1;
-        }
-
-        if (!File.Exists(contentPath))
-        {
-            Console.Error.WriteLine($"Content file not found: {contentPath}");
-            return 1;
-        }
+        if (!File.Exists(zonePath)) { Console.Error.WriteLine($"Zone file not found: {zonePath}"); return 1; }
+        if (!File.Exists(contentPath)) { Console.Error.WriteLine($"Content file not found: {contentPath}"); return 1; }
 
         byte[] zoneData = File.ReadAllBytes(zonePath);
         byte[] newContent = File.ReadAllBytes(contentPath);
@@ -745,14 +780,8 @@ class Program
         {
             Console.Error.WriteLine($"Raw file not found: {rawFileName}");
             Console.Error.WriteLine("Available files:");
-            foreach (var rf in rawFiles.Take(10))
-            {
-                Console.Error.WriteLine($"  {rf.Name}");
-            }
-            if (rawFiles.Count > 10)
-            {
-                Console.Error.WriteLine($"  ... and {rawFiles.Count - 10} more");
-            }
+            foreach (var rf in rawFiles.Take(10)) Console.Error.WriteLine($"  {rf.Name}");
+            if (rawFiles.Count > 10) Console.Error.WriteLine($"  ... and {rawFiles.Count - 10} more");
             return 1;
         }
 
@@ -765,22 +794,76 @@ class Program
 
         Console.WriteLine($"Patching: {target.Name}");
         Console.WriteLine($"  Original size: {target.Size}");
-        Console.WriteLine($"  New size: {newContent.Length}");
+        Console.WriteLine($"  New size:      {newContent.Length}");
 
-        // Patch the content
         for (int i = 0; i < target.Size; i++)
-        {
             zoneData[target.DataOffset + i] = i < newContent.Length ? newContent[i] : (byte)0;
-        }
 
-        // Write back
         File.WriteAllBytes(zonePath, zoneData);
         Console.WriteLine($"  Patched successfully.");
-
         return 0;
     }
 
-    // Simple raw file finder using pattern matching
+    // -----------------------------------------------------------------
+    //  Helpers
+    // -----------------------------------------------------------------
+
+    /// <summary>
+    /// Expands shell-style globs (* and ?) in file path arguments. Non-glob paths are
+    /// passed through unchanged. Resolves relative to the current working directory.
+    /// </summary>
+    static List<string> ExpandFileArgs(IEnumerable<string> patterns)
+    {
+        var results = new List<string>();
+        foreach (var pat in patterns)
+        {
+            if (!pat.Contains('*') && !pat.Contains('?'))
+            {
+                if (File.Exists(pat)) results.Add(pat);
+                else Console.Error.WriteLine($"File not found: {pat}");
+                continue;
+            }
+
+            string dir = Path.GetDirectoryName(pat) ?? "";
+            string filePattern = Path.GetFileName(pat);
+            if (string.IsNullOrEmpty(dir)) dir = ".";
+            if (!Directory.Exists(dir))
+            {
+                Console.Error.WriteLine($"Directory not found: {dir}");
+                continue;
+            }
+            foreach (var f in Directory.EnumerateFiles(dir, filePattern))
+                results.Add(f);
+        }
+        return results;
+    }
+
+    static byte[] LoadZoneData(string inputPath)
+    {
+        string ext = Path.GetExtension(inputPath).ToLower();
+        if (ext == ".ff" || ext == ".ffm")
+        {
+            Console.WriteLine($"Decompressing {Path.GetFileName(inputPath)}...");
+            return new Decompressor().Decompress(inputPath);
+        }
+        return File.ReadAllBytes(inputPath);
+    }
+
+    static uint ReadU32BE(byte[] data, int offset) =>
+        (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
+
+    static string HexBytes(byte[] data, int offset, int length)
+    {
+        var sb = new StringBuilder(length * 3);
+        for (int i = 0; i < length && offset + i < data.Length; i++)
+        {
+            if (i > 0) sb.Append(' ');
+            sb.Append(data[offset + i].ToString("X2"));
+        }
+        return sb.ToString();
+    }
+
+    // Simple raw file finder using extension pattern matching.
     static List<RawFileInfo> FindRawFiles(byte[] zoneData)
     {
         var files = new List<RawFileInfo>();
@@ -795,72 +878,46 @@ class Program
                 bool match = true;
                 for (int j = 0; j < pattern.Length; j++)
                 {
-                    if (zoneData[i + j] != pattern[j])
-                    {
-                        match = false;
-                        break;
-                    }
+                    if (zoneData[i + j] != pattern[j]) { match = false; break; }
                 }
                 if (!match) continue;
 
-                // Found extension, now find the start of the filename
                 int nameEnd = i + ext.Length;
                 int nameStart = i;
-
-                // Walk backwards to find FF FF FF FF marker or start of name
                 while (nameStart > 0 && zoneData[nameStart - 1] != 0xFF && zoneData[nameStart - 1] != 0x00)
                 {
                     nameStart--;
-                    if (i - nameStart > 256) break; // sanity check
+                    if (i - nameStart > 256) break;
                 }
-
                 if (nameStart >= i) continue;
 
                 string name = Encoding.ASCII.GetString(zoneData, nameStart, nameEnd - nameStart);
                 if (string.IsNullOrWhiteSpace(name) || !name.EndsWith(ext)) continue;
 
-                // Find size from header (look for FF FF FF FF pattern before name)
                 int headerOffset = nameStart - 4;
                 while (headerOffset > 4)
                 {
-                    if (zoneData[headerOffset] == 0xFF &&
-                        zoneData[headerOffset + 1] == 0xFF &&
-                        zoneData[headerOffset + 2] == 0xFF &&
-                        zoneData[headerOffset + 3] == 0xFF)
-                    {
+                    if (zoneData[headerOffset] == 0xFF && zoneData[headerOffset + 1] == 0xFF
+                        && zoneData[headerOffset + 2] == 0xFF && zoneData[headerOffset + 3] == 0xFF)
                         break;
-                    }
                     headerOffset--;
                     if (nameStart - headerOffset > 20) break;
                 }
-
                 if (headerOffset < 4) continue;
 
-                // Read size (big-endian, 4 bytes before the FF marker)
                 int sizeOffset = headerOffset - 4;
                 if (sizeOffset < 0) continue;
 
-                int size = (zoneData[sizeOffset] << 24) |
-                          (zoneData[sizeOffset + 1] << 16) |
-                          (zoneData[sizeOffset + 2] << 8) |
-                          zoneData[sizeOffset + 3];
-
+                int size = (zoneData[sizeOffset] << 24) | (zoneData[sizeOffset + 1] << 16)
+                         | (zoneData[sizeOffset + 2] << 8) | zoneData[sizeOffset + 3];
                 if (size <= 0 || size > 10_000_000) continue;
 
-                int dataOffset = nameEnd + 1; // +1 for null terminator
-
-                // Avoid duplicates
+                int dataOffset = nameEnd + 1;
                 if (files.Any(f => f.Name == name && f.DataOffset == dataOffset)) continue;
 
-                files.Add(new RawFileInfo
-                {
-                    Name = name,
-                    Size = size,
-                    DataOffset = dataOffset
-                });
+                files.Add(new RawFileInfo { Name = name, Size = size, DataOffset = dataOffset });
             }
         }
-
         return files.OrderBy(f => f.Name).ToList();
     }
 
