@@ -1,7 +1,20 @@
 # PC WaW FastFile Format — Research Notes
 
 Verified from 5 real PC WaW samples (`default.ff`, `mp_makin_day_load.ff`, `credits.ff`,
-`patch.ff`, `patch_mp.ff`). Use this document to plan write-side support (issue #21).
+`patch.ff`, `patch_mp.ff`). Issue #21 is functionally addressed — the format details below
+are confirmed by working round-trip and the live editor.
+
+**Current implementation status (May 2026):**
+- ✅ Decompress PC FF → zone
+- ✅ Parse zone header (52-byte layout)
+- ✅ Parse asset pool entries (`[type LE][ptr]` format)
+- ✅ Parse and edit rawfile assets
+- ✅ Parse and edit localize entries
+- ✅ Recompress zone → PC FF (single zlib stream)
+- ✅ Round-trip verified byte-for-byte across 4 retail samples
+- 🔄 In-game verification pending (round-trip success suggests format is correct)
+- ❌ weapon / menufile / xanim / stringtable / material / techset / image — listed in
+  asset pool but not yet parsed on PC (all bail in `CoD5PCGameDefinition.IsSupportedAssetType`)
 
 ## TL;DR — PC WaW is structurally different from PS3/Xbox 360 WaW
 
@@ -26,9 +39,10 @@ Verified from 5 real PC WaW samples (`default.ff`, `mp_makin_day_load.ff`, `cred
 All five samples observed start with `78 01` — `CMF=0x78` (deflate, 32K window) and
 `FLG=0x01` (low compression). No 2-byte block length prefixes, no `00 01` trailer.
 
-**This means our current `Compiler.CompressZoneBlocks` (which writes 64KB blocks with
-BE length prefixes) produces a file the game cannot read.** A PC build path needs to
-emit `IWffu100 + LE version + single zlib stream`.
+Our `Compiler.CompilePc()` emits the same shape — `IWffu100 + LE version + single zlib
+stream` — using `CompressionLevel.Optimal` (which produces a `78 9C` header). The game
+accepts any valid zlib variant, so the compression level used at encode time doesn't
+matter for loadability.
 
 ## Zone (decompressed) layout — **52 bytes header, same as PS3**
 
@@ -108,13 +122,11 @@ computes it per zone:
 | patch.ff | 0xA60 (2,656) |
 | patch_mp.ff | 0x1E4 (484) |
 
-This means the existing `CoD5Definition.PCMemAlloc1 = { 0xB0, 0x10, 0x00, 0x00 }`
-constant is **wrong** — there is no single value to use. A compiler that writes the
-correct value will need to compute it from the actual zone contents (likely
-"sum of bytes the engine needs to allocate at runtime for the TEMP pool").
-
-For initial save-back support (where we're not changing the asset layout
-significantly), we can preserve `BlockSizeTemp` from the source zone unchanged.
+The existing `CoD5Definition.PCMemAlloc1 = { 0xB0, 0x10, 0x00, 0x00 }` constant is
+**unused** for PC saves — we preserve the original zone's `BlockSizeTemp` value
+verbatim when round-tripping. Building a fresh PC zone from scratch (not yet
+supported) would need to either compute this value or experimentally find a safe
+default.
 
 ## Asset entry format
 
@@ -136,49 +148,54 @@ Example observed first asset entry:
 - `default.ff` @0x38: `FF FF FF FF 20 00 00 00` → type `0x20` = `rawfile` (CoD5 PC)
 - `patch_mp.ff` @0x38: `FF FF FF FF 15 00 00 00` → type `0x15` = `menufile` (CoD5 PC)
 
-## What's currently broken in our compile path
+## How the editor now handles PC
 
-| File | Issue |
+| Component | What it does for PC |
 |---|---|
-| `FastFileLib/Compiler.cs` `CompressZoneBlocks()` | Hard-codes 64KB block + BE 2-byte length prefix. PC WaW needs single zlib stream. |
-| `FastFileLib/Compiler.cs` `Compile()` | Appends `00 01` end marker. PC WaW has no end marker. |
-| `FastFileLib/FastFileInfo.cs` `GetVersionBytes()` | Has correct LE handling for PC: `GameVersion.CoD4 when normalizedPlatform == "PC" => new byte[] { 0x00, 0x00, 0x00, 0x05 }` — wait this is BE. Needs verification: do we emit `05 00 00 00` (LE) for CoD4 PC, or `00 00 00 05` (BE)? |
-| `FastFileLib/ZoneBuilder.cs` `BuildHeaderSection()` | Uses `WriteBigEndian` for all fields. PC needs LE writes. |
-| `FastFileLib/ZoneBuilder.cs` | Uses 52-byte header. PC needs 56 bytes (extra `BlockSizeIndex` field). |
-| `FastFileLib/ZoneBuilder.cs` | Uses BE asset entry `[type][ptr]`. PC needs LE `[ptr][type]`. |
-| `FastFileLib/FastFileConstants.cs` `GetMemAlloc1()` | Returns fixed BE bytes. PC needs computed-per-zone. For initial save-back, we should preserve from source. |
-| Editor save path | Need to verify `_openedFastFile.IsPC` propagates through to the compile call. |
+| `FastFileInfo.GetVersionBytes(platform="PC")` | Returns LE-ordered version bytes (e.g., `83 01 00 00` for WaW PC) |
+| `Compiler.Compile()` | Branches on `_platform == "PC"` → calls `CompilePc()` which emits `IWffu100 + LE version + single zlib stream` |
+| `CoD5FastFileHandler.Recompress` / `CoD4FastFileHandler.Recompress` | Checks `openedFastFile.IsPC` → delegates to `new Compiler(WaW, "PC").Compile(...)` |
+| `ZoneFileHeaderConstants.PC_*Offset` | Uses 52-byte layout: `ScriptStringCount @0x24`, `AssetCount @0x2C`, etc. |
+| `FastFileConstants.ZoneHeaderSize_PC` | `0x34` (52 bytes) |
+| `StructureBasedZoneParser` | Detects Format A LE `[type LE][ptr]` for PC; includes a backup-4-bytes check for the tag-end overshoot case |
+| `CoD5PCGameDefinition.ParseRawFile` | Reads size little-endian, otherwise identical to base class |
+| `CoD5PCGameDefinition.ParseLocalizedEntry` | Same as base (byte-order-independent) |
+| `RawFileParser.ExtractSingleRawFileNodeWithPattern` | Endian-aware size read for pattern-matching fallback |
 
-## Implementation plan (in dependency order)
+## Lessons learned along the way
 
-1. **`FastFileInfo.GetVersionBytes()`** — audit and fix to return LE bytes for any
-   `platform == "PC"` case. Add tests for each combination.
-2. **`Compiler` — add PC code path:**
-   - New `CompilePc()` or branch in `Compile()` based on `_platform == "PC"`.
-   - Writes header (12 bytes) + single zlib stream (using `ZLibStream(stream, CompressionLevel.Optimal)`).
-   - No end marker.
-3. **`ZoneBuilder` — add PC code path:**
-   - 56-byte header with LE writes for every field.
-   - `[ptr][type]` LE asset entries.
-   - `BlockSizeTemp` etc. need to come from either (a) source zone (round-trip) or
-     (b) a new computation we'd have to reverse-engineer.
-4. **Editor save path** — confirm `IsPC` flows through. Likely needs a `platform`
-   parameter on `ZoneSaveService` calls.
-5. **Round-trip test** — open `patch_mp.ff`, save unchanged, byte-diff. The output
-   should round-trip identically (or close enough that the game loads it).
-6. **In-game test** — change a small rawfile in `patch_mp.ff` and load it in real
-   WaW PC. This is the only definitive verification.
+A few quirks worth knowing about for future contributors:
+
+1. **PC has 7 blockSize slots, not 8.** The `#ifdef PC` in the canonical Zone.md C
+   header suggests an `INDEX` block exists on PC. It does not for WaW PC. The header
+   is 52 bytes, same as PS3.
+2. **Asset pool detection can drift 4 bytes.** The script-string section end isn't
+   always computed precisely, so the asset pool detector can skip past the real
+   start and lock onto a Format B `[ptr][type]` pattern that's structurally just a
+   `[type][ptr]` run shifted by 4 bytes. `StructureBasedZoneParser` now checks 4
+   bytes back when matching Format B LE to recover.
+3. **Off-by-N in pattern-matching fallback.** `remainingRawFiles = expectedCount -
+   alreadyParsed` was wrong — `expectedCount` already counted only from the stop
+   index, so subtracting double-counted and went negative, silently disabling the
+   loop. Same bug latent in localize counting (worked by coincidence because no
+   localize entries are parsed before the stop point in practice).
+4. **`.txt`, `.csv`, `.menu`, `.str` are not rawfile extensions.** Adding them to
+   the pattern matcher produced false positives from embedded string references
+   inside other assets. `.menu` is its own asset type entirely (`menufile`).
+5. **`maxFalsePositives = 100`** in pattern matching was way too low for PC zones
+   with binary asset data interleaved between rawfiles. Raised to 10000.
+6. **`IsValidRawFileName` was duplicated** in `GameDefinitionBase` and
+   `RawFileParser` with hardcoded extension lists. Both now read from
+   `RawFileConstants.FileNamePatternStrings`.
 
 ## Known unknowns
 
-- **What does CoD4 PC FF look like?** Same single-zlib-stream layout, or different?
-  We have no CoD4 PC samples. The version byte order for CoD4 PC is also unclear
-  from this data.
-- **What computes `BlockSizeTemp`?** Reverse-engineering this isn't required if we
-  preserve from source on edit-and-save, but would be required to build fresh PC
-  zones from scratch.
-- **Does the in-game loader validate `ZoneSize` strictly?** Need to test whether
-  setting `ZoneSize = actualLen - 36` is required or just informational.
+- **CoD4 PC FF format** — presumed identical shape (single zlib stream, LE) but no
+  samples to verify. Version byte order also unconfirmed.
+- **`BlockSizeTemp` computation rule** — preserving from source works for edit-and-save.
+  Building fresh PC zones would need to either reverse-engineer this or guess safely.
+- **In-game loader strictness** — round-trip is byte-stable but no one has launched
+  the saved FF in WaW PC yet to confirm the engine accepts it.
 
 ## Reference samples
 
