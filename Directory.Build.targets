@@ -1,0 +1,65 @@
+<Project>
+
+  <!--
+    Post-build: emit a versioned copy of each executable next to the normal output.
+      Release  -> <name>-v<Version>.<ext>           e.g. FastFileExtractor-v3.1.0.exe
+      Debug    -> <name>-dev-<gitshortsha>.<ext>    e.g. FastFileExtractor-dev-6c5d7cb.exe
+
+    Both the apphost .exe AND its companion .dll are copied (renamed together) so the
+    .NET 8 apphost can still locate its managed entry point — apphost looks for a .dll
+    matching its own basename.
+
+    Only runs for executable projects, and skips test projects (xUnit/MSTest set
+    OutputType=Exe to make `dotnet test` work, but we don't want versioned test DLLs).
+    The original output files are kept in place — the versioned copies are purely additive.
+
+    Falls back to "-dev" if git isn't on PATH or this isn't a git checkout.
+  -->
+  <Target Name="EmitVersionedBuildCopy"
+          AfterTargets="Build"
+          Condition="('$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe') and '$(IsTestProject)' != 'true'">
+
+    <!-- Release: use the csproj <Version> property. -->
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+      <_VersionedBuildSuffix>v$(Version)</_VersionedBuildSuffix>
+    </PropertyGroup>
+
+    <!-- Debug (and anything not Release): query git for the short SHA. -->
+    <Exec Command="git rev-parse --short HEAD"
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="true"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          StandardOutputImportance="low"
+          StandardErrorImportance="low"
+          Condition="'$(Configuration)' != 'Release'">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_VersionedBuildGitSha" />
+      <Output TaskParameter="ExitCode" PropertyName="_VersionedBuildGitExit" />
+    </Exec>
+
+    <PropertyGroup Condition="'$(Configuration)' != 'Release'">
+      <_VersionedBuildSuffix Condition="'$(_VersionedBuildGitExit)' == '0' and '$(_VersionedBuildGitSha)' != ''">dev-$(_VersionedBuildGitSha)</_VersionedBuildSuffix>
+      <_VersionedBuildSuffix Condition="'$(_VersionedBuildSuffix)' == ''">dev</_VersionedBuildSuffix>
+    </PropertyGroup>
+
+    <!-- Gather the apphost .exe and managed .dll. Both are copied together so the renamed -->
+    <!-- apphost can still find its companion DLL (apphost looks for <basename>.dll).      -->
+    <ItemGroup>
+      <_VersionedBuildSourceExe Include="$(TargetDir)$(TargetName).exe"
+                                Condition="Exists('$(TargetDir)$(TargetName).exe')" />
+      <_VersionedBuildSourceDll Include="$(TargetDir)$(TargetName).dll"
+                                Condition="Exists('$(TargetDir)$(TargetName).dll')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_VersionedBuildSourceExe)"
+          DestinationFiles="@(_VersionedBuildSourceExe -> '$(TargetDir)$(TargetName)-$(_VersionedBuildSuffix).exe')"
+          SkipUnchangedFiles="true" />
+
+    <Copy SourceFiles="@(_VersionedBuildSourceDll)"
+          DestinationFiles="@(_VersionedBuildSourceDll -> '$(TargetDir)$(TargetName)-$(_VersionedBuildSuffix).dll')"
+          SkipUnchangedFiles="true" />
+
+    <Message Text="[VersionedBuild] $(TargetName) -> $(TargetName)-$(_VersionedBuildSuffix)"
+             Importance="high" />
+  </Target>
+
+</Project>
