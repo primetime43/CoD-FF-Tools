@@ -148,8 +148,9 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 
         /// <summary>
         /// MW2 16-byte header format:
-        /// [FF FF FF FF] [compressedLen BE] [len BE] [FF FF FF FF] [name\0] [data]
+        /// [FF FF FF FF] [compressedLen] [len] [FF FF FF FF] [name\0] [data]
         ///
+        /// Size fields are big-endian on PS3/Xbox 360, little-endian on PC.
         /// If compressedLen > 0, data is zlib compressed.
         /// If compressedLen == 0, data is uncompressed with length = len.
         /// </summary>
@@ -158,17 +159,21 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             // Need at least 16 bytes for header
             if (offset + 16 > zoneData.Length) return null;
 
-            // First marker (name pointer placeholder)
+            // First marker (name pointer placeholder) — endian-agnostic (all bytes 0xFF)
             uint marker1 = ReadUInt32BE(zoneData, offset);
             if (marker1 != 0xFFFFFFFF) return null;
 
-            // Compressed length (0 if uncompressed)
-            int compressedLen = ReadInt32BE(zoneData, offset + 4);
+            // Compressed length (0 if uncompressed) — endianness depends on platform
+            int compressedLen = IsPC
+                ? ReadInt32LE(zoneData, offset + 4)
+                : ReadInt32BE(zoneData, offset + 4);
 
-            // Decompressed/actual length
-            int len = ReadInt32BE(zoneData, offset + 8);
+            // Decompressed/actual length — endianness depends on platform
+            int len = IsPC
+                ? ReadInt32LE(zoneData, offset + 8)
+                : ReadInt32BE(zoneData, offset + 8);
 
-            // Second marker (buffer pointer placeholder)
+            // Second marker (buffer pointer placeholder) — endian-agnostic
             uint marker2 = ReadUInt32BE(zoneData, offset + 12);
             if (marker2 != 0xFFFFFFFF) return null;
 
@@ -190,19 +195,12 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             string fileName = ReadNullTerminatedString(zoneData, fileNameOffset);
             if (string.IsNullOrEmpty(fileName)) return null;
 
-            // Validate filename looks like a file path
-            if (!fileName.Contains('/') && !fileName.Contains('.') && !fileName.Contains('\\'))
+            // Strict extension check: only accept extensions in RawFileConstants.FileNamePatternStrings.
+            // This rejects .csv (stringtables), .menu (menufiles), .txt etc. — non-rawfile asset types
+            // whose names happen to fit the 16-byte header pattern.
+            if (!IsValidRawFileName(fileName))
             {
-                // Allow some common filenames without paths
-                if (fileName.Length < 3) return null;
-            }
-
-            // IMPORTANT: Reject MenuList structures that look like rawfiles
-            // MenuList has a 12-byte header but could be misinterpreted as 16-byte with small values
-            // If the name ends with .menu and the "size" is small, this is a MenuList asset
-            if (fileName.EndsWith(".menu", StringComparison.OrdinalIgnoreCase) && len < 500)
-            {
-                Debug.WriteLine($"[MW2] Rejecting '{fileName}' as rawfile (16-byte) - likely a MenuList (len={len})");
+                Debug.WriteLine($"[MW2] Rejecting '{fileName}' as rawfile (16-byte) - extension not in rawfile whitelist");
                 return null;
             }
 
@@ -251,7 +249,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
 
         /// <summary>
         /// Fallback: Standard 12-byte format (same as CoD4/WaW):
-        /// [FF FF FF FF] [len BE] [FF FF FF FF] [name\0] [data]
+        /// [FF FF FF FF] [len] [FF FF FF FF] [name\0] [data]
+        /// Length is big-endian on PS3/Xbox 360, little-endian on PC.
         /// </summary>
         private RawFileNode? TryParseStandardFormat(byte[] zoneData, int offset)
         {
@@ -260,7 +259,9 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             uint marker1 = ReadUInt32BE(zoneData, offset);
             if (marker1 != 0xFFFFFFFF) return null;
 
-            int dataLength = ReadInt32BE(zoneData, offset + 4);
+            int dataLength = IsPC
+                ? ReadInt32LE(zoneData, offset + 4)
+                : ReadInt32BE(zoneData, offset + 4);
             if (dataLength <= 0 || dataLength > 10_000_000) return null;
 
             uint marker2 = ReadUInt32BE(zoneData, offset + 8);
@@ -275,25 +276,12 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             string fileName = ReadNullTerminatedString(zoneData, fileNameOffset);
             if (string.IsNullOrEmpty(fileName)) return null;
 
-            // IMPORTANT: Reject MenuList structures that look like rawfiles
-            // MenuList has the same 12-byte header: [FF FF FF FF] [menuCount] [FF FF FF FF] [name]
-            // If the name ends with .menu and the "size" (actually menuCount) is small,
-            // this is a MenuList asset, not a rawfile. MenuList assets should be handled by ParseMenuFile.
-            // Real .menu rawfiles (source scripts) are much larger than menu counts (typically 1-50).
-            if (fileName.EndsWith(".menu", StringComparison.OrdinalIgnoreCase) && dataLength < 500)
+            // Strict extension check: only accept extensions in RawFileConstants.FileNamePatternStrings.
+            // This rejects .csv (stringtables), .menu (menufiles), .txt etc. — non-rawfile asset types
+            // whose names happen to fit the standard 12-byte header pattern.
+            if (!IsValidRawFileName(fileName))
             {
-                Debug.WriteLine($"[MW2] Rejecting '{fileName}' as rawfile - likely a MenuList (size={dataLength})");
-                return null;
-            }
-
-            // IMPORTANT: Also reject files ending with .txt that have suspiciously small sizes
-            // and look like they could be menu-related (e.g., "ui_mp/patch_mp_menus.txt")
-            // The 'menu' asset type data can have various names, not just .menu extension
-            if (fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) &&
-                fileName.Contains("menu", StringComparison.OrdinalIgnoreCase) &&
-                dataLength < 500)
-            {
-                Debug.WriteLine($"[MW2] Rejecting '{fileName}' as rawfile - likely a menu asset (size={dataLength})");
+                Debug.WriteLine($"[MW2] Rejecting '{fileName}' as rawfile (standard) - extension not in rawfile whitelist");
                 return null;
             }
 

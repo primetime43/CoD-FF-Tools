@@ -1,5 +1,5 @@
 ﻿using Call_of_Duty_FastFile_Editor.Models;
-using Call_of_Duty_FastFile_Editor.Constants;
+using FastFileLib;
 
 namespace Call_of_Duty_FastFile_Editor.CodeOperations
 {
@@ -13,6 +13,16 @@ namespace Call_of_Duty_FastFile_Editor.CodeOperations
             }
 
             byte[] newRecord = new byte[8] { 0x00, 0x00, 0x00, 0x22, 0xFF, 0xFF, 0xFF, 0xFF };
+
+            // AssetCount lives at a different offset on each platform (48/52/56-byte headers)
+            // and is stored LE on PC, BE on console/Wii. Use library dispatcher.
+            var parentFf = currentZone.ParentFastFile;
+            bool isPC = parentFf?.IsPC ?? false;
+            int assetRecordCountOffset = FastFileConstants.GetAssetCountOffset(
+                parentFf?.GameVersionEnum ?? GameVersion.Unknown,
+                parentFf?.IsXbox360 ?? false,
+                isPC,
+                parentFf?.IsWii ?? false);
 
             currentZone.ModifyZoneFile(fs =>
             {
@@ -31,24 +41,20 @@ namespace Call_of_Duty_FastFile_Editor.CodeOperations
                 fs.Seek(insertPosition, SeekOrigin.Begin);
                 fs.Write(newRecord, 0, newRecord.Length);
 
-                // Update the AssetCount field in the header.
-                int assetRecordCountOffset = ZoneFileHeaderConstants.AssetCountOffset;
+                // Read existing AssetCount, increment, write back — endianness per platform.
                 fs.Seek(assetRecordCountOffset, SeekOrigin.Begin);
                 byte[] countBytes = new byte[4];
                 fs.Read(countBytes, 0, countBytes.Length);
-                if (BitConverter.IsLittleEndian)
-                {
-                    Array.Reverse(countBytes);
-                }
-                uint currentCount = BitConverter.ToUInt32(countBytes, 0);
+                uint currentCount = isPC
+                    ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(countBytes)
+                    : System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(countBytes);
                 uint newCount = currentCount + 1;
-                byte[] newCountBytes = BitConverter.GetBytes(newCount);
-                if (BitConverter.IsLittleEndian)
-                {
-                    Array.Reverse(newCountBytes);
-                }
+                if (isPC)
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(countBytes, newCount);
+                else
+                    System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(countBytes, newCount);
                 fs.Seek(assetRecordCountOffset, SeekOrigin.Begin);
-                fs.Write(newCountBytes, 0, newCountBytes.Length);
+                fs.Write(countBytes, 0, countBytes.Length);
             });
 
             // Update the AssetPoolEndOffset by the new record length.

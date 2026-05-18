@@ -165,14 +165,25 @@ public static class FastFileConstants
     public const int AssetsPtrOffset_Wii = 0x34;
 
     /// <summary>
+    /// True if the (game, platform) pair uses the 56-byte zone header layout (8 blockSize
+    /// slots, asset table starts at 0x38). Both Wii WaW and MW2 PC use this layout —
+    /// MW2 PC just stores the integers little-endian instead of big-endian.
+    /// Verified against retail MW2 PC samples (code_post_gfx.zone, common.zone).
+    /// </summary>
+    private static bool UsesEightBlockSizeLayout(GameVersion version, bool isPC, bool isWii)
+    {
+        return isWii || (version == GameVersion.MW2 && isPC);
+    }
+
+    /// <summary>
     /// Gets the zone header size for the given game and platform.
-    /// - Wii uses a 56-byte layout (8 blockSize slots, includes BlockSizeIndex)
-    /// - MW2 Xbox 360 uses a 48-byte layout (no BlockSizeVertex)
-    /// - Everything else uses the 52-byte PS3 layout
+    /// - Wii WaW and MW2 PC: 56 bytes (8 blockSize slots)
+    /// - MW2 Xbox 360: 48 bytes (no BlockSizeVertex)
+    /// - Everything else: 52-byte PS3 layout
     /// </summary>
     public static int GetZoneHeaderSize(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        if (isWii) return ZoneHeaderSize_Wii;
+        if (UsesEightBlockSizeLayout(version, isPC, isWii)) return ZoneHeaderSize_Wii;
 
         // CoD4 and WaW use PS3-style header on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)
@@ -190,7 +201,7 @@ public static class FastFileConstants
     /// </summary>
     public static int GetAssetCountOffset(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        if (isWii) return AssetCountOffset_Wii;
+        if (UsesEightBlockSizeLayout(version, isPC, isWii)) return AssetCountOffset_Wii;
 
         // CoD4 and WaW use PS3-style offsets on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)
@@ -208,7 +219,7 @@ public static class FastFileConstants
     /// </summary>
     public static int GetScriptStringCountOffset(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        if (isWii) return ScriptStringCountOffset_Wii;
+        if (UsesEightBlockSizeLayout(version, isPC, isWii)) return ScriptStringCountOffset_Wii;
 
         // CoD4 and WaW use PS3-style offsets on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)

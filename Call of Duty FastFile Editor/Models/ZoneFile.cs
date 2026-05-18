@@ -1,6 +1,6 @@
-﻿using Call_of_Duty_FastFile_Editor.Constants;
-using Call_of_Duty_FastFile_Editor.Services;
+﻿using Call_of_Duty_FastFile_Editor.Services;
 using Call_of_Duty_FastFile_Editor.ZoneParsers;
+using FastFileLib;
 using System.Diagnostics;
 
 namespace Call_of_Duty_FastFile_Editor.Models
@@ -79,69 +79,36 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public int TagSectionEndOffset { get; set; }
 
         /// <summary>
-        /// Gets header field offsets based on platform and game.
-        /// Xbox 360 has 6 block sizes (for MW2 only), PS3 has 7, PC has 8.
-        /// This affects where XAssetList fields are located.
-        /// Note: CoD4 and WaW use the same zone structure across all platforms (PS3-style 52-byte header).
-        /// Only MW2 Xbox 360 uses the smaller 48-byte header.
+        /// Gets header field offsets based on platform and game. XFile field offsets are common
+        /// to all platforms; XAssetList offsets shift depending on the layout (48/52/56 bytes).
+        /// Dispatch lives in FastFileLib.FastFileConstants so editor and CLI use the same table.
         /// </summary>
         private Dictionary<string, int> GetHeaderFieldOffsets()
         {
             bool isXbox360 = ParentFastFile?.IsXbox360 ?? false;
             bool isPC = ParentFastFile?.IsPC ?? false;
             bool isWii = ParentFastFile?.IsWii ?? false;
-            bool isCod4 = ParentFastFile?.IsCod4File ?? false;
-            bool isCod5 = ParentFastFile?.IsCod5File ?? false;
+            var gameVersion = ParentFastFile?.GameVersionEnum ?? GameVersion.Unknown;
 
-            var offsets = new Dictionary<string, int>
+            return new Dictionary<string, int>
             {
-                // XFile structure (common)
-                { "ZoneSize", ZoneFileHeaderConstants.ZoneSizeOffset },
-                { "ExternalSize", ZoneFileHeaderConstants.ExternalSizeOffset },
-                { "BlockSizeTemp", ZoneFileHeaderConstants.BlockSizeTempOffset },
-                { "BlockSizePhysical", ZoneFileHeaderConstants.BlockSizePhysicalOffset },
-                { "BlockSizeRuntime", ZoneFileHeaderConstants.BlockSizeRuntimeOffset },
-                { "BlockSizeVirtual", ZoneFileHeaderConstants.BlockSizeVirtualOffset },
-                { "BlockSizeLarge", ZoneFileHeaderConstants.BlockSizeLargeOffset },
-                { "BlockSizeCallback", ZoneFileHeaderConstants.BlockSizeCallbackOffset },
-                { "BlockSizeVertex", ZoneFileHeaderConstants.BlockSizeVertexOffset }
+                // XFile structure (common to all platforms)
+                { "ZoneSize",          FastFileConstants.ZoneSizeOffset },
+                { "ExternalSize",      FastFileConstants.ExternalSizeOffset },
+                { "BlockSizeTemp",     FastFileConstants.BlockSizeTempOffset },
+                { "BlockSizePhysical", FastFileConstants.BlockSizePhysicalOffset },
+                { "BlockSizeRuntime",  FastFileConstants.BlockSizeRuntimeOffset },
+                { "BlockSizeVirtual",  FastFileConstants.BlockSizeVirtualOffset },
+                { "BlockSizeLarge",    FastFileConstants.BlockSizeLargeOffset },
+                { "BlockSizeCallback", FastFileConstants.BlockSizeCallbackOffset },
+                { "BlockSizeVertex",   FastFileConstants.BlockSizeVertexOffset },
+
+                // XAssetList — dispatched per (game, platform) via library
+                { "ScriptStringCount", FastFileConstants.GetScriptStringCountOffset(gameVersion, isXbox360, isPC, isWii) },
+                { "ScriptStringsPtr",  FastFileConstants.GetScriptStringCountOffset(gameVersion, isXbox360, isPC, isWii) + 4 },
+                { "AssetCount",        FastFileConstants.GetAssetCountOffset(gameVersion, isXbox360, isPC, isWii) },
+                { "AssetsPtr",         FastFileConstants.GetAssetCountOffset(gameVersion, isXbox360, isPC, isWii) + 4 },
             };
-
-            // XAssetList structure - offsets depend on platform.
-            // Wii has 8 blockSize slots (BlockSizeIndex at 0x24), so XAssetList is offset +4 vs PS3.
-            if (isWii)
-            {
-                offsets["ScriptStringCount"] = ZoneFileHeaderConstants.Wii_ScriptStringCountOffset;
-                offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.Wii_ScriptStringsPtrOffset;
-                offsets["AssetCount"] = ZoneFileHeaderConstants.Wii_AssetCountOffset;
-                offsets["AssetsPtr"] = ZoneFileHeaderConstants.Wii_AssetsPtrOffset;
-            }
-            else if (isXbox360 && !isCod4 && !isCod5)
-            {
-                // Xbox 360 (MW2 only): 6 blocks = 32 bytes XFile header
-                offsets["ScriptStringCount"] = ZoneFileHeaderConstants.Xbox360_ScriptStringCountOffset;
-                offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.Xbox360_ScriptStringsPtrOffset;
-                offsets["AssetCount"] = ZoneFileHeaderConstants.Xbox360_AssetCountOffset;
-                offsets["AssetsPtr"] = ZoneFileHeaderConstants.Xbox360_AssetsPtrOffset;
-            }
-            else if (isPC)
-            {
-                // PC WaW: same 52-byte layout as PS3 (verified against real samples)
-                offsets["ScriptStringCount"] = ZoneFileHeaderConstants.PC_ScriptStringCountOffset;
-                offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.PC_ScriptStringsPtrOffset;
-                offsets["AssetCount"] = ZoneFileHeaderConstants.PC_AssetCountOffset;
-                offsets["AssetsPtr"] = ZoneFileHeaderConstants.PC_AssetsPtrOffset;
-            }
-            else
-            {
-                // PS3 and CoD4/WaW (all non-Wii consoles): 7 blocks = 36 bytes XFile header
-                offsets["ScriptStringCount"] = ZoneFileHeaderConstants.ScriptStringCountOffset;
-                offsets["ScriptStringsPtr"] = ZoneFileHeaderConstants.ScriptStringsPtrOffset;
-                offsets["AssetCount"] = ZoneFileHeaderConstants.AssetCountOffset;
-                offsets["AssetsPtr"] = ZoneFileHeaderConstants.AssetsPtrOffset;
-            }
-
-            return offsets;
         }
 
         /// <summary>Reloads Data from disk.</summary>

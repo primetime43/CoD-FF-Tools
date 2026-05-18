@@ -1,9 +1,4 @@
-﻿using Call_of_Duty_FastFile_Editor.Constants;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using FastFileLib;
 
 namespace Call_of_Duty_FastFile_Editor.Services.IO
 {
@@ -18,7 +13,7 @@ namespace Call_of_Duty_FastFile_Editor.Services.IO
         {
             var b = new byte[4];
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
-            fs.Seek(ZoneFileHeaderConstants.ZoneSizeOffset, SeekOrigin.Begin);
+            fs.Seek(FastFileConstants.ZoneSizeOffset, SeekOrigin.Begin);
             fs.Read(b, 0, 4);
             return isPC
                 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b)
@@ -44,7 +39,7 @@ namespace Call_of_Duty_FastFile_Editor.Services.IO
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(b, newSize);
             else
                 System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(b, newSize);
-            fs.Seek(ZoneFileHeaderConstants.ZoneSizeOffset, SeekOrigin.Begin);
+            fs.Seek(FastFileConstants.ZoneSizeOffset, SeekOrigin.Begin);
             fs.Write(b);
         }
 
@@ -58,7 +53,7 @@ namespace Call_of_Duty_FastFile_Editor.Services.IO
         {
             var b = new byte[4];
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
-            fs.Seek(ZoneFileHeaderConstants.BlockSizeLargeOffset, SeekOrigin.Begin);
+            fs.Seek(FastFileConstants.BlockSizeLargeOffset, SeekOrigin.Begin);
             fs.Read(b, 0, 4);
             return isPC
                 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(b)

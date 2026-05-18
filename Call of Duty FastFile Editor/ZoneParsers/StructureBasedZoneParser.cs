@@ -1,7 +1,7 @@
-using Call_of_Duty_FastFile_Editor.Constants;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.Services;
+using FastFileLib;
 using FastFileLib.GameDefinitions;
 using System.Diagnostics;
 using System.Text;
@@ -31,16 +31,6 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private readonly bool _isBigEndian;
         private readonly int _headerSize;
 
-        // Platform-specific header sizes:
-        // Xbox 360 (MW2 only): XFile (32 bytes = 6 blocks) + XAssetList (16 bytes) = 48 bytes (0x30)
-        // PS3/CoD4/WaW (all non-Wii): XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
-        // PC WaW: same 52-byte layout as PS3 (verified against retail samples)
-        // Wii: XFile (40 bytes = 8 blocks) + XAssetList (16 bytes) = 56 bytes (0x38) - has BlockSizeIndex
-        private const int HEADER_SIZE_XBOX360 = 0x30;
-        private const int HEADER_SIZE_PS3 = 0x34;
-        private const int HEADER_SIZE_PC = 0x34;
-        private const int HEADER_SIZE_WII = 0x38;
-
         public StructureBasedZoneParser(ZoneFile zone)
         {
             _zone = zone;
@@ -54,15 +44,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             // Wii uses PowerPC (big-endian) like PS3/Xbox 360. PC is the only LE platform.
             _isBigEndian = !_isPC;
 
-            // Set header size based on platform
-            if (_isWii)
-                _headerSize = HEADER_SIZE_WII;
-            else if (_isXbox360 && !_isCod4 && !_isCod5)
-                _headerSize = HEADER_SIZE_XBOX360;
-            else if (_isPC)
-                _headerSize = HEADER_SIZE_PC;
-            else
-                _headerSize = HEADER_SIZE_PS3;
+            // Header size dispatched via library (Wii WaW and MW2 PC = 56 bytes, MW2 Xbox 360 = 48,
+            // everything else = 52). Same source as the FastFileConverter and the CLI parser.
+            var gameVersion = zone.ParentFastFile?.GameVersionEnum ?? GameVersion.Unknown;
+            _headerSize = FastFileConstants.GetZoneHeaderSize(gameVersion, _isXbox360, _isPC, _isWii);
 
             string platformName = _isWii ? "Wii" : (_isXbox360 ? "Xbox 360" : (_isPC ? "PC" : "PS3"));
             Debug.WriteLine($"[StructureParser] Game: {(_isCod4 ? "CoD4" : (_isCod5 ? "WaW" : "MW2"))}, Platform: {platformName}, Header size: 0x{_headerSize:X}");

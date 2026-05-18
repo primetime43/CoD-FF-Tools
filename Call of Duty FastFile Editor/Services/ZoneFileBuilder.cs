@@ -1,6 +1,6 @@
-using Call_of_Duty_FastFile_Editor.Constants;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
+using FastFileLib;
 using FastFileLib.GameDefinitions;
 using System.Diagnostics;
 using System.Text;
@@ -224,8 +224,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 {
                     byte[] originalData = zone.Data;
 
-                    // 1. Copy header (52 bytes: 0x00-0x33)
-                    const int headerSize = 0x34;
+                    // 1. Copy header (size dispatched per game/platform: 48/52/56 bytes)
+                    int headerSize = FastFileConstants.GetZoneHeaderSize(
+                        fastFile.GameVersionEnum, fastFile.IsXbox360, fastFile.IsPC, fastFile.IsWii);
                     ms.Write(originalData, 0, headerSize);
 
                     // 2. Copy tag section (from header end to asset pool start)
@@ -314,17 +315,25 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         }
                     }
 
-                    // 6. Update header fields
+                    // 6. Update header fields (offsets + endianness dispatched per platform)
                     byte[] newZoneData = ms.ToArray();
+                    int assetCountOffset = FastFileConstants.GetAssetCountOffset(
+                        fastFile.GameVersionEnum, fastFile.IsXbox360, fastFile.IsPC, fastFile.IsWii);
 
-                    // Update asset count at offset 0x2C (big-endian)
                     uint newAssetCount = (uint)supportedRecords.Count;
-                    WriteBigEndianUInt32(newZoneData, ZoneFileHeaderConstants.AssetCountOffset, newAssetCount);
-
-                    // Update zone size at offset 0x00 (big-endian)
-                    // Zone size is total size minus 4 (doesn't include the size field itself)
+                    // ZoneSize is total size minus 4 (the size field itself isn't counted)
                     uint newZoneSize = (uint)(newZoneData.Length - 4);
-                    WriteBigEndianUInt32(newZoneData, ZoneFileHeaderConstants.ZoneSizeOffset, newZoneSize);
+
+                    if (fastFile.IsPC)
+                    {
+                        WriteLittleEndianUInt32(newZoneData, assetCountOffset, newAssetCount);
+                        WriteLittleEndianUInt32(newZoneData, FastFileConstants.ZoneSizeOffset, newZoneSize);
+                    }
+                    else
+                    {
+                        WriteBigEndianUInt32(newZoneData, assetCountOffset, newAssetCount);
+                        WriteBigEndianUInt32(newZoneData, FastFileConstants.ZoneSizeOffset, newZoneSize);
+                    }
 
                     Debug.WriteLine($"[ZoneFileBuilder] Rebuilt zone: {supportedRecords.Count} assets, {newZoneData.Length} bytes");
                     return newZoneData;
@@ -360,6 +369,14 @@ namespace Call_of_Duty_FastFile_Editor.Services
             data[offset + 1] = (byte)((value >> 16) & 0xFF);
             data[offset + 2] = (byte)((value >> 8) & 0xFF);
             data[offset + 3] = (byte)(value & 0xFF);
+        }
+
+        private static void WriteLittleEndianUInt32(byte[] data, int offset, uint value)
+        {
+            data[offset] = (byte)(value & 0xFF);
+            data[offset + 1] = (byte)((value >> 8) & 0xFF);
+            data[offset + 2] = (byte)((value >> 16) & 0xFF);
+            data[offset + 3] = (byte)((value >> 24) & 0xFF);
         }
 
         /// <summary>

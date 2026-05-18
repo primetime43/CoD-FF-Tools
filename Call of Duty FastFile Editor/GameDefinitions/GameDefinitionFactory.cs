@@ -68,6 +68,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                     return _cod4PC;
                 if (fastFile.IsCod5File)
                     return _cod5PC;
+                if (fastFile.IsMW2File)
+                    return _mw2PC;
                 // Fall through to PS3 for unsupported PC games
             }
 

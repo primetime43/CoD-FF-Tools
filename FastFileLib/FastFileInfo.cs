@@ -77,12 +77,17 @@ public class FastFileInfo
         // Determine if signed
         info.IsSigned = info.Magic == SignedMagic || info.Magic == TreyarchMagic;
 
-        // Try big-endian first
+        // Try big-endian first (consoles use BE)
         info.Version = versionBE;
         DetectGameVersion(info);
 
-        // If big-endian didn't work and file is unsigned, try little-endian (PC)
-        if (info.GameVersion == GameVersion.Unknown && !info.IsSigned && info.Magic == UnsignedMagic)
+        // If BE didn't match anything, try LE. Originally gated to UnsignedMagic only, but
+        // MW2 PC files use IWff0100 (signed magic) + LE version bytes (e.g. `14 01 00 00` =
+        // 0x114 LE), so retail MW2 PC files were being rejected as "not valid" because we
+        // never got to the LE pass. Trying LE on any unrecognized BE version is safe: if BE
+        // matched a known game we wouldn't be here, and LE only "succeeds" when it lands on
+        // a real version constant.
+        if (info.GameVersion == GameVersion.Unknown)
         {
             info.Version = versionLE;
             DetectGameVersion(info);

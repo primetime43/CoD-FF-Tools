@@ -466,11 +466,21 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 return ExtractSingleRawFileNodeWithPattern(fileData, startOffset);
             }
 
-            // Read the header fields
-            int compressedLen = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(fileData, compressedLenPosition));
-            int len = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(fileData, lenPosition));
+            // Read the header fields — BE on PS3/Xbox 360, LE on PC
+            int compressedLen;
+            int len;
+            if (gameDefinition.IsPC)
+            {
+                compressedLen = BitConverter.ToInt32(fileData, compressedLenPosition);
+                len = BitConverter.ToInt32(fileData, lenPosition);
+            }
+            else
+            {
+                compressedLen = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(fileData, compressedLenPosition));
+                len = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(fileData, lenPosition));
+            }
 
-            Debug.WriteLine($"[MW2PatternMatch] compressedLen={compressedLen}, len={len}");
+            Debug.WriteLine($"[MW2PatternMatch] compressedLen={compressedLen}, len={len} ({(gameDefinition.IsPC ? "LE" : "BE")})");
 
             // Validate lengths
             if (len <= 0 || len > 10_000_000)

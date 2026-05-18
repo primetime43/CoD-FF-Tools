@@ -1,5 +1,3 @@
-using System.Net;
-using System.Text;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using FastFileLib;
 using FastFileLib.GameDefinitions;
@@ -37,10 +35,13 @@ namespace Call_of_Duty_FastFile_Editor.Models
 
         /// <summary>
         /// Indicates if this FastFile is from Xbox 360.
-        /// Signed files are Xbox 360, and dev build FFM files (version 0xFD) are also Xbox 360.
+        /// Signed files are typically Xbox 360, EXCEPT for MW2 PC retail which also uses
+        /// IWff0100 + LE version. PC and Wii files are detected separately by FastFileInfo, so
+        /// exclude them here. Dev-build FFM (version 0xFD) is always Xbox 360 (no PC variant).
         /// </summary>
-        public bool IsXbox360 => OpenedFastFileHeader.IsSigned ||
-                                  OpenedFastFileHeader.GameVersion == FastFileLib.GameDefinitions.MW2Definition.DevBuildVersionValue;
+        public bool IsXbox360 => !IsPC && !IsWii && (
+            OpenedFastFileHeader.IsSigned ||
+            OpenedFastFileHeader.GameVersion == FastFileLib.GameDefinitions.MW2Definition.DevBuildVersionValue);
 
         /// <summary>
         /// Indicates if this FastFile is from a PC version.
@@ -68,6 +69,16 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// Gets the platform string for this FastFile.
         /// </summary>
         public string Platform => IsPC ? "PC" : (IsWii ? "Wii" : (OpenedFastFileHeader.IsSigned ? "Xbox 360" : "PS3"));
+
+        /// <summary>
+        /// Gets the FastFileLib.GameVersion enum value for this FastFile.
+        /// Use this when calling shared library APIs that take a GameVersion parameter.
+        /// </summary>
+        public FastFileLib.GameVersion GameVersionEnum =>
+            IsCod4File ? FastFileLib.GameVersion.CoD4 :
+            IsCod5File ? FastFileLib.GameVersion.WaW :
+            IsMW2File  ? FastFileLib.GameVersion.MW2 :
+                         FastFileLib.GameVersion.Unknown;
 
         public FastFile(string filePath)
         {
@@ -196,34 +207,45 @@ namespace Call_of_Duty_FastFile_Editor.Models
 
             public FastFileHeader(string filePath)
             {
-                using var br = new BinaryReader(new FileStream(filePath, FileMode.Open, FileAccess.Read), Encoding.Default);
-                if (br.BaseStream.Length < 12)
+                // Single source of truth: delegate to FastFileLib.FastFileInfo so detection
+                // logic lives in one place. Previously the editor duplicated the BE-then-LE
+                // version-decoding logic and kept getting out of sync with FastFileInfo (the
+                // MW2 PC and Wii detection fixes had to be applied twice).
+                FastFileInfo info;
+                try
+                {
+                    info = FastFileInfo.FromFile(filePath);
+                }
+                catch
                 {
                     IsValid = false;
                     return;
                 }
 
-                FastFileMagic = new string(br.ReadChars(8)).TrimEnd('\0');
-
-                // Read version bytes to try both endianness
-                byte[] versionBytes = br.ReadBytes(4);
-                int versionBE = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(versionBytes, 0));
-                int versionLE = BitConverter.ToInt32(versionBytes, 0);
-
+                FastFileMagic = info.Magic?.TrimEnd('\0') ?? "";
+                GameVersion = (int)info.Version;
                 FileLength = (int)new FileInfo(filePath).Length;
+                IsSigned = info.IsSigned;
+                IsPC = info.IsPC;
+                IsWii = info.IsWii;
 
-                // Check if signed (Xbox 360)
-                IsSigned = FastFileMagic == FastFileConstants.SignedHeader;
-
-                // Try big-endian first (console), then little-endian (PC)
-                GameVersion = versionBE;
-                ValidateHeader();
-
-                // If big-endian didn't work and file is unsigned, try little-endian (PC)
-                if (!IsValid && !IsSigned && FastFileMagic == FastFileConstants.UnsignedHeader)
+                switch (info.GameVersion)
                 {
-                    GameVersion = versionLE;
-                    ValidateHeaderAsPC();
+                    case FastFileLib.GameVersion.CoD4:
+                        IsCod4File = true;
+                        IsValid = true;
+                        break;
+                    case FastFileLib.GameVersion.WaW:
+                        IsCod5File = true;
+                        IsValid = true;
+                        break;
+                    case FastFileLib.GameVersion.MW2:
+                        IsMW2File = true;
+                        IsValid = true;
+                        break;
+                    default:
+                        IsValid = false;
+                        break;
                 }
             }
 
@@ -254,82 +276,6 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 }
             }
 
-            /// <summary>
-            /// Validates the Fast File header.
-            /// </summary>
-            private void ValidateHeader()
-            {
-                // Initial validation
-                IsValid = false;
-
-                // Check the FastFileMagic and GameVersion to determine validity
-                // Accept both unsigned (PS3/Wii) and signed (Xbox 360) files
-                if (FastFileMagic == FastFileConstants.UnsignedHeader ||
-                    FastFileMagic == FastFileConstants.SignedHeader)
-                {
-                    if (GameVersion == CoD4Definition.VersionValue ||
-                        GameVersion == CoD4Definition.PCVersionValue ||
-                        GameVersion == CoD4Definition.WiiVersionValue)
-                    {
-                        IsCod4File = true;
-                        IsValid = true;
-                        if (GameVersion == CoD4Definition.WiiVersionValue)
-                            IsWii = true;
-                    }
-                    else if (GameVersion == CoD5Definition.VersionValue ||
-                             GameVersion == CoD5Definition.PCVersionValue ||
-                             GameVersion == CoD5Definition.WiiVersionValue)
-                    {
-                        IsCod5File = true;
-                        IsValid = true;
-                        if (GameVersion == CoD5Definition.WiiVersionValue)
-                            IsWii = true;
-                    }
-                    else if (GameVersion == MW2Definition.VersionValue ||
-                             GameVersion == MW2Definition.PCVersionValue ||
-                             GameVersion == MW2Definition.DevBuildVersionValue)
-                    {
-                        IsMW2File = true;
-                        IsValid = true;
-                    }
-                }
-            }
-
-            /// <summary>
-            /// Validates the Fast File header assuming PC (little-endian) format.
-            /// </summary>
-            private void ValidateHeaderAsPC()
-            {
-                IsValid = false;
-                IsPC = false;
-
-                // PC files must be unsigned
-                if (FastFileMagic != FastFileConstants.UnsignedHeader)
-                    return;
-
-                if (GameVersion == CoD4Definition.VersionValue ||
-                    GameVersion == CoD4Definition.PCVersionValue)
-                {
-                    IsCod4File = true;
-                    IsValid = true;
-                    IsPC = true;
-                }
-                else if (GameVersion == CoD5Definition.VersionValue ||
-                         GameVersion == CoD5Definition.PCVersionValue)
-                {
-                    IsCod5File = true;
-                    IsValid = true;
-                    IsPC = true;
-                }
-                else if (GameVersion == MW2Definition.VersionValue ||
-                         GameVersion == MW2Definition.PCVersionValue ||
-                         GameVersion == MW2Definition.DevBuildVersionValue)
-                {
-                    IsMW2File = true;
-                    IsValid = true;
-                    IsPC = true;
-                }
-            }
         }
     }
 }

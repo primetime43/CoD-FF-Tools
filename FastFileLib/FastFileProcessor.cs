@@ -39,6 +39,23 @@ public static class FastFileProcessor
             br.BaseStream.Position = 12;
         }
 
+        // MW2 PC has its own layout — the 25-byte PS3 extended header (allowOnlineUpdate +
+        // fileCreationTime + region + entryCount + fileSizes) is truncated to just 9 bytes on
+        // PC (allowOnlineUpdate + fileCreationTime), and the zlib stream follows. The signed
+        // variant places IWffs100 at 0x15 instead of Xbox 360's 0x0C, so the hash table also
+        // shifts by 9 bytes. SP files (mp_rust_load.ff etc.) are still ~16KB but single-player
+        // and gameplay files like common.ff / common_mp.ff are tens of megabytes; both follow
+        // the same offsets.
+        if (info.GameVersion == GameVersion.MW2 && info.IsPC)
+        {
+            int blocks = TryDecompressMW2PC(br, bw, info.IsSigned);
+            if (blocks > 0)
+                return blocks;
+
+            // If MW2 PC fast path failed, fall through to generic strategies below
+            br.BaseStream.Position = 12;
+        }
+
         // Fast path: Xbox 360 signed streaming format (retail CoD4/WaW Xbox 360).
         // Layout: IWff0100 magic + 4B version + IWffs100 streaming magic at 0x0C +
         //         ~16KB hash table/auth from 0x14..0x400C + single deflate stream at 0x400C.
@@ -444,8 +461,11 @@ public static class FastFileProcessor
                     deflate.CopyTo(bw.BaseStream);
                 }
 
-                // Verify we got meaningful data (at least 10KB for a valid zone)
-                if (bw.BaseStream.Length > 10240)
+                // Any successful decompression that produces nontrivial output is real - both
+                // ZLibStream and DeflateStream are strict about valid input, so false positives
+                // are rare. The original 10KB threshold rejected small load files like MW2 PC's
+                // mp_rust_load.ff (decompressed zone = 1735 bytes), making them appear "not valid".
+                if (bw.BaseStream.Length >= 64)
                 {
                     System.Diagnostics.Debug.WriteLine($"[FastFileProcessor] DeflateStream succeeded from offset 0x{zlibOffset:X}, output size: {bw.BaseStream.Length}");
                     return 1;
@@ -468,8 +488,7 @@ public static class FastFileProcessor
                     zlib.CopyTo(bw.BaseStream);
                 }
 
-                // Verify we got meaningful data
-                if (bw.BaseStream.Length > 10240)
+                if (bw.BaseStream.Length >= 64)
                 {
                     System.Diagnostics.Debug.WriteLine($"[FastFileProcessor] ZLibStream succeeded from offset 0x{zlibOffset:X}, output size: {bw.BaseStream.Length}");
                     return 1;
@@ -602,6 +621,126 @@ public static class FastFileProcessor
     }
 
     /// <summary>
+    /// Decompresses an MW2 PC FastFile (both signed and unsigned variants).
+    ///
+    /// Unsigned (IWffu100): single zlib stream begins at offset 0x15 after a 9-byte preamble
+    /// (1 byte allowOnlineUpdate + 8 bytes fileCreationTime). The PS3 extended header's
+    /// region/entryCount/entries/fileSizes block is absent on PC.
+    ///
+    /// Signed (IWff0100): uses Infinity Ward's "authed chunks" format per OpenAssetTools'
+    /// ProcessorAuthedBlocks. Layout:
+    ///   0x00..0x0B  ZoneHeader (IWff0100 + version, 12 bytes)
+    ///   0x0C..0x14  9-byte preamble (allowOnlineUpdate + fileCreationTime)
+    ///   0x15..0x2024  DB_AuthHeader (8144 bytes: IWffs100 + hashes + RSA-2048 signature + sub-header)
+    ///   0x2025..0x2054  48 bytes padding (AUTHED_CHUNK_SIZE - sizeof(DB_AuthHeader))
+    ///   0x2055..  Stream of 8KB chunks. Each group of 257 chunks = 1 hash chunk (skipped) +
+    ///             256 data chunks (concatenated and fed to zlib).
+    /// Reference: github.com/Laupetin/OpenAssetTools src/ZoneLoading/Loading/Processor/
+    ///   ProcessorAuthedBlocks.cpp + src/Common/Game/IW4/IW4.h DB_AuthHeader/DB_AuthSubHeader.
+    /// </summary>
+    private static int TryDecompressMW2PC(BinaryReader br, BinaryWriter bw, bool isSigned)
+    {
+        long outputStartPos = bw.BaseStream.Position;
+
+        try
+        {
+            br.BaseStream.Position = 0;
+            byte[] fileData = br.ReadBytes((int)br.BaseStream.Length);
+
+            byte[] zlibInput = isSigned
+                ? ExtractMW2PCAuthedPayload(fileData)
+                : SliceMW2PCUnsignedZlibStream(fileData);
+
+            if (zlibInput == null || zlibInput.Length < 2 || !FastFileConstants.HasZlibHeader(zlibInput, 0))
+                return 0;
+
+            using var input = new MemoryStream(zlibInput, writable: false);
+            using (var zlib = new ZLibStream(input, CompressionMode.Decompress))
+            {
+                zlib.CopyTo(bw.BaseStream);
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[FastFileProcessor] MW2 PC ({(isSigned ? "signed" : "unsigned")}) decompressed, " +
+                $"zlib input: {zlibInput.Length} bytes, output: {bw.BaseStream.Position - outputStartPos}");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[FastFileProcessor] MW2 PC decompression failed: {ex.Message}");
+            bw.BaseStream.Position = outputStartPos;
+            bw.BaseStream.SetLength(outputStartPos);
+            return 0;
+        }
+    }
+
+    // Unsigned MW2 PC: zlib begins at offset 0x15 (right after the 9-byte preamble).
+    private static byte[] SliceMW2PCUnsignedZlibStream(byte[] fileData)
+    {
+        const int zlibStart = 0x15;
+        if (fileData.Length <= zlibStart + 2) return Array.Empty<byte>();
+        byte[] result = new byte[fileData.Length - zlibStart];
+        Buffer.BlockCopy(fileData, zlibStart, result, 0, result.Length);
+        return result;
+    }
+
+    private const int Mw2PcAuthedDataStart = 0x2015;        // after ZoneHeader + preamble + DB_AuthHeader + padding
+    private const int Mw2PcAuthedChunkSize = 0x2000;        // AUTHED_CHUNK_SIZE
+    private const int Mw2PcAuthedChunksPerGroup = 256;      // AUTHED_CHUNK_COUNT_PER_GROUP
+
+    /// <summary>
+    /// Walks the authed-chunk stream of a signed MW2 PC FastFile and returns the
+    /// concatenated payload (with the per-group hash chunks stripped) ready for zlib.
+    /// </summary>
+    private static byte[] ExtractMW2PCAuthedPayload(byte[] fileData)
+    {
+        if (fileData.Length <= Mw2PcAuthedDataStart + Mw2PcAuthedChunkSize)
+            return Array.Empty<byte>();
+
+        // Upper-bound the output: every 257 file chunks yields 256 payload chunks.
+        int availableChunks = (fileData.Length - Mw2PcAuthedDataStart) / Mw2PcAuthedChunkSize;
+        int maxPayloadBytes = availableChunks * Mw2PcAuthedChunkSize;
+        var payload = new byte[maxPayloadBytes];
+        int payloadLen = 0;
+
+        int pos = Mw2PcAuthedDataStart;
+        int chunkInGroup = 0; // 0 = hash chunk (skip); 1..256 = data chunks (keep)
+        while (pos + Mw2PcAuthedChunkSize <= fileData.Length)
+        {
+            if (chunkInGroup == 0)
+            {
+                // Hash chunk for this group — skip (would normally be SHA-256-verified)
+                chunkInGroup = 1;
+            }
+            else
+            {
+                Buffer.BlockCopy(fileData, pos, payload, payloadLen, Mw2PcAuthedChunkSize);
+                payloadLen += Mw2PcAuthedChunkSize;
+                chunkInGroup++;
+                if (chunkInGroup > Mw2PcAuthedChunksPerGroup)
+                    chunkInGroup = 0; // next group begins with a hash chunk
+            }
+            pos += Mw2PcAuthedChunkSize;
+        }
+
+        // Trailing partial chunk: only include if it's a data chunk (not a hash chunk).
+        if (pos < fileData.Length && chunkInGroup != 0)
+        {
+            int remaining = fileData.Length - pos;
+            Array.Resize(ref payload, payloadLen + remaining);
+            Buffer.BlockCopy(fileData, pos, payload, payloadLen, remaining);
+            payloadLen += remaining;
+        }
+        else if (payloadLen < payload.Length)
+        {
+            Array.Resize(ref payload, payloadLen);
+        }
+
+        return payload;
+    }
+
+    /// <summary>
     /// Try to decompress Wii FastFiles which use a single zlib stream (no block structure).
     /// Unlike PS3/Xbox which have 2-byte block length prefixes, Wii uses one continuous zlib stream.
     /// </summary>
@@ -657,6 +796,57 @@ public static class FastFileProcessor
             bw.BaseStream.SetLength(outputStartPos);
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Single entry point for recompressing a zone file back to a FastFile. Dispatches to
+    /// the correct compressor (PC single-zlib, Xbox 360 signed streaming, MW2 extended
+    /// header, or standard PS3/Xbox 360 block format) based on game/platform/signed.
+    ///
+    /// This is the consolidation point that the editor's per-game handlers all funnel
+    /// through, so platform-specific compression logic lives in one place.
+    /// </summary>
+    /// <param name="zoneFilePath">Path to the decompressed .zone file</param>
+    /// <param name="ffFilePath">Path where the FastFile should be written</param>
+    /// <param name="gameVersion">CoD4, WaW, or MW2</param>
+    /// <param name="platform">"PS3", "Xbox360", "PC", or "Wii"</param>
+    /// <param name="signed">True for Xbox 360 signed (IWff0100 + IWffs100 streaming) format</param>
+    /// <param name="originalFfPath">For signed Xbox 360 and MW2, the original FF to copy
+    /// hash table / extended header from. Pass null for fresh builds.</param>
+    public static void Recompress(string zoneFilePath, string ffFilePath, GameVersion gameVersion, string platform, bool signed, string? originalFfPath = null)
+    {
+        // PC: single zlib stream with LE version. Handled by Compiler.CompilePc().
+        // (MW2 PC recompression isn't supported yet — its layout differs from PC CoD4/WaW.)
+        if (string.Equals(platform, "PC", StringComparison.OrdinalIgnoreCase))
+        {
+            if (gameVersion == GameVersion.MW2)
+                throw new NotSupportedException("MW2 PC recompression is not yet implemented.");
+            byte[] zoneData = File.ReadAllBytes(zoneFilePath);
+            byte[] ffData = new Compiler(gameVersion, "PC").Compile(zoneData);
+            File.WriteAllBytes(ffFilePath, ffData);
+            return;
+        }
+
+        // MW2 has its own extended-header compressor regardless of platform.
+        // Detect Xbox 360 (vs PS3) from the platform string.
+        if (gameVersion == GameVersion.MW2)
+        {
+            byte[] mw2VersionBytes = FastFileInfo.GetVersionBytes(gameVersion, platform);
+            bool isXbox360 = string.Equals(platform, "Xbox360", StringComparison.OrdinalIgnoreCase);
+            CompressMW2(zoneFilePath, ffFilePath, mw2VersionBytes, isXbox360, originalFfPath);
+            return;
+        }
+
+        // CoD4/WaW Xbox 360 signed: IWffs100 streaming format with hash table preserved.
+        if (signed)
+        {
+            byte[] sigVersionBytes = FastFileInfo.GetVersionBytes(gameVersion, "Xbox360");
+            CompressXbox360Signed(zoneFilePath, ffFilePath, sigVersionBytes, originalFfPath);
+            return;
+        }
+
+        // CoD4/WaW unsigned (PS3 or Xbox 360): standard 64KB block format.
+        Compress(zoneFilePath, ffFilePath, gameVersion, platform, signed: false);
     }
 
     /// <summary>
