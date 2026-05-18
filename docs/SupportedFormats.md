@@ -88,7 +88,8 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 
 | Support Level | Asset Types | Capabilities |
 |---------------|-------------|--------------|
-| ✅ **Full** | `rawfile`, `localize`, `weapon`, `menufile` | Parse, view, edit, save |
+| ✅ **Full** | `rawfile`, `localize`, `weapon` | Parse, view, edit, save |
+| 🟡 **Partial** | `menufile` (MenuList) | MenuList wrapper + menu[0] only; tree shown in **Menus** tab. `menuDef_t` binary deserializer not implemented yet — multi-menu files (like `ui_mp/menus.txt` with 276 menus) show as `name (N menus)` with a single `menu (binary parsing pending)` placeholder child. Single-menu files (like `ui_mp/main.menu`) flatten to one row. |
 | 👁️ **View Only** | `stringtable`, `xanim`, `material`, `techset`, `image`, `col_map_sp`, `col_map_mp` | Parse and display, no editing |
 | 📋 **Detected** | All others | Shows in asset pool, no parsing |
 
@@ -185,6 +186,26 @@ Other MW2 PC asset types (`techset`, `xanim`, `material`, `image`) are listed in
 | Extract | ✅ | Save raw file to disk |
 | Inject | ✅ | Replace raw file content from external file |
 | Resize | ✅ | Increase file size allocation (triggers zone rebuild) |
+
+### Menus (menufile) Operations
+The editor's **Menus** tab shows each `menufile` (a.k.a. `MenuList` per the wiki — see https://codresearch.dev/index.php/MenuFile_Asset) found in the zone.
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| Detect menufile assets | ✅ | All menufile records from the asset pool are surfaced (full zone scan, not the old 1MB window) |
+| MenuList wrapper | ✅ | Reads name + menuCount + pointer array correctly |
+| All menus located | ✅ | `Iw4MenuDeserializer` walks each `menuDef_t` field-by-field (port of OpenAssetTools' `ContentLoaderIW4` + `menuDef_t.txt` reorder spec). It reads the binary struct + recursively walks every inline pointer (window strings, event handlers, key handlers, expression statements, items array, support data, etc.). When the deserializer hits an edge case it doesn't handle yet, it falls back to a signature scanner for the remaining menus so the user still sees something. All declared menus get parsed — `ui_mp.ff::menus.txt`: 276/276, MW2 TU6 patch: 4/4, 18/18, 5/5, etc. |
+| Real menu names | ✅ | Recovered from inline `window.name` string for menus the deserializer walked; signature-scan fallback uses heuristic ASCII detection. Examples: `menu_online_barracks`, `hud_fullscreen`, `settings_map`, `menu_xboxlive_privatelobby`, `player_popup_party`, `playercard_spectator_hd`. |
+| Per-menu rect / colors / itemCount | 🟡 | Read from fixed offsets in `windowDef_t`. Reliable for any menu the deserializer fully parsed. Menus where the deserializer's `itemDef_s` walker stops early and the signature fallback kicks in may still pick up an inner item rect/itemCount. Still navigable & editable in either case. |
+| Inline strings | ✅ | `MenuDecompiler` extracts event-handler script strings, item text, etc. with original offsets so edits round-trip back to the zone bytes. |
+| Edit & save (zone-level) | ✅ | The text editor surfaces `// 0x{offset}` annotations next to each editable value/string. Modify the number/string in place; `ApplyMenuFileChangesToZone` writes the updated bytes back at their original offsets. Length-bound for strings (truncate or pad with nulls). Triggers a zone-level save like any other edit. |
+| Full `menuDef_t` field reconstruction | ❌ | The C# code does NOT walk the engine's struct field-by-field — only the editable subset above is extracted. Adding/removing items, retargeting event handlers, etc. requires a proper deserializer port from OpenAssetTools. |
+
+Display rules:
+- `name.menu` containing 1 menu → flat row: `ui_mp/main.menu [N items]`
+- `name.menu` containing 1 menu but parse failed → `ui_mp/xxx.menu [1 menu (parse failed)]`
+- `name.txt` or `name.menu` containing N > 1 menus → tree: `ui_mp/main.menu (4 menus)` with one child per parsed menu. Child labels use the extracted window name when the parser found one (e.g. `mw2_main_background`, `ac130_overlay_grain`); otherwise fall back to `menu #N`. Item count is appended when known: `menu #0 [28 items]`.
+- If the asset pool declared more menus than the scanner located, a trailing `+N menu(s) not located` child surfaces the gap.
 
 ### Localize Operations
 | Feature | Status | Description |

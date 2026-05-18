@@ -1876,6 +1876,19 @@ namespace Call_of_Duty_FastFile_Editor
             localizeListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
         }
 
+        /// <summary>
+        /// True if the parsed menu has a synthetic name like "(menu_0)" or "(external_30008C06)",
+        /// indicating the parser couldn't recover the real window name from inline data.
+        /// </summary>
+        private static bool MenuHasParserPlaceholderName(Models.MenuDef menu)
+        {
+            string n = menu?.Name;
+            return string.IsNullOrEmpty(n)
+                || n.StartsWith("(menu_", StringComparison.Ordinal)
+                || n.StartsWith("(external_", StringComparison.Ordinal)
+                || n.StartsWith("(unnamed", StringComparison.Ordinal);
+        }
+
         private void PopulateMenuFiles()
         {
             // Check if we have any parsed MenuList assets
@@ -1911,29 +1924,69 @@ namespace Call_of_Duty_FastFile_Editor
                 _openedFastFile.OpenedFastFileZone.Data,
                 isBigEndian: true);
 
-            // Populate the tree view with MenuLists and decompile each menu individually
+            // Tree layout:
+            //   - menufile contains exactly 1 menu, parser found it    → flat row "name [N items]"
+            //   - menufile contains exactly 1 menu, parser failed      → flat row "name [1 menu (parse failed)]"
+            //   - menufile contains N > 1 menus                        → "name (N menus)" parent +
+            //                                                            one child per parsed menu
+            //
+            // Single-menu files flatten because the wrapper file and the menu are conceptually the
+            // same thing. Multi-menu files keep a tree level so each menu is independently selectable.
             foreach (var menuList in _menuLists)
             {
-                // Create MenuList node
-                TreeNode menuListNode = new TreeNode($"{menuList.Name} ({menuList.Menus.Count} menus)");
-                menuListNode.Tag = menuList;
-
-                // Decompile each menu individually
+                // Decompile any menus we successfully parsed
                 foreach (var menu in menuList.Menus)
                 {
-                    // Decompile this specific menu
                     var (formattedText, strings) = decompiler.DecompileMenuDef(menu);
                     menu.ExtractedStrings = strings;
                     menu.StringContent = formattedText;
-
-                    string menuName = menu.Name ?? "(unnamed)";
-                    string itemInfo = menu.ItemCount > 0 ? $" [{menu.ItemCount} items]" : "";
-                    TreeNode menuNode = new TreeNode($"{menuName}{itemInfo}");
-                    menuNode.Tag = menu;
-                    menuListNode.Nodes.Add(menuNode);
                 }
 
-                menuFilesTreeView.Nodes.Add(menuListNode);
+                bool isSingleMenu = menuList.MenuCount == 1;
+                bool firstParsed = menuList.Menus.Count > 0;
+                bool firstHasParseFailureName = firstParsed && MenuHasParserPlaceholderName(menuList.Menus[0]);
+
+                if (isSingleMenu && firstParsed && !firstHasParseFailureName)
+                {
+                    // Flat row — the menufile IS effectively the menu for single-menu cases.
+                    var menu = menuList.Menus[0];
+                    string suffix = menu.ItemCount > 0 ? $" [{menu.ItemCount} items]" : "";
+                    var node = new TreeNode($"{menuList.Name}{suffix}") { Tag = menu };
+                    menuFilesTreeView.Nodes.Add(node);
+                }
+                else if (isSingleMenu)
+                {
+                    // Single-menu file but parser couldn't get useful data.
+                    var node = new TreeNode($"{menuList.Name} [1 menu (parse failed)]") { Tag = menuList };
+                    menuFilesTreeView.Nodes.Add(node);
+                }
+                else
+                {
+                    // Multi-menu file. Show parent + one child per parsed menu so each is
+                    // independently selectable and editable.
+                    var parentNode = new TreeNode($"{menuList.Name} ({menuList.MenuCount} menus)") { Tag = menuList };
+
+                    for (int i = 0; i < menuList.Menus.Count; i++)
+                    {
+                        var menu = menuList.Menus[i];
+                        string label = MenuHasParserPlaceholderName(menu)
+                            ? $"menu #{i}"
+                            : menu.Name;
+                        if (menu.ItemCount > 0)
+                            label += $" [{menu.ItemCount} items]";
+                        parentNode.Nodes.Add(new TreeNode(label) { Tag = menu });
+                    }
+
+                    // If the asset pool declared more menus than we located, surface that gap
+                    // so users know parsing dropped some entries rather than silently hiding them.
+                    int missing = menuList.MenuCount - menuList.Menus.Count;
+                    if (missing > 0)
+                    {
+                        parentNode.Nodes.Add(new TreeNode($"+{missing} menu(s) not located") { Tag = menuList });
+                    }
+
+                    menuFilesTreeView.Nodes.Add(parentNode);
+                }
             }
 
             // Expand all nodes

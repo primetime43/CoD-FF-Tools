@@ -751,7 +751,7 @@ namespace Call_of_Duty_FastFile_Editor
             menuFilesTabPage.Padding = new Padding(3);
             menuFilesTabPage.Size = new Size(1442, 749);
             menuFilesTabPage.TabIndex = 7;
-            menuFilesTabPage.Text = "Menu Files";
+            menuFilesTabPage.Text = "Menus";
             menuFilesTabPage.UseVisualStyleBackColor = true;
             //
             // menuFilesSplitContainer

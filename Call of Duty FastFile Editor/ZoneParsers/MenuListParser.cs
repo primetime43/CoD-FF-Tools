@@ -126,36 +126,131 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 }
             }
 
-            // Parse only menu[0] for now. menuDef_t is a ~1500-byte binary struct followed by
-            // recursive inline data (items, transitions, expressions, event handlers) whose
-            // total size depends on N items × per-item inline data. Without a full deserializer
-            // matching the engine's load order, we can only locate menu[0] reliably — its data
-            // starts right after the pointer array. For menu[1..N] we'd have to know the
-            // previous menu's exact end, which we don't.
+            // Walk each menu via the field-by-field IW4 deserializer (port of OpenAssetTools'
+            // generated content loader). Unlike a signature scan, this knows the exact end of
+            // each menu's variable-size inline payload, so it never mistakes an inner item for
+            // a sibling menu.
             //
-            // The old code fabricated MenuDef entries for every index by stepping forward in
-            // hardcoded 0x180-byte chunks, which produced garbage names ("csv", "Ad",
-            // "classIndex") harvested from random byte positions inside the binary data.
-            // Better to emit just the one menu we trust than mislead the user with 276 fakes.
-            if (menuCount > 0 && afterPointersOffset < zoneData.Length)
+            // If the deserializer fails partway through (e.g. unexpected pointer value, unknown
+            // event type, etc.) we fall back to the older signature scanner from that point on
+            // so the user still sees something rather than nothing.
+            var deser = new Iw4MenuDeserializer(zoneData, afterPointersOffset, isConsole: isBigEndian, isBigEndian: isBigEndian);
+            int currentOffset = afterPointersOffset;
+            int lastSuccessfulEnd = afterPointersOffset;
+            int fallbackStartIndex = -1;
+
+            for (int i = 0; i < menuCount; i++)
             {
-                var firstMenu = ParseMenuDef(zoneData, afterPointersOffset, isBigEndian, 0);
-                if (firstMenu != null)
+                int menuStartBefore = deser.Position;
+                var menu = deser.ReadMenuDef(i);
+                if (menu == null)
                 {
-                    menuList.Menus.Add(firstMenu);
+                    Debug.WriteLine($"[MenuListParser] Deserializer failed at menu[{i}] (offset 0x{menuStartBefore:X}); falling back to signature scan for the remaining {menuCount - i} menus");
+                    fallbackStartIndex = i;
+                    currentOffset = menuStartBefore;
+                    break;
+                }
+                menuList.Menus.Add(menu);
+                lastSuccessfulEnd = menu.EndOffset;
+                currentOffset = menu.EndOffset;
+            }
+
+            // Fallback path: signature scanner for any menus the deserializer couldn't walk
+            if (fallbackStartIndex >= 0)
+            {
+                const int minMenuSize = 0x2B0;
+                const int maxScanPerMenu = 4 * 1024 * 1024;
+                for (int i = fallbackStartIndex; i < menuCount; i++)
+                {
+                    int menuStart = FindMenuStartSignature(zoneData, currentOffset, maxScanPerMenu, isBigEndian);
+                    if (menuStart < 0)
+                    {
+                        Debug.WriteLine($"[MenuListParser] Signature fallback also failed at menu[{i}] (from 0x{currentOffset:X})");
+                        break;
+                    }
+                    var menu = ParseMenuDef(zoneData, menuStart, isBigEndian, i);
+                    if (menu == null) break;
+                    menuList.Menus.Add(menu);
+                    lastSuccessfulEnd = Math.Max(menu.EndOffset, menuStart + minMenuSize);
+                    currentOffset = menuStart + minMenuSize;
                 }
             }
 
-            // DataEndOffset is set to just past the pointer array. We don't know the true end
-            // of the menu data region, so downstream callers (e.g. the AssetRecordProcessor
-            // pattern-matching loop for the next menufile) will scan forward from here through
-            // the binary menu blob until they hit the next MenuList header. The pattern is
-            // strict enough (12-byte FFFFFFFF + small menuCount + FFFFFFFF + .txt-suffixed
-            // name) that menu-internal FFFFFFFF markers don't false-positive.
-            menuList.DataEndOffset = afterPointersOffset;
-
-            Debug.WriteLine($"[MenuListParser] Completed MenuList '{name}': {menuList.Menus.Count} of {menuCount} menus parsed (binary deserializer for menuDef_t not implemented; only menu[0] returned), pointer-array end=0x{afterPointersOffset:X}");
+            menuList.DataEndOffset = lastSuccessfulEnd;
+            Debug.WriteLine($"[MenuListParser] Completed MenuList '{name}': {menuList.Menus.Count} of {menuCount} menus parsed (deserializer{(fallbackStartIndex >= 0 ? " + signature fallback" : "")}), end=0x{menuList.DataEndOffset:X}");
             return menuList;
+        }
+
+        /// <summary>
+        /// Scans forward from <paramref name="startOffset"/> for the next plausible menuDef_t
+        /// start. The signature requires 0xFFFFFFFF + two back-to-back rectDef_s structs (rect
+        /// + rectClient), with all floats finite and roughly UI-sized, plus horz/vert align
+        /// bytes in [0,3]. Stops after <paramref name="maxScanDistance"/> bytes. Returns -1
+        /// if no signature found.
+        /// </summary>
+        private static int FindMenuStartSignature(byte[] data, int startOffset, int maxScanDistance, bool isBigEndian)
+        {
+            int end = Math.Min(startOffset + maxScanDistance, data.Length - 0x2C);
+            for (int p = startOffset; p < end; p++)
+            {
+                // Cheap reject: must start with 0xFFFFFFFF (name pointer placeholder).
+                if (data[p] != 0xFF || data[p + 1] != 0xFF || data[p + 2] != 0xFF || data[p + 3] != 0xFF)
+                    continue;
+
+                // rect (offset +0x04): 4 floats + horz/vert align byte + 2 padding bytes
+                if (!IsPlausibleRectAt(data, p + 4, isBigEndian))
+                    continue;
+
+                // rectClient (offset +0x18): same shape
+                if (!IsPlausibleRectAt(data, p + 24, isBigEndian))
+                    continue;
+
+                return p;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Validates a rectDef_s at <paramref name="rectOffset"/>: 4 floats (x, y, w, h) in
+        /// plausible UI coordinate range, plus horz/vert align bytes in [0,3]. Allows w/h to
+        /// be 0 since some menus use 0-size rects.
+        /// </summary>
+        private static bool IsPlausibleRectAt(byte[] data, int rectOffset, bool isBigEndian)
+        {
+            float x = ReadFloat(data, rectOffset, isBigEndian);
+            float y = ReadFloat(data, rectOffset + 4, isBigEndian);
+            float w = ReadFloat(data, rectOffset + 8, isBigEndian);
+            float h = ReadFloat(data, rectOffset + 12, isBigEndian);
+
+            // Reject NaN / Infinity / denormals (each value must be 0 OR a normal float)
+            if (!IsPlausibleCoord(x)) return false;
+            if (!IsPlausibleCoord(y)) return false;
+            if (!IsPlausibleCoord(w)) return false;
+            if (!IsPlausibleCoord(h)) return false;
+
+            // Width/height should be non-negative (zero is OK; some hidden menus use 0-size rects)
+            if (w < 0 || h < 0) return false;
+
+            // horz/vert align bytes must be small enum values
+            byte horzAlign = data[rectOffset + 16];
+            byte vertAlign = data[rectOffset + 17];
+            if (horzAlign > 3 || vertAlign > 3) return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// A "plausible" UI coordinate is either exactly zero or a normal float in pixel range
+        /// (|v| >= 0.01 and |v| <= 10000). This rejects sub-pixel denormals like 4.98E-10 that
+        /// frequently show up when reading random bytes as floats — a strong false-positive
+        /// signal when scanning for menuDef_t headers inside binary menu payloads.
+        /// </summary>
+        private static bool IsPlausibleCoord(float v)
+        {
+            if (float.IsNaN(v) || float.IsInfinity(v)) return false;
+            if (v == 0f) return true;
+            float abs = Math.Abs(v);
+            return abs >= 0.01f && abs <= 10000f;
         }
 
         /// <summary>
