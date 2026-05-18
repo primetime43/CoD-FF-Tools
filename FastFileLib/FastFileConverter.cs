@@ -164,19 +164,23 @@ public static class FastFileConverter
                 int blocksDecompressed = DecompressWithSignatureHandling(sourceModPath, tempSourceZonePath, sourceInfo);
                 result.BlocksProcessed = blocksDecompressed;
 
-                // Step 2: Extract raw files from source mod zone
+                // Step 2: Extract raw files and localized strings from source mod zone
                 result.Warnings.Add("Extracting raw files from source mod...");
                 byte[] sourceZoneData = File.ReadAllBytes(tempSourceZonePath);
                 var rawFiles = ExtractRawFilesFromZone(sourceZoneData);
                 result.Warnings.Add($"Found {rawFiles.Count} raw files in source mod.");
 
-                if (rawFiles.Count == 0)
+                var localizedEntries = ExtractLocalizedEntriesFromZone(sourceZoneData);
+                if (localizedEntries.Count > 0)
+                    result.Warnings.Add($"Found {localizedEntries.Count} localized strings in source mod.");
+
+                if (rawFiles.Count == 0 && localizedEntries.Count == 0)
                 {
-                    throw new InvalidOperationException("No raw files found in source mod. Cannot convert.");
+                    throw new InvalidOperationException("No raw files or localized strings found in source mod. Cannot convert.");
                 }
 
                 // Step 3: Build a fresh PS3 zone using ZoneBuilder (same approach as FFCompiler)
-                result.Warnings.Add("Building fresh PS3 zone with extracted raw files...");
+                result.Warnings.Add("Building fresh PS3 zone with extracted assets...");
                 // Use provided zone name or auto-detect from input filename
                 string effectiveZoneName = !string.IsNullOrWhiteSpace(zoneName)
                     ? zoneName
@@ -184,15 +188,18 @@ public static class FastFileConverter
                 result.Warnings.Add($"Using zone name: {effectiveZoneName}");
                 var zoneBuilder = new ZoneBuilder(result.GameVersion, effectiveZoneName);
                 zoneBuilder.AddRawFiles(rawFiles);
+                zoneBuilder.AddLocalizedEntries(localizedEntries);
                 byte[] newZone = zoneBuilder.Build();
 
-                result.Warnings.Add($"Built new zone with {rawFiles.Count} raw files ({newZone.Length} bytes).");
+                result.Warnings.Add($"Built new zone with {rawFiles.Count} raw files + {localizedEntries.Count} localized strings ({newZone.Length} bytes).");
 
                 // Save new zone
                 File.WriteAllBytes(tempNewZonePath, newZone);
 
                 // Track all files as "replaced" (they're all included in the new zone)
-                result.ReplacedFiles = rawFiles.Select(f => f.Name).ToList();
+                result.ReplacedFiles = rawFiles.Select(f => f.Name)
+                    .Concat(localizedEntries.Select(e => $"localize:{e.Reference}"))
+                    .ToList();
 
                 // Step 4: Compress new zone to PS3 FastFile
                 result.Warnings.Add("Compressing to PS3 FastFile...");
@@ -223,11 +230,14 @@ public static class FastFileConverter
 
     /// <summary>
     /// Extracts all raw files from a zone file.
+    /// Uses the canonical extension list from FastFileConstants so any extension
+    /// understood by the rest of the library (.lua, .csv, .graph, .ai_bt, .def, etc.)
+    /// is picked up — not just the small original allowlist.
     /// </summary>
     private static List<RawFile> ExtractRawFilesFromZone(byte[] zoneData)
     {
         var rawFiles = new List<RawFile>();
-        var validExtensions = new[] { ".cfg", ".gsc", ".atr", ".csc", ".rmb", ".arena", ".vision", ".txt", ".str", ".menu" };
+        var validExtensions = FastFileConstants.ValidRawFileExtensions;
         var foundOffsets = new HashSet<int>();
 
         foreach (var ext in validExtensions)
@@ -306,6 +316,98 @@ public static class FastFileConverter
         }
 
         return rawFiles;
+    }
+
+    /// <summary>
+    /// Extracts all localized string entries from a zone file by scanning for the
+    /// 8-byte FF FF FF FF FF FF FF FF marker followed by [value\0][reference\0].
+    /// Rawfile headers use only 4 FF bytes followed by a non-FF size field, so 8
+    /// consecutive FFs is essentially unique to localize entries.
+    /// </summary>
+    private static List<LocalizedEntry> ExtractLocalizedEntriesFromZone(byte[] zoneData)
+    {
+        var entries = new List<LocalizedEntry>();
+        var seenKeys = new HashSet<string>();
+
+        for (int i = 0; i <= zoneData.Length - 10; i++)
+        {
+            // Look for 8 consecutive FF bytes
+            bool isMarker = true;
+            for (int j = 0; j < 8; j++)
+            {
+                if (zoneData[i + j] != 0xFF) { isMarker = false; break; }
+            }
+            if (!isMarker) continue;
+
+            // Next byte after marker is the first byte of the value string. If it's FF, we're
+            // still in padding/markers — keep scanning.
+            int valueStart = i + 8;
+            if (valueStart >= zoneData.Length || zoneData[valueStart] == 0xFF)
+                continue;
+
+            // Read value (null-terminated)
+            int valueEnd = valueStart;
+            while (valueEnd < zoneData.Length && zoneData[valueEnd] != 0x00)
+                valueEnd++;
+            if (valueEnd == valueStart || valueEnd >= zoneData.Length)
+                continue;
+            string value = Encoding.Default.GetString(zoneData, valueStart, valueEnd - valueStart);
+
+            // Read reference key (null-terminated)
+            int keyStart = valueEnd + 1;
+            int keyEnd = keyStart;
+            while (keyEnd < zoneData.Length && zoneData[keyEnd] != 0x00)
+                keyEnd++;
+            if (keyEnd == keyStart || keyEnd >= zoneData.Length)
+                continue;
+            string key = Encoding.ASCII.GetString(zoneData, keyStart, keyEnd - keyStart);
+
+            // Validate the key looks like a localize key (SCREAMING_SNAKE_CASE).
+            // This filters out matches that happen to land inside rawfile data or padding.
+            if (!IsValidLocalizeKey(key)) continue;
+            if (!seenKeys.Add(key)) continue;
+
+            entries.Add(new LocalizedEntry(key, value));
+
+            // Advance past this entry to avoid re-matching its trailing FFs.
+            i = keyEnd;
+        }
+
+        return entries;
+    }
+
+    /// <summary>
+    /// Lightweight localize-key validator. Keys are SCREAMING_SNAKE_CASE with digits
+    /// and underscores (e.g. RANK_PRESTIGE_10, MENU_CONTROLS). Mirrors the editor's
+    /// AssetRecordProcessor.IsValidLocalizeKey heuristics.
+    /// </summary>
+    private static bool IsValidLocalizeKey(string key)
+    {
+        if (string.IsNullOrEmpty(key) || key.Length < 3 || key.Length > 150)
+            return false;
+        if (key[0] < 'A' || key[0] > 'Z')
+            return false;
+
+        int uppercaseCount = 0;
+        int underscoreCount = 0;
+        int consecutiveSame = 1;
+        char prev = '\0';
+
+        foreach (char c in key)
+        {
+            bool isUpper = c >= 'A' && c <= 'Z';
+            bool isDigit = c >= '0' && c <= '9';
+            bool isUnderscore = c == '_';
+            if (!isUpper && !isDigit && !isUnderscore) return false;
+            if (isUpper) uppercaseCount++;
+            if (isUnderscore) underscoreCount++;
+            if (c == prev) { consecutiveSame++; if (consecutiveSame > 3) return false; }
+            else consecutiveSame = 1;
+            prev = c;
+        }
+
+        // Real keys have at least one underscore and a few uppercase letters.
+        return underscoreCount >= 1 && uppercaseCount >= 2;
     }
 
     /// <summary>
@@ -709,7 +811,14 @@ public static class FastFileConverter
     }
 
     /// <summary>
-    /// Compresses zone data for a specific platform.
+    /// Compresses zone data for a specific platform. Routes through FastFileProcessor.Recompress
+    /// so each (game, platform) combo lands on the right compressor:
+    ///   - CoD4/WaW PS3 + Xbox 360 (unsigned) -> block format
+    ///   - CoD4/WaW PC                         -> single zlib stream (Compiler.CompilePc)
+    ///   - MW2 PS3                             -> block format + 25-byte extended header
+    ///   - MW2 Xbox 360                        -> single zlib stream + extended header
+    ///   - MW2 PC                              -> single zlib stream + 9-byte preamble
+    /// Always writes unsigned outputs (signed=false) — RSA re-signing is not supported.
     /// </summary>
     private static void CompressForPlatform(string zonePath, string outputPath, GameVersion gameVersion, Platform platform)
     {
@@ -722,8 +831,7 @@ public static class FastFileConverter
             _ => "PS3"
         };
 
-        // Use the existing compress method with platform parameter
-        FastFileProcessor.Compress(zonePath, outputPath, gameVersion, platformStr);
+        FastFileProcessor.Recompress(zonePath, outputPath, gameVersion, platformStr, signed: false);
     }
 
     /// <summary>
