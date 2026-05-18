@@ -347,7 +347,7 @@ public static class FastFileProcessor
         int errorCount = 0;
         long lastGoodPosition = br.BaseStream.Position;
 
-        for (int i = 0; i < 5000; i++)
+        for (int i = 0; i < 50000; i++)
         {
             if (br.BaseStream.Position >= br.BaseStream.Length - 1)
                 break;
@@ -360,8 +360,23 @@ public static class FastFileProcessor
                 ? (lengthBytes[0] | (lengthBytes[1] << 8))
                 : ((lengthBytes[0] << 8) | lengthBytes[1]);
 
-            // Check for end marker (0x00 0x01 or 0x00 0x00)
-            if (chunkLength == 0 || chunkLength == 1) break;
+            // End marker is 0x0001. 0x0000 has two meanings:
+            //   - "next 64KB are stored uncompressed" — a Treyarch extension used on WaW PS3 UI
+            //     zones to avoid wasting CPU on already-compressed payloads like bink video.
+            //   - Some files end with 0x0000 instead of 0x0001 — treat as EOF only when there
+            //     isn't a full raw block left in the file.
+            if (chunkLength == 1) break;
+            if (chunkLength == 0)
+            {
+                long remaining = br.BaseStream.Length - br.BaseStream.Position;
+                if (remaining < BlockSize)
+                    break; // treat as a tolerant end marker
+                byte[] rawBlock = br.ReadBytes(BlockSize);
+                bw.Write(rawBlock);
+                blockCount++;
+                lastGoodPosition = br.BaseStream.Position;
+                continue;
+            }
 
             // Sanity check: block size should be reasonable (max ~128KB for safety)
             if (chunkLength > 131072 || chunkLength < 0)
