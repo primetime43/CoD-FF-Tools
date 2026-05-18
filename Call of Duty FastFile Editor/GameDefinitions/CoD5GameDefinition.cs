@@ -1,4 +1,5 @@
 using Call_of_Duty_FastFile_Editor.Models;
+using Call_of_Duty_FastFile_Editor.ZoneParsers;
 using FastFileLib.GameDefinitions;
 using System.Diagnostics;
 using System.Text;
@@ -87,6 +88,16 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override bool IsMaterialType(int assetType) => assetType == MaterialAssetType;
         public override bool IsTechSetType(int assetType) => assetType == TechSetAssetType;
         public bool IsColMapType(int assetType) => assetType == ColMapSPAssetType || assetType == ColMapMPAssetType;
+
+        /// <summary>
+        /// WaW menulist parsing — routes to the CoD5-specific deserializer instead of the IW4
+        /// (MW2) one, which has the wrong struct layout for WaW (different field set + sizes).
+        /// </summary>
+        public override MenuList? ParseMenuFile(byte[] zoneData, int offset)
+        {
+            Debug.WriteLine($"[{ShortName}] ParseMenuFile at offset 0x{offset:X} (CoD5 layout)");
+            return MenuListParser.ParseMenuList(zoneData, offset, isBigEndian: true, layout: MenuBinaryLayout.Cod5);
+        }
 
         /// <summary>
         /// CoD5/WaW localize parsing with alignment handling.

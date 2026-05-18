@@ -547,7 +547,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         // between menufiles (e.g. ui_mp.ff: ~18MB between the 2 MenuLists), so
                         // a small window like 1MB silently drops most of them.
                         int maxSearchBytes = zoneData.Length - menuFileSearchOffset;
-                        var menuList = FindNextMenuList(zoneData, menuFileSearchOffset, maxSearchBytes, isBigEndian: true);
+                        var menuList = FindNextMenuList(zoneData, menuFileSearchOffset, maxSearchBytes, isBigEndian: true, gameDefinition);
 
                         if (menuList == null)
                         {
@@ -1156,8 +1156,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// <summary>
         /// Finds the next MenuList by pattern matching.
         /// Searches for the MenuList header pattern: [FF FF FF FF] [menuCount] [FF FF FF FF] [name string]
+        /// Once a MenuList header is matched, the actual parsing is delegated to the game
+        /// definition so each game uses its own menuDef_t struct layout (CoD5 vs IW4).
         /// </summary>
-        private static MenuList? FindNextMenuList(byte[] zoneData, int startOffset, int maxSearchBytes, bool isBigEndian)
+        private static MenuList? FindNextMenuList(byte[] zoneData, int startOffset, int maxSearchBytes,
+                                                   bool isBigEndian, GameDefinitions.IGameDefinition gameDefinition)
         {
             Debug.WriteLine($"[AssetRecordProcessor] Searching for MenuList from 0x{startOffset:X}, max {maxSearchBytes} bytes");
 
@@ -1200,8 +1203,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 Debug.WriteLine($"[AssetRecordProcessor] Found potential MenuList at 0x{pos:X}: name='{name}', count={menuCount}");
 
-                // Try to parse it
-                var menuList = MenuListParser.ParseMenuList(zoneData, pos, isBigEndian);
+                // Delegate the actual menuDef walk to the game definition so we use the
+                // right struct layout (CoD5 vs IW4).
+                var menuList = gameDefinition.ParseMenuFile(zoneData, pos);
                 if (menuList != null)
                 {
                     Debug.WriteLine($"[AssetRecordProcessor] Successfully parsed MenuList '{menuList.Name}' with {menuList.Menus.Count} menus");

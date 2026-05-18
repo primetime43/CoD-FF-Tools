@@ -33,6 +33,15 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     ///     ... more fields
     /// };
     /// </summary>
+    /// <summary>Which menuDef_t binary layout to use when walking menus inside a MenuList.</summary>
+    public enum MenuBinaryLayout
+    {
+        /// <summary>IW4 (MW2) layout — 752 bytes console / 400 PC, full OAT-spec walker.</summary>
+        Iw4,
+        /// <summary>CoD5 (WaW) layout — 312 bytes console, simpler walker that doesn't recurse into items[].</summary>
+        Cod5,
+    }
+
     public static class MenuListParser
     {
         // WindowDef size varies between PC and console
@@ -48,7 +57,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         /// <summary>
         /// Parses a MenuList asset starting at the given offset.
         /// </summary>
-        public static MenuList? ParseMenuList(byte[] zoneData, int offset, bool isBigEndian = true)
+        public static MenuList? ParseMenuList(byte[] zoneData, int offset, bool isBigEndian = true,
+                                              MenuBinaryLayout layout = MenuBinaryLayout.Iw4)
         {
             Debug.WriteLine($"[MenuListParser] Parsing MenuList at offset 0x{offset:X}");
 
@@ -126,58 +136,97 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 }
             }
 
-            // Walk each menu via the field-by-field IW4 deserializer (port of OpenAssetTools'
-            // generated content loader). Unlike a signature scan, this knows the exact end of
-            // each menu's variable-size inline payload, so it never mistakes an inner item for
-            // a sibling menu.
+            // Walk each menu with the right strategy per layout.
             //
-            // If the deserializer fails partway through (e.g. unexpected pointer value, unknown
-            // event type, etc.) we fall back to the older signature scanner from that point on
-            // so the user still sees something rather than nothing.
-            var deser = new Iw4MenuDeserializer(zoneData, afterPointersOffset, isConsole: isBigEndian, isBigEndian: isBigEndian);
+            // IW4 (MW2): use the full OAT-ported field-by-field walker; if it gives up
+            // partway, fall back to signature scanning + heuristic field reads.
+            //
+            // CoD5 (WaW): skip the IW4 walker entirely (wrong struct layout produces
+            // garbage itemCount). Instead, signature-scan for menu starts and read each
+            // candidate's fields via the CoD5-aware reader. This finds the same set of
+            // menus the old fallback path found, but with correct itemCount / colors /
+            // rect / inline name instead of garbage.
             int currentOffset = afterPointersOffset;
             int lastSuccessfulEnd = afterPointersOffset;
-            int fallbackStartIndex = -1;
 
-            for (int i = 0; i < menuCount; i++)
+            if (layout == MenuBinaryLayout.Cod5)
             {
-                int menuStartBefore = deser.Position;
-                var menu = deser.ReadMenuDef(i);
-                if (menu == null)
-                {
-                    Debug.WriteLine($"[MenuListParser] Deserializer failed at menu[{i}] (offset 0x{menuStartBefore:X}); falling back to signature scan for the remaining {menuCount - i} menus");
-                    fallbackStartIndex = i;
-                    currentOffset = menuStartBefore;
-                    break;
-                }
-                menuList.Menus.Add(menu);
-                lastSuccessfulEnd = menu.EndOffset;
-                currentOffset = menu.EndOffset;
-            }
+                // Strict CoD5 scan: only accept candidates that fit every field of the WaW
+                // menuDef_t struct (Cod5MenuDeserializer.FitsMenuDefStruct). This rejects
+                // both false-positive matches inside inline payloads AND the old "536870946
+                // items" garbage caused by reading at IW4 offsets.
+                var cod5Reader = new Cod5MenuDeserializer(zoneData, afterPointersOffset, isBigEndian);
+                int searchFrom = afterPointersOffset;
 
-            // Fallback path: signature scanner for any menus the deserializer couldn't walk
-            if (fallbackStartIndex >= 0)
-            {
-                const int minMenuSize = 0x2B0;
-                const int maxScanPerMenu = 4 * 1024 * 1024;
-                for (int i = fallbackStartIndex; i < menuCount; i++)
+                for (int i = 0; i < menuCount; i++)
                 {
-                    int menuStart = FindMenuStartSignature(zoneData, currentOffset, maxScanPerMenu, isBigEndian);
+                    int menuStart = Cod5MenuDeserializer.FindNextCod5MenuStart(zoneData, searchFrom, isBigEndian);
                     if (menuStart < 0)
                     {
-                        Debug.WriteLine($"[MenuListParser] Signature fallback also failed at menu[{i}] (from 0x{currentOffset:X})");
+                        Debug.WriteLine($"[MenuListParser] CoD5: no more menuDef_t-shaped data after 0x{searchFrom:X} (found {menuList.Menus.Count} of {menuCount})");
                         break;
                     }
-                    var menu = ParseMenuDef(zoneData, menuStart, isBigEndian, i);
-                    if (menu == null) break;
+
+                    cod5Reader.Position = menuStart;
+                    int nextStop = Cod5MenuDeserializer.FindNextCod5MenuStart(zoneData, menuStart + 0x140, isBigEndian);
+                    var menu = cod5Reader.ReadMenuDef(i, nextStop);
+                    if (menu == null)
+                    {
+                        // FitsMenuDefStruct passed but ReadMenuDef still bailed (e.g. garbage
+                        // inline name string). Advance by 1 and keep scanning.
+                        searchFrom = menuStart + 1;
+                        i--;
+                        continue;
+                    }
                     menuList.Menus.Add(menu);
-                    lastSuccessfulEnd = Math.Max(menu.EndOffset, menuStart + minMenuSize);
-                    currentOffset = menuStart + minMenuSize;
+                    lastSuccessfulEnd = menu.EndOffset;
+                    searchFrom = Math.Max(menu.EndOffset, menuStart + 0x140);
+                }
+            }
+            else
+            {
+                var deser = new Iw4MenuDeserializer(zoneData, afterPointersOffset, isConsole: isBigEndian, isBigEndian: isBigEndian);
+                int fallbackStartIndex = -1;
+
+                for (int i = 0; i < menuCount; i++)
+                {
+                    int menuStartBefore = deser.Position;
+                    var menu = deser.ReadMenuDef(i);
+                    if (menu == null)
+                    {
+                        Debug.WriteLine($"[MenuListParser] Deserializer failed at menu[{i}] (offset 0x{menuStartBefore:X}); falling back to signature scan for the remaining {menuCount - i} menus");
+                        fallbackStartIndex = i;
+                        currentOffset = menuStartBefore;
+                        break;
+                    }
+                    menuList.Menus.Add(menu);
+                    lastSuccessfulEnd = menu.EndOffset;
+                    currentOffset = menu.EndOffset;
+                }
+
+                if (fallbackStartIndex >= 0)
+                {
+                    const int minMenuSize = 0x2B0;
+                    const int maxScanPerMenu = 4 * 1024 * 1024;
+                    for (int i = fallbackStartIndex; i < menuCount; i++)
+                    {
+                        int menuStart = FindMenuStartSignature(zoneData, currentOffset, maxScanPerMenu, isBigEndian);
+                        if (menuStart < 0)
+                        {
+                            Debug.WriteLine($"[MenuListParser] Signature fallback also failed at menu[{i}] (from 0x{currentOffset:X})");
+                            break;
+                        }
+                        var menu = ParseMenuDef(zoneData, menuStart, isBigEndian, i);
+                        if (menu == null) break;
+                        menuList.Menus.Add(menu);
+                        lastSuccessfulEnd = Math.Max(menu.EndOffset, menuStart + minMenuSize);
+                        currentOffset = menuStart + minMenuSize;
+                    }
                 }
             }
 
             menuList.DataEndOffset = lastSuccessfulEnd;
-            Debug.WriteLine($"[MenuListParser] Completed MenuList '{name}': {menuList.Menus.Count} of {menuCount} menus parsed (deserializer{(fallbackStartIndex >= 0 ? " + signature fallback" : "")}), end=0x{menuList.DataEndOffset:X}");
+            Debug.WriteLine($"[MenuListParser] Completed MenuList '{name}': {menuList.Menus.Count} of {menuCount} menus parsed (layout={layout}), end=0x{menuList.DataEndOffset:X}");
             return menuList;
         }
 
