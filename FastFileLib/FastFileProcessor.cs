@@ -1197,10 +1197,10 @@ public static class FastFileProcessor
     /// <param name="isXbox360">True for Xbox 360, false for PS3</param>
     /// <param name="originalFfPath">Path to original FF file to preserve extended header from (can be same as outputPath)</param>
     /// <returns>Number of blocks compressed (1 for Xbox 360 single stream)</returns>
-    public static int CompressMW2(string inputPath, string outputPath, byte[] versionBytes, bool isXbox360, string originalFfPath)
+    public static int CompressMW2(string inputPath, string outputPath, byte[] versionBytes, bool isXbox360, string? originalFfPath)
     {
         // Read extended header from original file BEFORE opening output (in case they're the same file)
-        byte[] originalExtendedHeader = null;
+        byte[]? originalExtendedHeader = null;
         if (!string.IsNullOrEmpty(originalFfPath) && File.Exists(originalFfPath))
         {
             originalExtendedHeader = ReadMW2ExtendedHeader(originalFfPath);
@@ -1350,7 +1350,7 @@ public static class FastFileProcessor
     /// </summary>
     /// <param name="ffPath">Path to the FF file</param>
     /// <returns>Extended header bytes (25 bytes for no entries), or null if reading fails</returns>
-    public static byte[] ReadMW2ExtendedHeader(string ffPath)
+    public static byte[]? ReadMW2ExtendedHeader(string ffPath)
     {
         try
         {
@@ -1469,10 +1469,10 @@ public static class FastFileProcessor
     /// <param name="gameVersion">Target game version</param>
     /// <param name="originalFfPath">Path to original FF file (to preserve hash table)</param>
     /// <returns>1 (single stream compressed)</returns>
-    public static int CompressXbox360Signed(string inputPath, string outputPath, GameVersion gameVersion, string originalFfPath)
+    public static int CompressXbox360Signed(string inputPath, string outputPath, GameVersion gameVersion, string? originalFfPath)
     {
         // Read hash table from original file before opening output
-        byte[] hashTableAndAuth = null;
+        byte[]? hashTableAndAuth = null;
         if (!string.IsNullOrEmpty(originalFfPath) && File.Exists(originalFfPath))
         {
             hashTableAndAuth = new byte[FastFileConstants.Xbox360SignedHashTableSize];
@@ -1520,10 +1520,10 @@ public static class FastFileProcessor
     /// <param name="versionBytes">Version bytes (4 bytes, big-endian)</param>
     /// <param name="originalFfPath">Path to original FF file (to preserve hash table)</param>
     /// <returns>1 (single stream compressed)</returns>
-    public static int CompressXbox360Signed(string inputPath, string outputPath, byte[] versionBytes, string originalFfPath)
+    public static int CompressXbox360Signed(string inputPath, string outputPath, byte[] versionBytes, string? originalFfPath)
     {
         // Read hash table from original file before opening output
-        byte[] hashTableAndAuth = null;
+        byte[]? hashTableAndAuth = null;
         if (!string.IsNullOrEmpty(originalFfPath) && File.Exists(originalFfPath))
         {
             hashTableAndAuth = new byte[FastFileConstants.Xbox360SignedHashTableSize];

@@ -12,7 +12,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
     public partial class ZoneHexViewForm : Form
     {
         private readonly List<ZoneAssetRecord> _assetRecords;
-        private readonly ZoneFile _zoneFile;
+        private readonly ZoneFile? _zoneFile;
         private readonly bool _isCod4;
         private readonly bool _isCod5;
         private readonly bool _isMW2;
@@ -68,11 +68,11 @@ namespace Call_of_Duty_FastFile_Editor.UI
         /// <summary>
         /// Creates a new ZoneHexViewForm with zone data, asset records, and zone file reference.
         /// </summary>
-        public ZoneHexViewForm(byte[] data, List<ZoneAssetRecord> assetRecords, ZoneFile zoneFile,
-            List<RawFileNode> rawFiles = null, List<LocalizedEntry> localizedEntries = null,
-            List<StringTable> stringTables = null, List<WeaponAsset> weapons = null,
-            List<XAnimParts> xanims = null, List<ImageAsset> images = null,
-            List<TechSetAsset> techSets = null, List<MenuList> menuLists = null)
+        public ZoneHexViewForm(byte[] data, List<ZoneAssetRecord>? assetRecords, ZoneFile? zoneFile,
+            List<RawFileNode>? rawFiles = null, List<LocalizedEntry>? localizedEntries = null,
+            List<StringTable>? stringTables = null, List<WeaponAsset>? weapons = null,
+            List<XAnimParts>? xanims = null, List<ImageAsset>? images = null,
+            List<TechSetAsset>? techSets = null, List<MenuList>? menuLists = null)
         {
             InitializeComponent();
 
