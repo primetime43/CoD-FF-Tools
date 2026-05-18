@@ -16,7 +16,7 @@ reading [OpenAssetTools'](https://github.com/Laupetin/OpenAssetTools) IW4 loader
 - ✅ Parse localize entries
 - 🟡 weapon — pattern-matching parser produces results but field alignment may be off
 - ❌ techset / menufile / xanim / stringtable / material / image — listed in asset pool but skipped (parsers are BE-only)
-- ❌ Recompress — `FastFileProcessor.Recompress(..., "PC")` throws `NotSupportedException` for MW2 PC; no fresh-build path yet
+- ✅ Recompress (unsigned) — `FastFileProcessor.CompressMW2PC` writes the unsigned layout: 12-byte standard header + 9-byte preamble (preserved from the original FF when available) + single zlib stream. Signed retail inputs are saved as unsigned — re-signing the `DB_AuthHeader` requires IW's RSA-2048 private key.
 - 🔄 In-game verification pending
 
 ## TL;DR — MW2 PC mashes together MW2's compressed-rawfile model and a PC-style LE zone

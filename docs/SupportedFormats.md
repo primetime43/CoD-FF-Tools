@@ -8,7 +8,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 |------|-----|----------|-----|-----|
 | CoD4: Modern Warfare | ✅ Full | ✅ Full | 🟡 Partial | ⚠️ Extract |
 | WaW: World at War | ✅ Full | ✅ Full | 🟡 Partial | 🟡 Partial |
-| MW2: Modern Warfare 2 | ✅ Full | 🔬 Untested | 📖 Read-only | ➖ |
+| MW2: Modern Warfare 2 | ✅ Full | 🔬 Untested | 🟡 Partial | ➖ |
 
 ### Version IDs
 
@@ -21,7 +21,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 ### Legend
 - ✅ **Full** - Decompress, parse assets, edit, and recompress
 - 🟡 **Partial** - Decompress, parse + edit rawfile/localize, recompress (round-trip verified, in-game test pending). Other asset types currently skipped.
-- 📖 **Read-only** - Decompress, parse rawfile/localize, but **no recompress yet** (MW2 PC). Opens both unsigned and signed retail files.
+- 📖 **Read-only** - Decompress, parse rawfile/localize, but **no recompress yet**. Opens both unsigned and signed retail files.
 - 🔬 **Untested** - Implementation complete but not verified on hardware
 - ⚠️ **Extract** - Decompress to zone file only (no asset editing/recompress)
 - ➖ **Not Available** - Game not released on this platform
@@ -41,7 +41,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 - **Two FF variants**:
   - **Unsigned** (`IWffu100`): single zlib stream at file offset `0x15`. SP/campaign files.
   - **Signed** (`IWff0100`): "authed chunks" format using `IWffs100` at offset `0x15`, then 8144-byte `DB_AuthHeader` with RSA-2048 signature and 244 SHA-256 master block hashes, then 8KB chunks in groups of 257 (1 hash chunk + 256 data chunks). Multiplayer + patch files.
-- **Recompression is NOT yet implemented** — `FastFileProcessor.Recompress(..., "PC")` throws `NotSupportedException` for MW2 PC. Signed files would also require RSA re-signing (private key not available), so even when implemented, saves would likely need to be unsigned variants.
+- **Recompression** (`FastFileProcessor.CompressMW2PC`) writes the unsigned layout: standard header + 9-byte preamble (preserved from the original FF when available) + single zlib stream. Signed inputs are saved as unsigned — re-signing the `DB_AuthHeader` requires Infinity Ward's RSA-2048 private key. Unsigned FFs are a valid loadable variant (used for SP/campaign files in retail).
 - See `docs/MW2_PC_FastFile_Format.md` for the full breakdown.
 
 ### Wii Notes
@@ -167,12 +167,12 @@ IDs shift **+1** from PS3 for types ≥ `0x09` because PC has both `vertexshader
 | Asset Type | ID | Support |
 |------------|-----|---------|
 | menufile | `0x19` | 📖 Read |
-| localize | `0x1A` | 📖 Read |
+| localize | `0x1A` | 🟡 Partial |
 | weapon | `0x1C` | 📖 Read (pattern-matched; alignment may be off) |
-| rawfile | `0x24` | 📖 Read |
+| rawfile | `0x24` | 🟡 Partial |
 | stringtable | `0x25` | 👁️ Detected (not parsed) |
 
-Other MW2 PC asset types (`techset`, `xanim`, `material`, `image`) are listed in the asset pool but the parsers are BE-only and produce no output. No recompress for any MW2 PC type yet.
+Other MW2 PC asset types (`techset`, `xanim`, `material`, `image`) are listed in the asset pool but the parsers are BE-only and produce no output. Recompress writes the unsigned MW2 PC format (`FastFileProcessor.CompressMW2PC`); signed inputs round-trip to unsigned outputs.
 
 ---
 
@@ -246,7 +246,7 @@ When a zone is rebuilt (due to size changes or import):
 - Cannot edit binary assets (models, textures, sounds, etc.)
 - PC WaW/CoD4: rawfile and localize editing supported; other asset types are listed but not parsed/editable yet
 - Wii WaW: rawfile and localize editing supported; same scope as PC
-- **MW2 PC**: read-only — can open & parse rawfiles/localize but cannot save. Signed files would also require RSA re-signing (private key not available). See `docs/MW2_PC_FastFile_Format.md` for the chunked-authed format details.
+- **MW2 PC**: rawfile and localize editing supported. Saves always produce the unsigned variant — signed retail files (multiplayer, patch) round-trip to unsigned outputs since RSA re-signing requires Infinity Ward's private key. See `docs/MW2_PC_FastFile_Format.md`.
 - Some edge cases in localize parsing for unusual character encodings
 
 ---

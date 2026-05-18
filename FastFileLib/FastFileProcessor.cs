@@ -815,12 +815,17 @@ public static class FastFileProcessor
     /// hash table / extended header from. Pass null for fresh builds.</param>
     public static void Recompress(string zoneFilePath, string ffFilePath, GameVersion gameVersion, string platform, bool signed, string? originalFfPath = null)
     {
-        // PC: single zlib stream with LE version. Handled by Compiler.CompilePc().
-        // (MW2 PC recompression isn't supported yet — its layout differs from PC CoD4/WaW.)
+        // PC: single zlib stream with LE version.
+        // MW2 PC has its own layout (9-byte preamble after the 12-byte header, then zlib
+        // at 0x15) and is handled by CompressMW2PC. CoD4/WaW PC use Compiler.CompilePc().
+        // Signed MW2 PC inputs are saved as unsigned — RSA re-signing isn't possible.
         if (string.Equals(platform, "PC", StringComparison.OrdinalIgnoreCase))
         {
             if (gameVersion == GameVersion.MW2)
-                throw new NotSupportedException("MW2 PC recompression is not yet implemented.");
+            {
+                CompressMW2PC(zoneFilePath, ffFilePath, originalFfPath);
+                return;
+            }
             byte[] zoneData = File.ReadAllBytes(zoneFilePath);
             byte[] ffData = new Compiler(gameVersion, "PC").Compile(zoneData);
             File.WriteAllBytes(ffFilePath, ffData);
@@ -1375,6 +1380,77 @@ public static class FastFileProcessor
             ms.Write(new byte[4], 0, 4); // entryCount = 0
             ms.Write(fileSizes, 0, 8);
             return ms.ToArray();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Compresses a zone file to MW2 PC FastFile format (unsigned).
+    /// MW2 PC layout: 12-byte standard header (IWffu100 + 0x114 LE) + 9-byte preamble
+    /// (allowOnlineUpdate + fileCreationTime) + single zlib stream of the entire zone.
+    /// No end marker.
+    ///
+    /// Signed MW2 PC inputs are intentionally saved as unsigned: re-signing the
+    /// DB_AuthHeader requires Infinity Ward's RSA-2048 private key. Unsigned MW2 PC FFs
+    /// are a valid loadable variant (used for SP/campaign files in retail).
+    /// </summary>
+    /// <param name="inputPath">Path to the .zone file</param>
+    /// <param name="outputPath">Path to output the .ff file</param>
+    /// <param name="originalFfPath">Optional path to original FF to preserve the 9-byte preamble.
+    /// Pass null for fresh builds; a default preamble (allowOnlineUpdate=1, time=0) is used.</param>
+    /// <returns>1 (single stream)</returns>
+    public static int CompressMW2PC(string inputPath, string outputPath, string? originalFfPath = null)
+    {
+        // Read original preamble BEFORE opening the output writer (input/output may be the same file).
+        byte[]? originalPreamble = null;
+        if (!string.IsNullOrEmpty(originalFfPath) && File.Exists(originalFfPath))
+        {
+            originalPreamble = ReadMW2PCPreamble(originalFfPath);
+        }
+
+        byte[] zoneData = File.ReadAllBytes(inputPath);
+
+        using var bw = new BinaryWriter(new FileStream(outputPath, FileMode.Create, FileAccess.Write), Encoding.Default);
+
+        // 12-byte standard header (IWffu100 + 0x114 LE)
+        bw.Write(FastFileConstants.UnsignedHeaderBytes);
+        bw.Write(FastFileInfo.GetVersionBytes(GameVersion.MW2, "PC"));
+
+        // 9-byte preamble: allowOnlineUpdate (1) + fileCreationTime (8)
+        if (originalPreamble != null && originalPreamble.Length == 9)
+        {
+            bw.Write(originalPreamble);
+        }
+        else
+        {
+            bw.Write((byte)0x01);    // allowOnlineUpdate = true
+            bw.Write(new byte[8]);   // fileCreationTime = 0
+        }
+
+        // Single zlib stream covering the entire zone
+        byte[] compressedData = CompressFullZlib(zoneData);
+        bw.Write(compressedData);
+
+        return 1;
+    }
+
+    /// <summary>
+    /// Reads the 9-byte MW2 PC preamble (allowOnlineUpdate + fileCreationTime) from offset 0x0C.
+    /// Works for both unsigned and signed MW2 PC files — both place the preamble at the same offset.
+    /// </summary>
+    /// <param name="ffPath">Path to the MW2 PC FF file</param>
+    /// <returns>9-byte preamble, or null if the file can't be read</returns>
+    public static byte[]? ReadMW2PCPreamble(string ffPath)
+    {
+        try
+        {
+            using var reader = new BinaryReader(File.OpenRead(ffPath));
+            if (reader.BaseStream.Length < 0x15) return null;
+            reader.BaseStream.Seek(12, SeekOrigin.Begin);
+            return reader.ReadBytes(9);
         }
         catch
         {
