@@ -152,7 +152,8 @@ IDs shift **−1** from PS3 for types ≥ `0x07` because Xbox 360 lacks `vertexs
 
 | Asset Type | ID | Support |
 |------------|-----|---------|
-| menufile | `0x18` | ✅ Full |
+| menufile | `0x17` | ✅ Full |
+| menu | `0x18` | 📋 Detected |
 | localize | `0x19` | ✅ Full |
 | weapon | `0x1A` | ✅ Full |
 | rawfile | `0x22` | ✅ Full |

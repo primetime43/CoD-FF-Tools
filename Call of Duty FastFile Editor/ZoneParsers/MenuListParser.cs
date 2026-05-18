@@ -113,64 +113,48 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
             Debug.WriteLine($"[MenuListParser] Found MenuList: '{name}' with {menuCount} menus");
 
-            // Parse individual menus if count > 0
+            // Read the inline menuDef_t pointer array — each entry is 0xFFFFFFFF when the
+            // menu is serialized inline (the usual case).
+            int afterPointersOffset = afterNameOffset;
             if (menuCount > 0)
             {
-                int currentOffset = afterNameOffset;
-
-                // Read menu pointers (each 4 bytes, 0xFFFFFFFF when inline)
-                int[] menuPointers = new int[menuCount];
-                for (int i = 0; i < menuCount && currentOffset + 4 <= zoneData.Length; i++)
+                afterPointersOffset = afterNameOffset + (menuCount * 4);
+                if (afterPointersOffset > zoneData.Length)
                 {
-                    uint menuPtr = ReadUInt32(zoneData, currentOffset, isBigEndian);
-                    menuPointers[i] = (int)menuPtr;
-                    currentOffset += 4;
+                    Debug.WriteLine($"[MenuListParser] Pointer array extends past zone end");
+                    return null;
                 }
-
-                Debug.WriteLine($"[MenuListParser] Menu pointers start at 0x{afterNameOffset:X}, end at 0x{currentOffset:X}");
-
-                // Now parse each menuDef_t
-                for (int i = 0; i < menuCount && currentOffset < zoneData.Length; i++)
-                {
-                    // Check if this menu is inline (pointer was 0xFFFFFFFF)
-                    if (menuPointers[i] != unchecked((int)0xFFFFFFFF))
-                    {
-                        Debug.WriteLine($"[MenuListParser] Menu {i} is external reference (0x{menuPointers[i]:X}), skipping");
-                        continue;
-                    }
-
-                    var menu = ParseMenuDef(zoneData, currentOffset, isBigEndian, i);
-                    if (menu != null)
-                    {
-                        menuList.Menus.Add(menu);
-                        currentOffset = menu.EndOffset;
-                        Debug.WriteLine($"[MenuListParser] Parsed menu {i}: '{menu.Name}', endOffset=0x{currentOffset:X}");
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[MenuListParser] Failed to parse menu {i} at offset 0x{currentOffset:X}, trying to skip");
-                        // Try to find the next menu by pattern
-                        int nextMenuOffset = FindNextMenuDef(zoneData, currentOffset + 4, isBigEndian);
-                        if (nextMenuOffset > 0)
-                        {
-                            currentOffset = nextMenuOffset;
-                        }
-                        else
-                        {
-                            // Can't recover, stop parsing menus
-                            break;
-                        }
-                    }
-                }
-
-                menuList.DataEndOffset = currentOffset;
             }
-            else
+
+            // Parse only menu[0] for now. menuDef_t is a ~1500-byte binary struct followed by
+            // recursive inline data (items, transitions, expressions, event handlers) whose
+            // total size depends on N items × per-item inline data. Without a full deserializer
+            // matching the engine's load order, we can only locate menu[0] reliably — its data
+            // starts right after the pointer array. For menu[1..N] we'd have to know the
+            // previous menu's exact end, which we don't.
+            //
+            // The old code fabricated MenuDef entries for every index by stepping forward in
+            // hardcoded 0x180-byte chunks, which produced garbage names ("csv", "Ad",
+            // "classIndex") harvested from random byte positions inside the binary data.
+            // Better to emit just the one menu we trust than mislead the user with 276 fakes.
+            if (menuCount > 0 && afterPointersOffset < zoneData.Length)
             {
-                menuList.DataEndOffset = afterNameOffset;
+                var firstMenu = ParseMenuDef(zoneData, afterPointersOffset, isBigEndian, 0);
+                if (firstMenu != null)
+                {
+                    menuList.Menus.Add(firstMenu);
+                }
             }
 
-            Debug.WriteLine($"[MenuListParser] Completed MenuList '{name}': {menuList.Menus.Count}/{menuCount} menus parsed, end=0x{menuList.DataEndOffset:X}");
+            // DataEndOffset is set to just past the pointer array. We don't know the true end
+            // of the menu data region, so downstream callers (e.g. the AssetRecordProcessor
+            // pattern-matching loop for the next menufile) will scan forward from here through
+            // the binary menu blob until they hit the next MenuList header. The pattern is
+            // strict enough (12-byte FFFFFFFF + small menuCount + FFFFFFFF + .txt-suffixed
+            // name) that menu-internal FFFFFFFF markers don't false-positive.
+            menuList.DataEndOffset = afterPointersOffset;
+
+            Debug.WriteLine($"[MenuListParser] Completed MenuList '{name}': {menuList.Menus.Count} of {menuCount} menus parsed (binary deserializer for menuDef_t not implemented; only menu[0] returned), pointer-array end=0x{afterPointersOffset:X}");
             return menuList;
         }
 

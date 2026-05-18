@@ -543,8 +543,10 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                     while (menuFilesParsed < remainingMenuFiles && menuFileSearchOffset < zoneData.Length)
                     {
-                        // Search up to 1MB or remaining file length for menu files
-                        int maxSearchBytes = Math.Min(1000000, zoneData.Length - menuFileSearchOffset);
+                        // Scan the entire remaining zone. MW2 zones pack a lot of asset data
+                        // between menufiles (e.g. ui_mp.ff: ~18MB between the 2 MenuLists), so
+                        // a small window like 1MB silently drops most of them.
+                        int maxSearchBytes = zoneData.Length - menuFileSearchOffset;
                         var menuList = FindNextMenuList(zoneData, menuFileSearchOffset, maxSearchBytes, isBigEndian: true);
 
                         if (menuList == null)
