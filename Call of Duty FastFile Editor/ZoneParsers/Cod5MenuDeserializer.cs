@@ -179,54 +179,27 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             _pos = binaryEnd;
 
             // === inline data ===
-            // Order (empirically validated against ui.ff menu #0 from WaW PS3):
-            //   1. window.name (if FFFFFFFF) — null-terminated string
-            //   2. window.group (if FFFFFFFF)
-            //   3. font (if FFFFFFFF)
-            //   4..N. event handler scripts (onOpen/onFocus/onClose/onESC) — also null-terminated
-            //         strings in the simple "uiScript ..." case (we don't walk MenuEventHandlerSet
-            //         binaries here since WaW's spec for that isn't in the docs we have).
-            //   N+1. allowedBinding, soundName (if FFFFFFFF) — strings
+            // We only read window.name (when inline) — it's the one field we surface in the
+            // tree label. We do NOT walk event handlers, statements, items[] etc. because
+            // doing so requires knowing the OAT-spec load order for WaW, which we don't have
+            // (only the struct sizes from codresearch.dev). Any over- or under-read of inline
+            // data mis-aligns the cursor and causes the next-menu scan to skip real menus.
             //
-            // Anything past simple-string consumption that we can't recognize, we abandon —
-            // the binary cursor falls back to a signature scan to find the next menu.
-            //
-            // We don't recursively walk items[] because that requires an authoritative WaW
-            // itemDef_s layout (and event handler binary format) we don't have spec for yet.
-            // Instead we cap our forward scan at `nextStopOffset` if the caller provides one
-            // (the next plausible windowDef signature) so we don't bleed into adjacent menus.
-
+            // The scanner (FindNextCod5MenuStart, called by MenuListParser) is what advances
+            // past each menu's variable-size payload — it just byte-walks the zone looking
+            // for the next position that FitsMenuDefStruct. Trusting the strict struct check
+            // at every byte gives us all menus reliably without depending on inline-walk
+            // precision.
             if (IsInline(namePtr))
             {
-                menu.Window.Name = ReadInlineStringSafe(nextStopOffset);
-                // If the inline name isn't a real identifier (no special chars allowed),
-                // this candidate is almost certainly inside a script literal — bail.
-                if (!IsPlausibleMenuName(menu.Window.Name))
-                {
-                    Debug.WriteLine($"[Cod5MenuDeserializer] menu[{menuIndex}] @ 0x{menuStart:X}: rejected garbage name '{menu.Window.Name}'");
-                    return null;
-                }
+                string n = ReadInlineStringSafe(nextStopOffset);
+                // A garbage inline name string (non-identifier chars) doesn't invalidate the
+                // menu — the binary already passed FitsMenuDefStruct, which is the actual
+                // "is this a menuDef_t" test. Just clear the name so the tree shows
+                // "menu #N" rather than something junky. Treating bad names as a full reject
+                // caused us to skip 60+ real but unnamed menus per zone.
+                menu.Window.Name = IsPlausibleMenuName(n) ? n : null;
             }
-            else
-            {
-                // window.name is null. To give the user something better than "menu #N" in
-                // the tree, look for a representative @-prefixed localization key in the
-                // inline payload — these are item labels like "@MENU_MAIN_MENU" that
-                // typically identify the menu's purpose in screenshots. Bounded scan up to
-                // nextStopOffset (or 4 KB if no boundary known).
-                menu.Window.Name = FindRepresentativeLabel(menuStart + MenuDefSize, nextStopOffset);
-            }
-            // Track plausible additional inline strings up to nextStopOffset. We don't bind these
-            // to specific menuDef fields beyond name — they're presented to the decompiler via
-            // EditableValues below if non-trivial.
-            ConsumeInlineStringIfFlag(menu, "group",          ReadU32(menuStart + 0x34), nextStopOffset);
-            ConsumeInlineStringIfFlag(menu, "font",           ReadU32(menuStart + 0xA8), nextStopOffset);
-            ConsumeInlineStringIfFlag(menu, "onOpen",         onOpenPtr,         nextStopOffset);
-            ConsumeInlineStringIfFlag(menu, "onFocus",        onFocusPtr,        nextStopOffset);
-            ConsumeInlineStringIfFlag(menu, "onClose",        onClosePtr,        nextStopOffset);
-            ConsumeInlineStringIfFlag(menu, "onESC",          onESCPtr,          nextStopOffset);
-            ConsumeInlineStringIfFlag(menu, "allowedBinding", allowedBindingPtr, nextStopOffset);
-            ConsumeInlineStringIfFlag(menu, "soundName",      soundNamePtr,      nextStopOffset);
 
             // Editable values (offsets within binary) — exposed to the decompiler for inline editing
             menu.EditableValues.Add(MenuValue.CreateRect("rect",
@@ -244,16 +217,6 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             menu.EndOffset = _pos;
             Debug.WriteLine($"[Cod5MenuDeserializer] menu[{menuIndex}] @ 0x{menuStart:X}..0x{_pos:X} name='{menu.Window.Name}' itemCount={menu.ItemCount}");
             return menu;
-        }
-
-        private void ConsumeInlineStringIfFlag(MenuDef menu, string fieldName, uint ptr, int stopAt)
-        {
-            if (!IsInline(ptr)) return;
-            string s = ReadInlineStringSafe(stopAt);
-            if (string.IsNullOrEmpty(s)) return;
-            // We don't have dedicated fields on MenuDef for most of these — surface them via
-            // EditableValues so the decompiler can show + edit them.
-            menu.EditableValues.Add(MenuValue.CreateString(fieldName, s, _pos - s.Length - 1, s.Length));
         }
 
         private string ReadInlineStringSafe(int stopAt)
@@ -322,35 +285,6 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             return true;
         }
 
-        /// <summary>
-        /// When a menu's window.name is null, scan the inline payload for an @-prefixed
-        /// localization key (e.g. @MENU_MAIN_MENU). These are item labels that typically
-        /// identify what a menu actually shows on screen — much more useful in a tree view
-        /// than "menu #N". Returns null if no such label is found within the search bound.
-        /// </summary>
-        private string FindRepresentativeLabel(int searchStart, int stopAt)
-        {
-            int hardCap = stopAt > searchStart ? Math.Min(stopAt, _data.Length) : Math.Min(searchStart + 4096, _data.Length);
-            for (int p = searchStart; p < hardCap - 4; p++)
-            {
-                if (_data[p] != (byte)'@') continue;
-                // Read identifier following @ — must be SCREAMING_SNAKE_CASE-ish
-                int end = p + 1;
-                while (end < hardCap && end < _data.Length)
-                {
-                    byte b = _data[end];
-                    bool ok = (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_';
-                    if (!ok) break;
-                    end++;
-                }
-                int len = end - (p + 1);
-                if (len >= 4 && len <= 64 && end < _data.Length && _data[end] == 0)
-                {
-                    return Encoding.ASCII.GetString(_data, p, end - p); // include the @
-                }
-            }
-            return null;
-        }
 
         /// <summary>
         /// Scans forward from <paramref name="from"/> for the next plausible CoD5 menuDef_t
@@ -398,16 +332,27 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             reason = null;
             if (off < 0 || off + MenuDefSize > data.Length) { reason = "out of bounds"; return false; }
 
-            // --- All pointer-typed fields. Each must be 0 (null) or 0xFFFFFFFF (inline). ---
-            // (name, group, background, font, onOpen, onFocus, onClose, onESC, onKey,
-            //  visibleExp.entries, allowedBinding, soundName, rectXExp.entries,
-            //  rectYExp.entries, items)
+            // --- All pointer-typed fields ---
+            // Each must be:
+            //   - 0 (null)
+            //   - 0xFFFFFFFF (inline placeholder, data follows after binary)
+            //   - or a post-link "resolved" pointer (high bit set per PS3 zone convention,
+            //     with the low 31 bits as an in-bounds zone offset)
+            //
+            // The third case is real: e.g. main_text's soundName is 0x8094D084 — high bit
+            // set, low bits 0x94D084 ≈ 9.7 MB which lands inside the zone. The compiler
+            // pre-resolved that pointer to the loaded sound asset's zone address. Treating
+            // such pointers as "not a menu" loses ~60 real menus per UI zone.
             int[] ptrOffsets = { 0x00, 0x34, 0xA4, 0xA8, 0xDC, 0xE0, 0xE4, 0xE8, 0xEC,
                                  0xF4, 0xF8, 0xFC, 0x128, 0x130, 0x134 };
             foreach (int po in ptrOffsets)
             {
                 uint v = ReadU32At(data, off + po, isBigEndian);
-                if (v != 0 && v != 0xFFFFFFFF) { reason = $"ptr field +0x{po:X}=0x{v:X8} is neither null nor inline"; return false; }
+                if (!IsValidZonePointer(v, data.Length))
+                {
+                    reason = $"ptr field +0x{po:X}=0x{v:X8} is not null / inline / resolved";
+                    return false;
+                }
             }
 
             // --- rect / rectClient: bounded floats + int aligns in [0..3] ---
@@ -424,21 +369,21 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             int fontIndex = (int)ReadU32At(data, off + 0xB4, isBigEndian);
             if (fontIndex < -1 || fontIndex > 100) { reason = $"fontIndex={fontIndex} out of [-1..100]"; return false; }
 
-            // --- statement_s.numEntries fields: each must be 0..1000 ---
+            // --- statement_s.numEntries fields: each must be 0..10000 ---
             int visibleEntries = (int)ReadU32At(data, off + 0xF0, isBigEndian);
             int rectXEntries   = (int)ReadU32At(data, off + 0x124, isBigEndian);
             int rectYEntries   = (int)ReadU32At(data, off + 0x12C, isBigEndian);
-            if (visibleEntries < 0 || visibleEntries > 1000) { reason = $"visibleExp.numEntries={visibleEntries}"; return false; }
-            if (rectXEntries   < 0 || rectXEntries   > 1000) { reason = $"rectXExp.numEntries={rectXEntries}"; return false; }
-            if (rectYEntries   < 0 || rectYEntries   > 1000) { reason = $"rectYExp.numEntries={rectYEntries}"; return false; }
+            if (visibleEntries < 0 || visibleEntries > 10000) { reason = $"visibleExp.numEntries={visibleEntries}"; return false; }
+            if (rectXEntries   < 0 || rectXEntries   > 10000) { reason = $"rectXExp.numEntries={rectXEntries}"; return false; }
+            if (rectYEntries   < 0 || rectYEntries   > 10000) { reason = $"rectYExp.numEntries={rectYEntries}"; return false; }
 
             // --- statement_s.entries ptrs: 0 iff numEntries==0, else FFFFFFFF ---
             uint visibleEntriesPtr = ReadU32At(data, off + 0xF4, isBigEndian);
             uint rectXEntriesPtr   = ReadU32At(data, off + 0x128, isBigEndian);
             uint rectYEntriesPtr   = ReadU32At(data, off + 0x130, isBigEndian);
-            if (!StatementPtrConsistent(visibleEntries, visibleEntriesPtr)) { reason = "visibleExp ptr/count mismatch"; return false; }
-            if (!StatementPtrConsistent(rectXEntries,   rectXEntriesPtr))   { reason = "rectXExp ptr/count mismatch"; return false; }
-            if (!StatementPtrConsistent(rectYEntries,   rectYEntriesPtr))   { reason = "rectYExp ptr/count mismatch"; return false; }
+            if (!StatementPtrConsistent(visibleEntries, visibleEntriesPtr, data.Length)) { reason = "visibleExp ptr/count mismatch"; return false; }
+            if (!StatementPtrConsistent(rectXEntries,   rectXEntriesPtr,   data.Length)) { reason = "rectXExp ptr/count mismatch"; return false; }
+            if (!StatementPtrConsistent(rectYEntries,   rectYEntriesPtr,   data.Length)) { reason = "rectYExp ptr/count mismatch"; return false; }
 
             // --- focusColor / disableColor: each component in [0..1] (allow small slop) ---
             if (!IsPlausibleColor(data, off + 0x104, isBigEndian)) { reason = "focusColor implausible"; return false; }
@@ -458,21 +403,39 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             return true;
         }
 
-        // statement_s rule: numEntries=0 ↔ entries=null. Otherwise (count>0) entries must be FFFFFFFF (inline).
-        private static bool StatementPtrConsistent(int numEntries, uint entriesPtr)
+        // statement_s rule: numEntries=0 ↔ entries=null. Otherwise (count>0) entries must
+        // be a valid zone pointer (inline placeholder or resolved). The valid-pointer test
+        // is shared with the menuDef pointer checks via IsValidZonePointer.
+        private static bool StatementPtrConsistent(int numEntries, uint entriesPtr, int zoneLength)
         {
             if (numEntries == 0) return entriesPtr == 0;
-            return entriesPtr == 0xFFFFFFFF;
+            return entriesPtr == 0xFFFFFFFF
+                   || ((entriesPtr & 0x80000000u) != 0 && (entriesPtr & 0x7FFFFFFFu) < (uint)zoneLength);
         }
 
-        // Color component: 0..1 normalized (allow a tiny negative for fade effects, allow up to ~10 for HDR).
+        /// <summary>True if <paramref name="v"/> is a value a zone-serialized pointer can hold:
+        /// null (0), inline-placeholder (0xFFFFFFFF), or a post-link resolved pointer
+        /// (high bit set + low-31-bits in-bounds for the zone).</summary>
+        private static bool IsValidZonePointer(uint v, int zoneLength)
+        {
+            if (v == 0) return true;
+            if (v == 0xFFFFFFFF) return true;
+            if ((v & 0x80000000u) == 0) return false;          // not high-bit-set → not a resolved pointer
+            return (v & 0x7FFFFFFFu) < (uint)zoneLength;       // masked offset must be in-bounds
+        }
+
+        // Color component: 0..1 normalized in practice, but some menus pre-scale to 0..255
+        // range. The discriminator that matters is "this is a finite small-ish float, not
+        // garbage interpreted as a float" — i.e. reject NaN, ±infinity, and any value whose
+        // magnitude is larger than 1000 (which catches the random-bytes-as-float case where
+        // most values explode to ±1e20+).
         private static bool IsPlausibleColor(byte[] data, int off, bool isBigEndian)
         {
             for (int i = 0; i < 4; i++)
             {
                 float c = ReadF32At(data, off + i * 4, isBigEndian);
                 if (float.IsNaN(c) || float.IsInfinity(c)) return false;
-                if (c < -0.01f || c > 10.0f) return false;
+                if (c < -1.0f || c > 1000.0f) return false;
             }
             return true;
         }
