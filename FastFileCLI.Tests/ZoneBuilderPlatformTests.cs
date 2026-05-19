@@ -136,6 +136,54 @@ public class ZoneBuilderPlatformTests
     }
 
     [Fact]
+    public void Build_WithBlockSizeTemp_OverridesPlatformDefault()
+    {
+        // MW2 PC's platform default is the PS3 value (0x03B4) for BlockSizeTemp.
+        // Real MW2 PC retail zones use per-zone values like 0x020C — caller passes
+        // that through via WithBlockSizeTemp so the rebuilt zone matches the source.
+        byte[] zone = new ZoneBuilder(GameVersion.MW2, "patch_mp", "PC")
+            .WithBlockSizeTemp(0x020Cu)
+            .AddRawFile(new RawFile("a.gsc", Encoding.ASCII.GetBytes("x")))
+            .Build();
+
+        // MW2 PC stores ints LE; BlockSizeTemp lives at 0x08.
+        Assert.Equal(0x020Cu, ReadUInt32Le(zone, 0x08));
+    }
+
+    [Fact]
+    public void Build_WithBlockSizeVertex_OverridesPlatformDefault()
+    {
+        // WaW PS3 default for BlockSizeVertex is 0x05F8F0. If the caller loaded a
+        // source zone with a different value (e.g. 0), they should be able to
+        // preserve it via WithBlockSizeVertex.
+        byte[] zone = new ZoneBuilder(GameVersion.WaW, "patch_mp", "PS3")
+            .WithBlockSizeVertex(0u)
+            .AddRawFile(new RawFile("a.gsc", Encoding.ASCII.GetBytes("x")))
+            .Build();
+
+        // PS3 stores ints BE; BlockSizeVertex lives at 0x20.
+        Assert.Equal(0u, ReadUInt32Be(zone, 0x20));
+    }
+
+    [Fact]
+    public void Build_NullOverride_FallsBackToPlatformDefault()
+    {
+        // Passing null is the documented "no override" sentinel — must produce
+        // identical bytes to building without calling the setter at all.
+        var a = new RawFile("a.gsc", Encoding.ASCII.GetBytes("x"));
+        byte[] withSetter = new ZoneBuilder(GameVersion.MW2, "patch_mp", "PC")
+            .WithBlockSizeTemp(null)
+            .WithBlockSizeVertex(null)
+            .AddRawFile(a)
+            .Build();
+        byte[] withoutSetter = new ZoneBuilder(GameVersion.MW2, "patch_mp", "PC")
+            .AddRawFile(a)
+            .Build();
+
+        Assert.Equal(withoutSetter, withSetter);
+    }
+
+    [Fact]
     public void Build_PreservesDefaultPlatform_WhenOmitted()
     {
         // Existing callers (FastFileConverter, older tests) construct ZoneBuilder

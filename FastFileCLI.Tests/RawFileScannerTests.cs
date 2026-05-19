@@ -7,7 +7,7 @@ namespace FastFileCLI.Tests;
 
 /// <summary>
 /// Synthetic zone tests for RawFileScanner. We hand-build entry bytes that match
-/// the on-disk formats documented in CLAUDE.md / docs/ZoneFileFormat.md and check
+/// the on-disk formats documented in docs/ZoneFileFormat.md and check
 /// the scanner finds them. This is the surface that the Compiler GUI relies on
 /// when it loads an existing FastFile.
 /// </summary>

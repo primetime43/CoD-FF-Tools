@@ -31,6 +31,12 @@ public class ZoneBuilder
     private readonly bool _isXbox360;
     private readonly bool _isWii;
 
+    // Per-zone MemAlloc overrides. Null = fall back to the platform default.
+    // PC and Wii treat these as per-zone allocations rather than fixed constants,
+    // so callers rebuilding from a loaded source set them via the With* setters.
+    private uint? _blockSizeTempOverride;
+    private uint? _blockSizeVertexOverride;
+
     // Size tracking for header calculations
     private int _assetTableSize;
     private int _rawFilesSize;
@@ -83,6 +89,28 @@ public class ZoneBuilder
     public ZoneBuilder AddLocalizedEntries(IEnumerable<LocalizedEntry> entries)
     {
         _localizedEntries.AddRange(entries);
+        return this;
+    }
+
+    /// <summary>
+    /// Overrides the zone header's BlockSizeTemp (MemAlloc1) at offset 0x08. Pass
+    /// the value read from a loaded source zone to preserve its runtime allocation
+    /// hint verbatim. Null = use the platform default.
+    /// </summary>
+    public ZoneBuilder WithBlockSizeTemp(uint? value)
+    {
+        _blockSizeTempOverride = value;
+        return this;
+    }
+
+    /// <summary>
+    /// Overrides the zone header's BlockSizeVertex (MemAlloc2) at offset 0x20.
+    /// Has no effect on MW2 Xbox 360 (48-byte header has no BlockSizeVertex slot).
+    /// Null = use the platform default.
+    /// </summary>
+    public ZoneBuilder WithBlockSizeVertex(uint? value)
+    {
+        _blockSizeVertexOverride = value;
         return this;
     }
 
@@ -189,35 +217,42 @@ public class ZoneBuilder
     }
 
     /// <summary>
-    /// BlockSizeTemp (MemAlloc1). Best-effort defaults — for PC/Wii these are
-    /// per-zone allocations rather than fixed magic constants in retail files;
-    /// when patching from a real source the patcher preserves the original.
+    /// BlockSizeTemp (MemAlloc1). If <see cref="WithBlockSizeTemp"/> was called
+    /// the explicit value wins. Otherwise falls back to platform defaults — those
+    /// are best-effort for PC/Wii where the value is genuinely per-zone.
     /// </summary>
-    private uint GetBlockSizeTempValue() => _gameVersion switch
+    private uint GetBlockSizeTempValue()
     {
-        GameVersion.CoD4 => CoD4Definition.MemAlloc1Value,
-        GameVersion.WaW when _isXbox360 => CoD5Definition.Xbox360MemAlloc1Value,
-        GameVersion.WaW => CoD5Definition.MemAlloc1Value,
-        GameVersion.MW2 => MW2Definition.MemAlloc1Value,
-        _ => 0u,
-    };
+        if (_blockSizeTempOverride.HasValue) return _blockSizeTempOverride.Value;
+        return _gameVersion switch
+        {
+            GameVersion.CoD4 => CoD4Definition.MemAlloc1Value,
+            GameVersion.WaW when _isXbox360 => CoD5Definition.Xbox360MemAlloc1Value,
+            GameVersion.WaW => CoD5Definition.MemAlloc1Value,
+            GameVersion.MW2 => MW2Definition.MemAlloc1Value,
+            _ => 0u,
+        };
+    }
 
     /// <summary>
-    /// BlockSizeVertex (MemAlloc2). See <see cref="GetBlockSizeTempValue"/>.
-    /// Real MW2 PC zones (patch_mp, mp_rust_load, etc.) consistently use 0 here —
-    /// vertex memory isn't pre-allocated by the PC engine the way it is on PS3.
-    /// Using PS3's 0x1000 default on PC would over-reserve vertex memory the zone
-    /// doesn't need.
+    /// BlockSizeVertex (MemAlloc2). If <see cref="WithBlockSizeVertex"/> was called
+    /// the explicit value wins. Otherwise: real MW2 PC zones consistently use 0
+    /// (vertex memory isn't pre-allocated by the PC engine the way it is on PS3),
+    /// so we default to 0 there instead of leaking the PS3 0x1000.
     /// </summary>
-    private uint GetBlockSizeVertexValue() => _gameVersion switch
+    private uint GetBlockSizeVertexValue()
     {
-        GameVersion.CoD4 => CoD4Definition.MemAlloc2Value,
-        GameVersion.WaW when _isXbox360 => CoD5Definition.Xbox360MemAlloc2Value,
-        GameVersion.WaW => CoD5Definition.MemAlloc2Value,
-        GameVersion.MW2 when _isPC => 0u,
-        GameVersion.MW2 => MW2Definition.MemAlloc2Value,
-        _ => 0u,
-    };
+        if (_blockSizeVertexOverride.HasValue) return _blockSizeVertexOverride.Value;
+        return _gameVersion switch
+        {
+            GameVersion.CoD4 => CoD4Definition.MemAlloc2Value,
+            GameVersion.WaW when _isXbox360 => CoD5Definition.Xbox360MemAlloc2Value,
+            GameVersion.WaW => CoD5Definition.MemAlloc2Value,
+            GameVersion.MW2 when _isPC => 0u,
+            GameVersion.MW2 => MW2Definition.MemAlloc2Value,
+            _ => 0u,
+        };
+    }
 
     /// <summary>
     /// Writes a 32-bit unsigned int at the right endianness for the target platform.

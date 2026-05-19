@@ -9,6 +9,11 @@ public partial class MainForm : Form
     private readonly List<RawFileEntry> _existingFiles = new();
     private string? _loadedFastFilePath;
 
+    // PC/Wii treat these as per-zone allocations rather than fixed constants;
+    // preserve them verbatim when rebuilding. Null = no FF loaded.
+    private uint? _loadedBlockSizeTemp;
+    private uint? _loadedBlockSizeVertex;
+
     public MainForm()
     {
         InitializeComponent();
@@ -70,6 +75,7 @@ public partial class MainForm : Form
                 // Parse the zone to get raw files
                 var zoneData = File.ReadAllBytes(zonePath);
                 var parsedFiles = ParseZoneRawFiles(zoneData, ffInfo);
+                var (memTemp, memVertex) = ReadZoneMemAlloc(zoneData, ffInfo);
 
                 SafeInvoke(() =>
                 {
@@ -80,6 +86,8 @@ public partial class MainForm : Form
                     }
 
                     _loadedFastFilePath = ffPath;
+                    _loadedBlockSizeTemp = memTemp;
+                    _loadedBlockSizeVertex = memVertex;
                     checkBoxIncludeExisting.Enabled = true;
                     checkBoxIncludeExisting.Checked = true;
                     labelLoadedFF.Text = $"({_existingFiles.Count} assets)";
@@ -119,10 +127,40 @@ public partial class MainForm : Form
     {
         _existingFiles.Clear();
         _loadedFastFilePath = null;
+        _loadedBlockSizeTemp = null;
+        _loadedBlockSizeVertex = null;
         checkBoxIncludeExisting.Enabled = false;
         checkBoxIncludeExisting.Checked = false;
         labelLoadedFF.Text = "(No FF loaded)";
         labelLoadedFF.ForeColor = System.Drawing.Color.Gray;
+    }
+
+    /// <summary>
+    /// Reads BlockSizeTemp (MemAlloc1 @ 0x08) and BlockSizeVertex (MemAlloc2 @ 0x20)
+    /// from the decompressed zone header using the right endianness, so the rebuild
+    /// path can preserve them verbatim. MW2 Xbox 360's 48-byte header omits the
+    /// vertex slot — return null for that field there. Returns null on either field
+    /// if the zone is too short.
+    /// </summary>
+    private static (uint? blockSizeTemp, uint? blockSizeVertex) ReadZoneMemAlloc(
+        byte[] zoneData, FastFileInfo ffInfo)
+    {
+        if (zoneData.Length < 0x24) return (null, null);
+
+        uint Read(int offset) => ffInfo.IsPC
+            ? (uint)(zoneData[offset] | (zoneData[offset + 1] << 8)
+                    | (zoneData[offset + 2] << 16) | (zoneData[offset + 3] << 24))
+            : (uint)((zoneData[offset] << 24) | (zoneData[offset + 1] << 16)
+                    | (zoneData[offset + 2] << 8) | zoneData[offset + 3]);
+
+        uint temp = Read(0x08);
+
+        bool isMw2Xbox360 = ffInfo.GameVersion == GameVersion.MW2 && ffInfo.Platform == "Xbox 360";
+        uint? vertex = isMw2Xbox360 || zoneData.Length < 0x24
+            ? null
+            : Read(0x20);
+
+        return (temp, vertex);
     }
 
     /// <summary>
@@ -483,7 +521,15 @@ public partial class MainForm : Form
                 SafeInvoke(() => UpdateStatus("Building zone file..."));
                 SafeInvoke(() => progressBar.Value = 20);
 
+                // When rebuilding on top of a loaded source, preserve its MemAlloc values
+                // verbatim — they're per-zone allocations on PC/Wii, and even on console
+                // matching the source avoids spurious differences vs retail.
                 var builder = new ZoneBuilder(gameVersion, zoneName, platform);
+                if (includeExisting)
+                {
+                    builder.WithBlockSizeTemp(_loadedBlockSizeTemp)
+                           .WithBlockSizeVertex(_loadedBlockSizeVertex);
+                }
                 int totalFiles = filesToBuild.Count;
                 int processed = 0;
 
