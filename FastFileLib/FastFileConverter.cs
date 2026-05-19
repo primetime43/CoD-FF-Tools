@@ -186,7 +186,10 @@ public static class FastFileConverter
                     ? zoneName
                     : GetZoneNameFromPath(sourceModPath);
                 result.Warnings.Add($"Using zone name: {effectiveZoneName}");
-                var zoneBuilder = new ZoneBuilder(result.GameVersion, effectiveZoneName);
+                // ConvertUsingBaseZone is a PS3-targeted flow (see method docs); be explicit
+                // rather than relying on the constructor default so a future default change
+                // can't silently shift target platforms here.
+                var zoneBuilder = new ZoneBuilder(result.GameVersion, effectiveZoneName, "PS3");
                 zoneBuilder.AddRawFiles(rawFiles);
                 zoneBuilder.AddLocalizedEntries(localizedEntries);
                 byte[] newZone = zoneBuilder.Build();

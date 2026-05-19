@@ -201,14 +201,17 @@ public partial class MainForm : Form
             statusLabel.Text = "Packing...";
             Application.DoEvents();
 
-            if (xbox360Signed && originalFfPath != null)
-            {
-                FastFileProcessor.CompressXbox360Signed(packInputTextBox.Text, packOutputTextBox.Text, gameVersion, originalFfPath);
-            }
-            else
-            {
-                Compress(packInputTextBox.Text, packOutputTextBox.Text, gameVersion, platform);
-            }
+            // Both signed and unsigned paths go through the same lib service —
+            // signed flag picks the streaming + hash-table flow, unsigned picks
+            // platform-correct block-or-single-stream compression.
+            FastFileSaveService.Save(
+                packInputTextBox.Text,
+                packOutputTextBox.Text,
+                gameVersion,
+                platform,
+                signed: xbox360Signed,
+                originalFfPath: xbox360Signed ? originalFfPath : null);
+            statusLabel.Text = "Packed";
 
             var fi = new FileInfo(packOutputTextBox.Text);
             statusLabel.Text = $"Packed successfully! ({fi.Length:N0} bytes)";
@@ -288,11 +291,6 @@ public partial class MainForm : Form
         statusLabel.Text = $"Extracted {blockCount} blocks";
     }
 
-    private void Compress(string inputPath, string outputPath, GameVersion gameVersion, string platform)
-    {
-        int blockCount = FastFileProcessor.Compress(inputPath, outputPath, gameVersion, platform);
-        statusLabel.Text = $"Packed {blockCount} blocks";
-    }
 
     private void MainForm_DragEnter(object sender, DragEventArgs e)
     {

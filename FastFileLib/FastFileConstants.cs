@@ -266,22 +266,6 @@ public static class FastFileConstants
         _ => throw new ArgumentOutOfRangeException(nameof(version))
     };
 
-    public static byte GetRawFileAssetType(GameVersion version) => version switch
-    {
-        GameVersion.CoD4 => CoD4RawFileAssetType,
-        GameVersion.WaW => WaWRawFileAssetType,
-        GameVersion.MW2 => MW2RawFileAssetType,
-        _ => throw new ArgumentOutOfRangeException(nameof(version))
-    };
-
-    public static byte GetLocalizeAssetType(GameVersion version) => version switch
-    {
-        GameVersion.CoD4 => CoD4LocalizeAssetType,
-        GameVersion.WaW => WaWLocalizeAssetType,
-        GameVersion.MW2 => MW2LocalizeAssetType,
-        _ => throw new ArgumentOutOfRangeException(nameof(version))
-    };
-
     /// <summary>
     /// Platform-aware rawfile asset type ID. CoD4/WaW PC drop pixelshader+vertexshader
     /// (so IDs shift -2 from PS3), Xbox 360 drops only vertexshader (-1 from PS3). MW2
@@ -313,22 +297,6 @@ public static class FastFileConstants
             _ => throw new ArgumentOutOfRangeException(nameof(version))
         };
     }
-
-    public static byte[] GetMemAlloc1(GameVersion version) => version switch
-    {
-        GameVersion.CoD4 => CoD4MemAlloc1,
-        GameVersion.WaW => WaWMemAlloc1,
-        GameVersion.MW2 => MW2MemAlloc1,
-        _ => throw new ArgumentOutOfRangeException(nameof(version))
-    };
-
-    public static byte[] GetMemAlloc2(GameVersion version) => version switch
-    {
-        GameVersion.CoD4 => CoD4MemAlloc2,
-        GameVersion.WaW => WaWMemAlloc2,
-        GameVersion.MW2 => MW2MemAlloc2,
-        _ => throw new ArgumentOutOfRangeException(nameof(version))
-    };
 
     #region Raw File Header Constants
 

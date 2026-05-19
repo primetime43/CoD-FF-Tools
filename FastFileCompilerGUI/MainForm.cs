@@ -610,16 +610,19 @@ public partial class MainForm : Form
 
                 try
                 {
-                    if (isXbox360Signed)
-                    {
-                        // Xbox 360 signed format - use streaming compression with hash table from original
-                        FastFileProcessor.CompressXbox360Signed(tempZonePath, outputPath, gameVersion, loadedFastFilePath!);
-                    }
-                    else
-                    {
-                        // Standard format - use block compression with platform-specific version
-                        FastFileProcessor.Compress(tempZonePath, outputPath, gameVersion, platform);
-                    }
+                    // Single canonical save path — dispatches platform-correctly across PC
+                    // (single zlib LE), Wii (single zlib BE), PS3/Xbox 360 unsigned (block
+                    // format), Xbox 360 signed (streaming + hash table from original FF),
+                    // and MW2 PC (single zlib + 9-byte preamble). Previously this used
+                    // FastFileProcessor.Compress directly, which is block-format-only and
+                    // produced broken output for PC/Wii.
+                    FastFileSaveService.Save(
+                        tempZonePath,
+                        outputPath,
+                        gameVersion,
+                        platform,
+                        signed: isXbox360Signed,
+                        originalFfPath: isXbox360Signed ? loadedFastFilePath : null);
                 }
                 finally
                 {
