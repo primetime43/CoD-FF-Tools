@@ -314,24 +314,17 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         }
 
         /// <summary>
-        /// Decompress zlib-compressed data.
+        /// Decompress zlib-compressed data. Falls back to returning the raw bytes if
+        /// decompression fails (matches the historical behavior — MW2 rawfile entries
+        /// sometimes have compressedLen set but invalid zlib data).
         /// </summary>
         private byte[] DecompressZlib(byte[] compressedData, int expectedLength)
         {
-            try
-            {
-                using var inputStream = new MemoryStream(compressedData);
-                using var zlibStream = new System.IO.Compression.ZLibStream(inputStream, System.IO.Compression.CompressionMode.Decompress);
-                using var outputStream = new MemoryStream();
-                zlibStream.CopyTo(outputStream);
-                return outputStream.ToArray();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[MW2] Zlib decompression failed: {ex.Message}");
-                // Return the raw compressed data if decompression fails
-                return compressedData;
-            }
+            if (FastFileLib.CompressionHelper.TryDecompressZlib(compressedData, out var decompressed))
+                return decompressed;
+
+            Debug.WriteLine("[MW2] Zlib decompression failed; returning raw bytes.");
+            return compressedData;
         }
 
         /// <summary>

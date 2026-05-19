@@ -257,7 +257,7 @@ public partial class MainForm : Form
     private void UpdateDetailedInfo(long fileSize, string header, bool isSigned, string studio, string game, string platform, uint version)
     {
         detailsTextBox.Clear();
-        detailsTextBox.AppendText($"File Size: {fileSize:N0} bytes ({fileSize / 1024.0 / 1024.0:F2} MB)\r\n");
+        detailsTextBox.AppendText($"File Size: {fileSize:N0} bytes ({FastFileInfo.FormatFileSize(fileSize)})\r\n");
         detailsTextBox.AppendText($"Header Magic: {header}\r\n");
         detailsTextBox.AppendText($"Signed: {(isSigned ? "Yes (RSA2048)" : "No")}\r\n");
         detailsTextBox.AppendText($"Studio: {studio}\r\n");

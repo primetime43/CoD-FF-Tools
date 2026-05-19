@@ -1172,16 +1172,9 @@ namespace Call_of_Duty_FastFile_Editor
                         // Handle internally compressed raw files (MW2 16-byte header format)
                         if (node.IsCompressed && node.CompressedSize > 0)
                         {
-                            // Re-compress the content
-                            byte[] compressedContent;
-                            using (var ms = new System.IO.MemoryStream())
-                            {
-                                using (var zlib = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionLevel.Optimal, true))
-                                {
-                                    zlib.Write(newContent, 0, newContent.Length);
-                                }
-                                compressedContent = ms.ToArray();
-                            }
+                            // Re-compress the content via the shared lib helper so the
+                            // editor and lib produce byte-identical zlib output.
+                            byte[] compressedContent = FastFileLib.CompressionHelper.CompressZlib(newContent);
 
                             if (compressedContent.Length > node.CompressedSize)
                             {
