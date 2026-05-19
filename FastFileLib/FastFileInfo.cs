@@ -300,14 +300,19 @@ public class FastFileInfo
     {
         try
         {
-            byte[] header = new byte[12];
+            // Read enough for layout detection (markers up through offset 0x37 on a 56-byte
+            // header, plus a few bytes of slack). Plus need the file size for the ZoneSize
+            // plausibility check in the fallback path.
+            long fileSize = new FileInfo(zonePath).Length;
+            if (fileSize < 12) return GameVersion.Unknown;
+
+            int toRead = (int)Math.Min(fileSize, 0x40);
+            byte[] header = new byte[toRead];
             using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
             {
-                if (fs.Read(header, 0, 12) < 12)
-                    return GameVersion.Unknown;
+                fs.Read(header, 0, toRead);
             }
-
-            return DetectGameFromZoneData(header);
+            return DetectGameInternal(header, fileSize);
         }
         catch
         {
@@ -316,20 +321,45 @@ public class FastFileInfo
     }
 
     /// <summary>
-    /// Detects the game type from zone data by reading the MemAlloc1 value at offset 0x08.
+    /// Detects the game type from zone data. Fast path matches MemAlloc1 against known
+    /// per-game magic constants; that covers all retail console zones and most PC zones
+    /// that happen to share PS3 values. Fallback inspects the zone header *shape* —
+    /// position of the 0xFFFFFFFF asset-pool/script-string-pool placeholders — combined
+    /// with endianness from the ZoneSize field. This lets us recognize retail MW2 PC
+    /// (e.g. patch_mp.zone) whose per-zone MemAlloc1 (0x020C) isn't in the magic table.
     /// </summary>
-    /// <param name="zoneData">The zone file data (at least 12 bytes)</param>
-    /// <returns>Detected game version, or Unknown if detection failed</returns>
+    /// <param name="zoneData">The zone file data (the whole zone — its length is used
+    /// to validate ZoneSize plausibility in the fallback path)</param>
     public static GameVersion DetectGameFromZoneData(byte[] zoneData)
     {
         if (zoneData == null || zoneData.Length < 12)
             return GameVersion.Unknown;
+        return DetectGameInternal(zoneData, zoneData.Length);
+    }
 
-        // MemAlloc1 is at offset 0x08, try big-endian first (console)
-        uint memAlloc1BE = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
-        uint memAlloc1LE = (uint)(zoneData[8] | (zoneData[9] << 8) | (zoneData[10] << 16) | (zoneData[11] << 24));
+    /// <summary>
+    /// Internal detection that accepts the header bytes plus the actual file length
+    /// separately — lets <see cref="DetectGameFromZone(string)"/> avoid loading huge
+    /// retail zones into memory while still being able to validate ZoneSize.
+    /// </summary>
+    private static GameVersion DetectGameInternal(byte[] header, long fileSize)
+    {
+        // Fast path: known MemAlloc1 magic constants.
+        var byMagic = DetectGameByMemAllocMagic(header);
+        if (byMagic != GameVersion.Unknown) return byMagic;
 
-        // Check big-endian values first (console)
+        // Fallback: combine endianness (from ZoneSize plausibility) with header shape
+        // (from 0xFFFFFFFF marker positions) to identify the game/layout.
+        bool? isLE = DetectEndianness(header, fileSize);
+        return DetectGameByHeaderShape(header, isLE);
+    }
+
+    private static GameVersion DetectGameByMemAllocMagic(byte[] header)
+    {
+        if (header.Length < 12) return GameVersion.Unknown;
+        uint memAlloc1BE = (uint)((header[8] << 24) | (header[9] << 16) | (header[10] << 8) | header[11]);
+        uint memAlloc1LE = (uint)(header[8] | (header[9] << 8) | (header[10] << 16) | (header[11] << 24));
+
         return memAlloc1BE switch
         {
             CoD5Definition.MemAlloc1Value => GameVersion.WaW,           // 0x10B0 - WaW PS3
@@ -338,13 +368,71 @@ public class FastFileInfo
             MW2Definition.MemAlloc1Value => GameVersion.MW2,            // 0x03B4 - MW2
             _ => memAlloc1LE switch
             {
-                // Check little-endian values (PC)
                 CoD5Definition.MemAlloc1Value => GameVersion.WaW,
                 CoD4Definition.MemAlloc1Value => GameVersion.CoD4,
                 MW2Definition.MemAlloc1Value => GameVersion.MW2,
                 _ => GameVersion.Unknown
             }
         };
+    }
+
+    /// <summary>
+    /// Resolves endianness via the ZoneSize field at offset 0x00. ZoneSize is "everything
+    /// after the zone header" so it's slightly less than the actual file size — the
+    /// difference is at most one 64 KB padding block. Reading 4 bytes in the wrong
+    /// endianness almost always produces a value far from the real size.
+    /// </summary>
+    private static bool? DetectEndianness(byte[] header, long fileSize)
+    {
+        if (header.Length < 4) return null;
+        uint be = (uint)((header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3]);
+        uint le = (uint)(header[0] | (header[1] << 8) | (header[2] << 16) | (header[3] << 24));
+
+        // ~64 KB padding tolerance + a small slop for unusual padding strategies.
+        const long PaddingSlop = 0x10100;
+        bool bePlausible = be > 0 && be <= fileSize + PaddingSlop && fileSize - (long)be < PaddingSlop;
+        bool lePlausible = le > 0 && le <= fileSize + PaddingSlop && fileSize - (long)le < PaddingSlop;
+
+        if (lePlausible && !bePlausible) return true;   // LE → PC
+        if (bePlausible && !lePlausible) return false;  // BE → console/Wii
+        return null;  // ambiguous (both or neither plausible)
+    }
+
+    /// <summary>
+    /// Identifies the game by checking which header layout the 0xFFFFFFFF placeholders
+    /// fit (48 / 52 / 56 bytes), combined with detected endianness.
+    /// </summary>
+    private static GameVersion DetectGameByHeaderShape(byte[] header, bool? isLE)
+    {
+        bool Has(int offset) =>
+            offset + 4 <= header.Length &&
+            header[offset] == 0xFF && header[offset + 1] == 0xFF &&
+            header[offset + 2] == 0xFF && header[offset + 3] == 0xFF;
+
+        // 56-byte layout (ScriptStringsPtr @ 0x2C, AssetsPtr @ 0x34): MW2 PC (LE) or WaW Wii (BE).
+        if (Has(0x2C) && Has(0x34))
+        {
+            if (isLE == true) return GameVersion.MW2;
+            if (isLE == false) return GameVersion.WaW;
+            return GameVersion.Unknown;  // ambiguous endianness
+        }
+
+        // 48-byte layout (ScriptStringsPtr @ 0x24, AssetsPtr @ 0x2C): MW2 Xbox 360 only.
+        // Check before 52-byte since a 48-byte zone's 0x2C marker shouldn't collide —
+        // 52-byte's 0x28 marker would also need to be set, but on 48-byte that slot is
+        // ScriptStringCount (typically 0, not FFFFFFFF).
+        if (Has(0x24) && Has(0x2C) && !Has(0x28)) return GameVersion.MW2;
+
+        // 52-byte layout (ScriptStringsPtr @ 0x28, AssetsPtr @ 0x30): CoD4/WaW (any platform),
+        // MW2 PS3. MemAlloc magic should have caught all retail console zones at this point,
+        // so reaching here typically means CoD4/WaW PC with a non-magic MemAlloc.
+        if (Has(0x28) && Has(0x30))
+        {
+            if (isLE == true) return GameVersion.WaW;   // PC: WaW is the common modding target
+            // BE without a magic match is unusual — return Unknown rather than guess.
+        }
+
+        return GameVersion.Unknown;
     }
 
     /// <summary>
@@ -357,14 +445,16 @@ public class FastFileInfo
     {
         try
         {
-            byte[] header = new byte[12];
+            long fileSize = new FileInfo(zonePath).Length;
+            if (fileSize < 12) return false;
+
+            int toRead = (int)Math.Min(fileSize, 0x40);
+            byte[] header = new byte[toRead];
             using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
             {
-                if (fs.Read(header, 0, 12) < 12)
-                    return false;
+                fs.Read(header, 0, toRead);
             }
-
-            return IsZoneDataPC(header);
+            return IsZonePCInternal(header, fileSize);
         }
         catch
         {
@@ -373,44 +463,40 @@ public class FastFileInfo
     }
 
     /// <summary>
-    /// Detects if zone data is from a PC version by checking endianness.
-    /// PC files use little-endian byte order, while PS3/Xbox use big-endian.
+    /// Detects if zone data is from a PC version by checking endianness. Tries the
+    /// MemAlloc1 magic table first; falls back to the ZoneSize field plausibility
+    /// check, which works for retail PC zones whose per-zone MemAlloc isn't in the
+    /// magic table (e.g. MW2 PC patch_mp.zone has MemAlloc1 = 0x020C).
     /// </summary>
-    /// <param name="zoneData">The zone file data (at least 12 bytes)</param>
-    /// <returns>True if the zone appears to be PC (little-endian), false otherwise</returns>
+    /// <param name="zoneData">The zone file data (the whole zone — its length is used
+    /// for the ZoneSize plausibility check in the fallback path)</param>
     public static bool IsZoneDataPC(byte[] zoneData)
     {
-        if (zoneData == null || zoneData.Length < 12)
-            return false;
+        if (zoneData == null || zoneData.Length < 12) return false;
+        return IsZonePCInternal(zoneData, zoneData.Length);
+    }
 
-        // Read MemAlloc1 at offset 0x08 as both big-endian and little-endian
-        uint memAlloc1BE = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
-        uint memAlloc1LE = (uint)(zoneData[8] | (zoneData[9] << 8) | (zoneData[10] << 16) | (zoneData[11] << 24));
-
-        // Known console MemAlloc1 values (big-endian)
-        uint[] consoleValues = {
-            CoD5Definition.MemAlloc1Value,        // 0x10B0 - WaW PS3
-            CoD5Definition.Xbox360MemAlloc1Value, // 0x0A90 - WaW Xbox 360
-            CoD4Definition.MemAlloc1Value,        // 0x0F70 - CoD4
-            MW2Definition.MemAlloc1Value          // 0x03B4 - MW2
-        };
-
-        // If we read as BE and get a known console value, it's console (not PC)
-        foreach (var val in consoleValues)
+    private static bool IsZonePCInternal(byte[] header, long fileSize)
+    {
+        // Fast path: MemAlloc1 magic match (existing behavior).
+        if (header.Length >= 12)
         {
-            if (memAlloc1BE == val)
-                return false; // Big-endian match = console
+            uint be = (uint)((header[8] << 24) | (header[9] << 16) | (header[10] << 8) | header[11]);
+            uint le = (uint)(header[8] | (header[9] << 8) | (header[10] << 16) | (header[11] << 24));
+
+            uint[] consoleValues = {
+                CoD5Definition.MemAlloc1Value,        // 0x10B0 - WaW PS3
+                CoD5Definition.Xbox360MemAlloc1Value, // 0x0A90 - WaW Xbox 360
+                CoD4Definition.MemAlloc1Value,        // 0x0F70 - CoD4
+                MW2Definition.MemAlloc1Value          // 0x03B4 - MW2
+            };
+            foreach (var v in consoleValues) if (be == v) return false;
+            foreach (var v in consoleValues) if (le == v) return true;
         }
 
-        // Known PC MemAlloc1 values - same numeric values but stored as little-endian
-        // If we read as LE and get a known value, it's PC
-        foreach (var val in consoleValues)
-        {
-            if (memAlloc1LE == val)
-                return true; // Little-endian match = PC
-        }
-
-        return false;
+        // Fallback: pick endianness via ZoneSize plausibility. Catches retail PC zones
+        // (and any other zone) whose MemAlloc1 isn't a known magic value.
+        return DetectEndianness(header, fileSize) == true;
     }
 
     /// <summary>
