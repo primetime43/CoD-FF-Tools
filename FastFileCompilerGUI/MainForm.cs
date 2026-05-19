@@ -49,8 +49,17 @@ public partial class MainForm : Form
         };
 
         if (dialog.ShowDialog() != DialogResult.OK) return;
+        await LoadFastFileAsync(dialog.FileName);
+    }
 
-        var ffPath = dialog.FileName;
+    /// <summary>
+    /// Loads, decompresses, and parses a FastFile at <paramref name="ffPath"/> in the
+    /// background. Populates _existingFiles + the preserved MemAlloc values, sets the
+    /// zone name, and re-enables the UI in a finally block. Both the "Load FF" button
+    /// and the drag-drop handler use this so the two entry points stay in sync.
+    /// </summary>
+    private async Task LoadFastFileAsync(string ffPath)
+    {
         SetUIEnabled(false);
         UpdateStatus("Loading FastFile...");
 
@@ -428,9 +437,30 @@ public partial class MainForm : Form
         }
     }
 
-    private void fileListView_DragDrop(object sender, DragEventArgs e)
+    private async void fileListView_DragDrop(object sender, DragEventArgs e)
     {
         if (e.Data?.GetData(DataFormats.FileDrop) is not string[] files) return;
+
+        // If any of the dropped paths is a FastFile, treat the drop as a "Load FF"
+        // gesture: load the first .ff/.ffm and ignore the others (with a warning if
+        // there were any). Mixing "load FF" with "add raw files" in one drop is
+        // ambiguous — better to make the user do it as two actions.
+        var ffPath = files.FirstOrDefault(IsFastFilePath);
+        if (ffPath != null)
+        {
+            int otherCount = files.Count(f => f != ffPath);
+            if (otherCount > 0)
+            {
+                MessageBox.Show(
+                    $"Loading FastFile '{Path.GetFileName(ffPath)}'.\n\n" +
+                    $"{otherCount} other item(s) in this drop were ignored — drop them separately to add as raw files.",
+                    "Mixed Drop",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            await LoadFastFileAsync(ffPath);
+            return;
+        }
 
         foreach (var path in files)
         {
@@ -447,6 +477,14 @@ public partial class MainForm : Form
             }
         }
         UpdateFileCount();
+    }
+
+    private static bool IsFastFilePath(string path)
+    {
+        if (!File.Exists(path)) return false;
+        var ext = Path.GetExtension(path);
+        return string.Equals(ext, ".ff", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ext, ".ffm", StringComparison.OrdinalIgnoreCase);
     }
 
     #endregion
