@@ -786,10 +786,10 @@ class Program
         if (!File.Exists(zonePath)) { Console.Error.WriteLine($"Zone file not found: {zonePath}"); return 1; }
         if (!File.Exists(contentPath)) { Console.Error.WriteLine($"Content file not found: {contentPath}"); return 1; }
 
-        byte[] zoneData = File.ReadAllBytes(zonePath);
+        var (zoneData, gv, isPC) = LoadZoneContext(zonePath);
         byte[] newContent = File.ReadAllBytes(contentPath);
 
-        var rawFiles = FindRawFiles(zoneData);
+        var rawFiles = RawFileScanner.FindRawFiles(zoneData, gv, isPC);
         var target = rawFiles.FirstOrDefault(rf =>
             rf.Name.Equals(rawFileName, StringComparison.OrdinalIgnoreCase) ||
             rf.Name.EndsWith("/" + rawFileName, StringComparison.OrdinalIgnoreCase));
@@ -803,23 +803,96 @@ class Program
             return 1;
         }
 
-        if (newContent.Length > target.Size)
+        // Compute the on-disk payload for the new content. MW2 entries store payloads
+        // zlib-compressed; preserve that compression state so the engine can read it.
+        byte[] newPayload;
+        uint newCompressedLen;
+        if (target.WasCompressed)
         {
-            Console.Error.WriteLine($"Content too large: {newContent.Length} bytes > {target.Size} bytes (max)");
-            Console.Error.WriteLine("Use the GUI editor to increase file sizes.");
-            return 1;
+            newPayload = FastFileLib.CompressionHelper.CompressZlib(newContent);
+            newCompressedLen = (uint)newPayload.Length;
+        }
+        else
+        {
+            newPayload = newContent;
+            newCompressedLen = 0;  // 0 = stored uncompressed (engine reads len bytes raw)
         }
 
+        int oldOnDiskSize = target.CompressedSize > 0 ? target.CompressedSize : target.DataSize;
+        int newOnDiskSize = newPayload.Length;
+        int delta = newOnDiskSize - oldOnDiskSize;
+
         Console.WriteLine($"Patching: {target.Name}");
-        Console.WriteLine($"  Original size: {target.Size}");
-        Console.WriteLine($"  New size:      {newContent.Length}");
+        Console.WriteLine($"  Old uncompressed: {target.DataSize}  on-disk: {oldOnDiskSize}");
+        Console.WriteLine($"  New uncompressed: {newContent.Length}  on-disk: {newOnDiskSize}  delta: {delta:+#;-#;0}");
 
-        for (int i = 0; i < target.Size; i++)
-            zoneData[target.DataOffset + i] = i < newContent.Length ? newContent[i] : (byte)0;
+        // Build the new zone with the payload swapped in. Tail (everything after the
+        // old payload) shifts by `delta` so other rawfiles + footer stay intact.
+        byte[] newZone;
+        if (delta == 0)
+        {
+            newZone = zoneData;
+            Buffer.BlockCopy(newPayload, 0, newZone, target.DataOffset, newOnDiskSize);
+        }
+        else
+        {
+            newZone = new byte[zoneData.Length + delta];
+            Buffer.BlockCopy(zoneData, 0, newZone, 0, target.DataOffset);
+            Buffer.BlockCopy(newPayload, 0, newZone, target.DataOffset, newOnDiskSize);
+            int tailStart = target.DataOffset + oldOnDiskSize;
+            Buffer.BlockCopy(zoneData, tailStart, newZone, target.DataOffset + newOnDiskSize, zoneData.Length - tailStart);
+        }
 
-        File.WriteAllBytes(zonePath, zoneData);
-        Console.WriteLine($"  Patched successfully.");
+        // Update the rawfile entry's size field(s). For MW2 (HeaderSize >= 16) we also
+        // need to update compressedLen at SizeOffset - 4. Endianness is LE on PC.
+        WriteSizeField(newZone, target.SizeOffset, (uint)newContent.Length, isPC);
+        if (target.HeaderSize >= 16)
+            WriteSizeField(newZone, target.SizeOffset - 4, newCompressedLen, isPC);
+
+        // Update zone-level ZoneSize @ 0x00 and BlockSizeLarge @ 0x18 by delta.
+        // Other XFile block sizes are pool hints for non-rawfile asset categories —
+        // don't need to change when a rawfile grows/shrinks.
+        if (delta != 0)
+        {
+            uint zoneSize = ReadSizeField(newZone, 0x00, isPC);
+            uint blockLarge = ReadSizeField(newZone, 0x18, isPC);
+            WriteSizeField(newZone, 0x00, (uint)((long)zoneSize + delta), isPC);
+            WriteSizeField(newZone, 0x18, (uint)((long)blockLarge + delta), isPC);
+        }
+
+        File.WriteAllBytes(zonePath, newZone);
+        Console.WriteLine($"  Patched successfully. Zone size: {zoneData.Length} -> {newZone.Length}");
         return 0;
+    }
+
+    /// <summary>
+    /// Writes a 32-bit unsigned int to <paramref name="data"/> at <paramref name="offset"/>
+    /// using little-endian for PC zones, big-endian otherwise. The rawfile scanner reads
+    /// sizes with the same rule — keeps reads and writes in sync.
+    /// </summary>
+    static void WriteSizeField(byte[] data, int offset, uint value, bool isPC)
+    {
+        if (isPC)
+        {
+            data[offset]     = (byte)(value & 0xFF);
+            data[offset + 1] = (byte)((value >> 8) & 0xFF);
+            data[offset + 2] = (byte)((value >> 16) & 0xFF);
+            data[offset + 3] = (byte)((value >> 24) & 0xFF);
+        }
+        else
+        {
+            data[offset]     = (byte)((value >> 24) & 0xFF);
+            data[offset + 1] = (byte)((value >> 16) & 0xFF);
+            data[offset + 2] = (byte)((value >> 8) & 0xFF);
+            data[offset + 3] = (byte)(value & 0xFF);
+        }
+    }
+
+    static uint ReadSizeField(byte[] data, int offset, bool isPC)
+    {
+        return isPC
+            ? (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24))
+            : (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
     }
 
     // -----------------------------------------------------------------
@@ -889,9 +962,8 @@ class Program
 
     /// <summary>
     /// Locates rawfile entries using the canonical <see cref="RawFileScanner"/>.
-    /// Handles CoD4/WaW 12-byte BE, MW2 console 16/20-byte BE, and MW2 PC 16-byte LE
-    /// headers (the legacy <see cref="FindRawFiles(byte[])"/> path is BE-only and
-    /// is kept only for the patch command, which has additional constraints).
+    /// Handles CoD4/WaW 12-byte BE/LE, MW2 console 16/20-byte BE, and MW2 PC 16-byte LE
+    /// headers, with inline zlib decompression for MW2 payloads.
     /// </summary>
     static IReadOnlyList<RawFileLocation> ScanRawFiles(string inputPath, byte[] zoneData)
     {
@@ -948,68 +1020,4 @@ class Program
         return sb.ToString();
     }
 
-    // Simple raw file finder using extension pattern matching.
-    static List<RawFileInfo> FindRawFiles(byte[] zoneData)
-    {
-        var files = new List<RawFileInfo>();
-        var extensions = new[] { ".gsc", ".csc", ".cfg", ".vision", ".arena", ".str", ".csv", ".txt", ".menu" };
-
-        foreach (var ext in extensions)
-        {
-            byte[] pattern = Encoding.ASCII.GetBytes(ext + "\0");
-
-            for (int i = 0; i <= zoneData.Length - pattern.Length; i++)
-            {
-                bool match = true;
-                for (int j = 0; j < pattern.Length; j++)
-                {
-                    if (zoneData[i + j] != pattern[j]) { match = false; break; }
-                }
-                if (!match) continue;
-
-                int nameEnd = i + ext.Length;
-                int nameStart = i;
-                while (nameStart > 0 && zoneData[nameStart - 1] != 0xFF && zoneData[nameStart - 1] != 0x00)
-                {
-                    nameStart--;
-                    if (i - nameStart > 256) break;
-                }
-                if (nameStart >= i) continue;
-
-                string name = Encoding.ASCII.GetString(zoneData, nameStart, nameEnd - nameStart);
-                if (string.IsNullOrWhiteSpace(name) || !name.EndsWith(ext)) continue;
-
-                int headerOffset = nameStart - 4;
-                while (headerOffset > 4)
-                {
-                    if (zoneData[headerOffset] == 0xFF && zoneData[headerOffset + 1] == 0xFF
-                        && zoneData[headerOffset + 2] == 0xFF && zoneData[headerOffset + 3] == 0xFF)
-                        break;
-                    headerOffset--;
-                    if (nameStart - headerOffset > 20) break;
-                }
-                if (headerOffset < 4) continue;
-
-                int sizeOffset = headerOffset - 4;
-                if (sizeOffset < 0) continue;
-
-                int size = (zoneData[sizeOffset] << 24) | (zoneData[sizeOffset + 1] << 16)
-                         | (zoneData[sizeOffset + 2] << 8) | zoneData[sizeOffset + 3];
-                if (size <= 0 || size > 10_000_000) continue;
-
-                int dataOffset = nameEnd + 1;
-                if (files.Any(f => f.Name == name && f.DataOffset == dataOffset)) continue;
-
-                files.Add(new RawFileInfo { Name = name, Size = size, DataOffset = dataOffset });
-            }
-        }
-        return files.OrderBy(f => f.Name).ToList();
-    }
-
-    class RawFileInfo
-    {
-        public string Name { get; set; } = "";
-        public int Size { get; set; }
-        public int DataOffset { get; set; }
-    }
 }
