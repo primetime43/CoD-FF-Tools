@@ -357,6 +357,7 @@ partial class MainForm
         this.comboBoxGame.Name = "comboBoxGame";
         this.comboBoxGame.Size = new Size(220, 23);
         this.comboBoxGame.SelectedIndex = 0;
+        this.comboBoxGame.SelectedIndexChanged += new EventHandler(this.comboBoxGame_SelectedIndexChanged);
 
         //
         // labelPlatform

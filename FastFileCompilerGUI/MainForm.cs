@@ -18,6 +18,21 @@ public partial class MainForm : Form
         comboBoxPlatform_SelectedIndexChanged(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Marshals <paramref name="action"/> to the UI thread, but swallows the
+    /// <see cref="ObjectDisposedException"/> that fires if the form is closed
+    /// between the dispatched call and the actual invoke. Background workers
+    /// (Task.Run lambdas) keep running briefly after the form is gone — without
+    /// this guard the user gets an exception dialog on app close mid-compile.
+    /// </summary>
+    private void SafeInvoke(Action action)
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        try { Invoke(action); }
+        catch (ObjectDisposedException) { /* form closed during dispatch */ }
+        catch (InvalidOperationException) when (IsDisposed) { /* same race */ }
+    }
+
     #region Load Existing FastFile
 
     private async void btnLoadExistingFF_Click(object sender, EventArgs e)
@@ -42,7 +57,7 @@ public partial class MainForm : Form
                 // decompressing; the scanner needs both to pick the right rawfile header layout.
                 var ffInfo = FastFileInfo.FromFile(ffPath);
 
-                Invoke(() => UpdateStatus("Decompressing..."));
+                SafeInvoke(() => UpdateStatus("Decompressing..."));
 
                 var zonePath = Path.ChangeExtension(ffPath, ".zone");
                 // FastFileProcessor handles all platforms (PC single-stream, MW2 extended header,
@@ -50,13 +65,13 @@ public partial class MainForm : Form
                 // block format and choked on PC files.
                 FastFileProcessor.Decompress(ffPath, zonePath);
 
-                Invoke(() => UpdateStatus("Parsing zone file..."));
+                SafeInvoke(() => UpdateStatus("Parsing zone file..."));
 
                 // Parse the zone to get raw files
                 var zoneData = File.ReadAllBytes(zonePath);
                 var parsedFiles = ParseZoneRawFiles(zoneData, ffInfo);
 
-                Invoke(() =>
+                SafeInvoke(() =>
                 {
                     _existingFiles.Clear();
                     foreach (var file in parsedFiles)
@@ -166,17 +181,40 @@ public partial class MainForm : Form
 
         if (dialog.ShowDialog() == DialogResult.OK)
         {
-            var basePath = dialog.SelectedPath;
-            var files = Directory.GetFiles(basePath, "*.*", SearchOption.AllDirectories);
-
-            foreach (var file in files)
-            {
-                // Create relative path as asset name
-                var assetName = Path.GetRelativePath(basePath, file).Replace('\\', '/');
-                AddFile(file, assetName);
-            }
+            int added = AddFolderRecursive(dialog.SelectedPath);
             UpdateFileCount();
+            if (added == 0)
+            {
+                MessageBox.Show(
+                    "No supported rawfile extensions found in that folder.\n\n" +
+                    $"Supported: {string.Join(", ", FastFileConstants.ValidRawFileExtensions)}",
+                    "No Files Added",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
         }
+    }
+
+    /// <summary>
+    /// Enumerates <paramref name="basePath"/> recursively and adds files whose
+    /// extension is in <see cref="FastFileConstants.ValidRawFileExtensions"/>.
+    /// Skips junk like .git/, Thumbs.db, desktop.ini that's commonly nested next
+    /// to script source. Returns the number of files added.
+    /// </summary>
+    private int AddFolderRecursive(string basePath)
+    {
+        int added = 0;
+        var files = Directory.EnumerateFiles(basePath, "*.*", SearchOption.AllDirectories);
+        foreach (var file in files)
+        {
+            var ext = Path.GetExtension(file);
+            if (!FastFileConstants.IsValidRawFileExtension(ext)) continue;
+
+            var assetName = Path.GetRelativePath(basePath, file).Replace('\\', '/');
+            AddFile(file, assetName);
+            added++;
+        }
+        return added;
     }
 
     private void AddFile(string sourcePath, string assetName)
@@ -360,14 +398,10 @@ public partial class MainForm : Form
         {
             if (Directory.Exists(path))
             {
-                // It's a folder - add all files
-                var basePath = path;
-                var innerFiles = Directory.GetFiles(basePath, "*.*", SearchOption.AllDirectories);
-                foreach (var file in innerFiles)
-                {
-                    var assetName = Path.GetRelativePath(basePath, file).Replace('\\', '/');
-                    AddFile(file, assetName);
-                }
+                // Folder drop — filter same way as the Add Folder button so .git/Thumbs.db
+                // etc. don't sneak in. Single-file drops below stay permissive (user chose
+                // them explicitly).
+                AddFolderRecursive(path);
             }
             else if (File.Exists(path))
             {
@@ -446,8 +480,8 @@ public partial class MainForm : Form
         {
             await Task.Run(() =>
             {
-                Invoke(() => UpdateStatus("Building zone file..."));
-                Invoke(() => progressBar.Value = 20);
+                SafeInvoke(() => UpdateStatus("Building zone file..."));
+                SafeInvoke(() => progressBar.Value = 20);
 
                 var builder = new ZoneBuilder(gameVersion, zoneName, platform);
                 int totalFiles = filesToBuild.Count;
@@ -467,14 +501,14 @@ public partial class MainForm : Form
 
                     processed++;
                     int progress = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
-                    Invoke(() => progressBar.Value = progress);
+                    SafeInvoke(() => progressBar.Value = progress);
                 }
 
-                Invoke(() => progressBar.Value = 50);
+                SafeInvoke(() => progressBar.Value = 50);
                 byte[] zoneData = builder.Build();
 
-                Invoke(() => UpdateStatus("Compressing..."));
-                Invoke(() => progressBar.Value = 70);
+                SafeInvoke(() => UpdateStatus("Compressing..."));
+                SafeInvoke(() => progressBar.Value = 70);
 
                 // Save zone file first if requested
                 if (saveZone)
@@ -506,7 +540,7 @@ public partial class MainForm : Form
                     try { File.Delete(tempZonePath); } catch { }
                 }
 
-                Invoke(() => progressBar.Value = 100);
+                SafeInvoke(() => progressBar.Value = 100);
             });
 
             UpdateStatus($"Successfully compiled: {Path.GetFileName(outputPath)}");
@@ -543,29 +577,56 @@ public partial class MainForm : Form
 
     private (string platform, bool isXbox360Signed) GetSelectedPlatform()
     {
-        return comboBoxPlatform.SelectedIndex switch
+        // Key off the label string rather than an index so dynamically removing/adding
+        // entries (e.g. hiding Wii when MW2 is selected) doesn't shift selection meaning.
+        string sel = comboBoxPlatform.SelectedItem?.ToString() ?? "PS3";
+        return sel switch
         {
-            0 => ("PS3", false),
-            1 => ("Xbox360", false),      // Xbox 360 Unsigned
-            2 => ("Xbox360", true),       // Xbox 360 Signed
-            3 => ("PC", false),
-            4 => ("Wii", false),
-            _ => ("PS3", false)
+            "PS3"                 => ("PS3", false),
+            "Xbox 360 (Unsigned)" => ("Xbox360", false),
+            "Xbox 360 (Signed)"   => ("Xbox360", true),
+            "PC"                  => ("PC", false),
+            "Wii"                 => ("Wii", false),
+            _                     => ("PS3", false),
         };
     }
 
     private void comboBoxPlatform_SelectedIndexChanged(object sender, EventArgs e)
     {
-        string tooltipText = comboBoxPlatform.SelectedIndex switch
+        string sel = comboBoxPlatform.SelectedItem?.ToString() ?? "";
+        string tooltipText = sel switch
         {
-            0 => "PlayStation 3 - Standard unsigned format",
-            1 => "Xbox 360 Unsigned - For unsigned/retail Xbox 360 files",
-            2 => "Xbox 360 Signed - Requires loading an existing signed FF first to preserve the hash table",
-            3 => "PC - Windows platform format",
-            4 => "Wii - Nintendo Wii platform format",
-            _ => ""
+            "PS3"                 => "PlayStation 3 - Standard unsigned format",
+            "Xbox 360 (Unsigned)" => "Xbox 360 Unsigned - For unsigned/retail Xbox 360 files",
+            "Xbox 360 (Signed)"   => "Xbox 360 Signed - Requires loading an existing signed FF first to preserve the hash table",
+            "PC"                  => "PC - Windows platform format",
+            "Wii"                 => "Wii - Nintendo Wii platform format",
+            _                     => "",
         };
         toolTip.SetToolTip(comboBoxPlatform, tooltipText);
+    }
+
+    /// <summary>
+    /// When the user picks a game, hide platforms that game wasn't released on.
+    /// Currently the only unsupported combo is MW2 + Wii (MW2 never shipped on Wii).
+    /// If the user had Wii selected and switches to MW2, snap selection to PS3.
+    /// </summary>
+    private void comboBoxGame_SelectedIndexChanged(object sender, EventArgs e)
+    {
+        bool isMw2 = GetSelectedGameVersion() == GameVersion.MW2;
+        int wiiIdx = comboBoxPlatform.Items.IndexOf("Wii");
+        string currentPlatform = comboBoxPlatform.SelectedItem?.ToString() ?? "";
+
+        if (isMw2 && wiiIdx >= 0)
+        {
+            comboBoxPlatform.Items.RemoveAt(wiiIdx);
+            if (currentPlatform == "Wii")
+                comboBoxPlatform.SelectedItem = "PS3";
+        }
+        else if (!isMw2 && wiiIdx < 0)
+        {
+            comboBoxPlatform.Items.Add("Wii");
+        }
     }
 
     #endregion
