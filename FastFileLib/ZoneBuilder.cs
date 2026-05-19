@@ -16,6 +16,10 @@ namespace FastFileLib;
 /// PC zones store all 32-bit fields little-endian; everything else is big-endian.
 /// Asset type IDs also shift per platform (Xbox 360 drops vertexshader, PC drops
 /// pixelshader+vertexshader, MW2 PC adds vertexdecl).
+///
+/// Rawfile entry format also varies: CoD4/WaW use a 12-byte uncompressed header,
+/// MW2 uses 16/20-byte headers with zlib-compressed payloads (size fields LE on PC,
+/// BE on console).
 /// </summary>
 public class ZoneBuilder
 {
@@ -198,12 +202,19 @@ public class ZoneBuilder
         _ => 0u,
     };
 
-    /// <summary>BlockSizeVertex (MemAlloc2). See <see cref="GetBlockSizeTempValue"/>.</summary>
+    /// <summary>
+    /// BlockSizeVertex (MemAlloc2). See <see cref="GetBlockSizeTempValue"/>.
+    /// Real MW2 PC zones (patch_mp, mp_rust_load, etc.) consistently use 0 here —
+    /// vertex memory isn't pre-allocated by the PC engine the way it is on PS3.
+    /// Using PS3's 0x1000 default on PC would over-reserve vertex memory the zone
+    /// doesn't need.
+    /// </summary>
     private uint GetBlockSizeVertexValue() => _gameVersion switch
     {
         GameVersion.CoD4 => CoD4Definition.MemAlloc2Value,
         GameVersion.WaW when _isXbox360 => CoD5Definition.Xbox360MemAlloc2Value,
         GameVersion.WaW => CoD5Definition.MemAlloc2Value,
+        GameVersion.MW2 when _isPC => 0u,
         GameVersion.MW2 => MW2Definition.MemAlloc2Value,
         _ => 0u,
     };
@@ -269,37 +280,87 @@ public class ZoneBuilder
     }
 
     /// <summary>
-    /// Builds the raw files section.
-    /// Each raw file: FF FF FF FF + [size] + FF FF FF FF + [name\0] + [data] + [\0]
+    /// Builds the raw files section. Layout differs by game:
+    ///   CoD4/WaW (all platforms): [FFFFFFFF][size BE][FFFFFFFF][name\0][data][\0]
+    ///   MW2 PS3/Xbox 360 first:   [FFFFFFFF][FFFFFFFF][compressedLen BE][len BE][FFFFFFFF][name\0][zlib data]
+    ///   MW2 PS3/Xbox 360 rest:    [FFFFFFFF][compressedLen BE][len BE][FFFFFFFF][name\0][zlib data]
+    ///   MW2 PC (all entries):     [FFFFFFFF][compressedLen LE][len LE][FFFFFFFF][name\0][zlib data]
+    /// MW2 entries are packed tightly with no trailing null between them.
     /// </summary>
     private byte[] BuildRawFilesSection()
     {
         var section = new List<byte>();
 
-        foreach (var rawFile in _rawFiles)
-        {
-            // Marker: FF FF FF FF
-            section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
-
-            // Uncompressed size (big-endian)
-            section.AddRange(GetBigEndianBytes(rawFile.Data.Length));
-
-            // Pointer placeholder: FF FF FF FF
-            section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
-
-            // Filename (null-terminated)
-            section.AddRange(Encoding.ASCII.GetBytes(rawFile.Name));
-            section.Add(0x00);
-
-            // Raw data
-            section.AddRange(rawFile.Data);
-
-            // Null terminator
-            section.Add(0x00);
-        }
+        if (_gameVersion == GameVersion.MW2)
+            BuildMw2RawFilesSection(section);
+        else
+            BuildStandardRawFilesSection(section);
 
         _rawFilesSize = section.Count;
         return section.ToArray();
+    }
+
+    private static readonly byte[] FfMarker = { 0xFF, 0xFF, 0xFF, 0xFF };
+
+    private void BuildStandardRawFilesSection(List<byte> section)
+    {
+        foreach (var rawFile in _rawFiles)
+        {
+            section.AddRange(FfMarker);
+            section.AddRange(GetBigEndianBytes(rawFile.Data.Length));  // BE on all CoD4/WaW platforms
+            section.AddRange(FfMarker);
+            section.AddRange(Encoding.ASCII.GetBytes(rawFile.Name));
+            section.Add(0x00);
+            section.AddRange(rawFile.Data);
+            section.Add(0x00);
+        }
+    }
+
+    private void BuildMw2RawFilesSection(List<byte> section)
+    {
+        bool isFirst = true;
+        foreach (var rawFile in _rawFiles)
+        {
+            byte[] compressed = CompressionHelper.CompressZlib(rawFile.Data);
+
+            // First file on PS3/Xbox 360 carries an extra leading FF marker (20-byte header).
+            // MW2 PC does not appear to use this variant — all entries are 16-byte.
+            if (isFirst && !_isPC)
+                section.AddRange(FfMarker);
+
+            section.AddRange(FfMarker);
+            AppendUInt32(section, (uint)compressed.Length);   // compressedLen
+            AppendUInt32(section, (uint)rawFile.Data.Length); // uncompressedLen
+            section.AddRange(FfMarker);
+            section.AddRange(Encoding.ASCII.GetBytes(rawFile.Name));
+            section.Add(0x00);
+            section.AddRange(compressed);
+            // No trailing null — MW2 entries are packed tightly.
+
+            isFirst = false;
+        }
+    }
+
+    /// <summary>
+    /// Appends a 32-bit unsigned int at the platform's endianness. Same rule as
+    /// <see cref="WriteUInt32"/> but for List&lt;byte&gt; targets.
+    /// </summary>
+    private void AppendUInt32(List<byte> dst, uint value)
+    {
+        if (_isPC)
+        {
+            dst.Add((byte)(value & 0xFF));
+            dst.Add((byte)((value >> 8) & 0xFF));
+            dst.Add((byte)((value >> 16) & 0xFF));
+            dst.Add((byte)((value >> 24) & 0xFF));
+        }
+        else
+        {
+            dst.Add((byte)((value >> 24) & 0xFF));
+            dst.Add((byte)((value >> 16) & 0xFF));
+            dst.Add((byte)((value >> 8) & 0xFF));
+            dst.Add((byte)(value & 0xFF));
+        }
     }
 
     /// <summary>

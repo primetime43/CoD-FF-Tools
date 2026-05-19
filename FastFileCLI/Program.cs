@@ -686,7 +686,7 @@ class Program
         bool verbose = args.Any(a => a == "-v" || a == "--verbose");
 
         byte[] zoneData = LoadZoneData(inputPath);
-        var rawFiles = FindRawFiles(zoneData);
+        var rawFiles = ScanRawFiles(inputPath, zoneData);
 
         Console.WriteLine();
         Console.WriteLine($"Found {rawFiles.Count} raw file(s):");
@@ -694,10 +694,13 @@ class Program
 
         if (verbose)
         {
-            Console.WriteLine($"{"Name",-50} {"Offset",10} {"Size",10}");
-            Console.WriteLine(new string('-', 72));
+            Console.WriteLine($"{"Name",-50} {"Offset",10} {"Size",10} {"OnDisk",10}");
+            Console.WriteLine(new string('-', 83));
             foreach (var rf in rawFiles)
-                Console.WriteLine($"{rf.Name,-50} {rf.DataOffset,10} {rf.Size,10}");
+            {
+                int onDisk = rf.CompressedSize > 0 ? rf.CompressedSize : rf.DataSize;
+                Console.WriteLine($"{rf.Name,-50} {rf.DataOffset,10} {rf.DataSize,10} {onDisk,10}");
+            }
         }
         else
         {
@@ -739,7 +742,7 @@ class Program
         }
 
         byte[] zoneData = LoadZoneData(inputPath);
-        var rawFiles = FindRawFiles(zoneData);
+        var rawFiles = ScanRawFiles(inputPath, zoneData);
         if (!string.IsNullOrEmpty(filter))
             rawFiles = rawFiles.Where(rf => rf.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -757,9 +760,9 @@ class Program
                 Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
             }
 
-            byte[] content = new byte[rf.Size];
-            Array.Copy(zoneData, rf.DataOffset, content, 0, rf.Size);
-            File.WriteAllBytes(outputPath, content);
+            // RawFileLocation.Data is already decompressed by the scanner — write the
+            // decompressed payload, not the on-disk zlib bytes.
+            File.WriteAllBytes(outputPath, rf.Data);
             Console.WriteLine($"  {rf.Name}");
             extracted++;
         }
@@ -862,6 +865,51 @@ class Program
             return DecompressFf(inputPath);
         }
         return File.ReadAllBytes(inputPath);
+    }
+
+    /// <summary>
+    /// Loads zone bytes AND detects game/platform so the rawfile scanner picks
+    /// the right header layout. For .ff inputs we read the magic+version header;
+    /// for .zone inputs we sniff MemAlloc1 endianness.
+    /// </summary>
+    static (byte[] data, GameVersion gv, bool isPC) LoadZoneContext(string inputPath)
+    {
+        string ext = Path.GetExtension(inputPath).ToLower();
+        if (ext == ".ff" || ext == ".ffm")
+        {
+            var info = FastFileInfo.FromFile(inputPath);
+            Console.WriteLine($"Decompressing {Path.GetFileName(inputPath)}...");
+            return (DecompressFf(inputPath), info.GameVersion, info.IsPC);
+        }
+        var bytes = File.ReadAllBytes(inputPath);
+        var gv = FastFileInfo.DetectGameFromZoneData(bytes);
+        var isPC = FastFileInfo.IsZoneDataPC(bytes);
+        return (bytes, gv, isPC);
+    }
+
+    /// <summary>
+    /// Locates rawfile entries using the canonical <see cref="RawFileScanner"/>.
+    /// Handles CoD4/WaW 12-byte BE, MW2 console 16/20-byte BE, and MW2 PC 16-byte LE
+    /// headers (the legacy <see cref="FindRawFiles(byte[])"/> path is BE-only and
+    /// is kept only for the patch command, which has additional constraints).
+    /// </summary>
+    static IReadOnlyList<RawFileLocation> ScanRawFiles(string inputPath, byte[] zoneData)
+    {
+        string ext = Path.GetExtension(inputPath).ToLower();
+        GameVersion gv;
+        bool isPC;
+        if (ext == ".ff" || ext == ".ffm")
+        {
+            var info = FastFileInfo.FromFile(inputPath);
+            gv = info.GameVersion;
+            isPC = info.IsPC;
+        }
+        else
+        {
+            gv = FastFileInfo.DetectGameFromZoneData(zoneData);
+            isPC = FastFileInfo.IsZoneDataPC(zoneData);
+        }
+        return RawFileScanner.FindRawFiles(zoneData, gv, isPC);
     }
 
     /// <summary>

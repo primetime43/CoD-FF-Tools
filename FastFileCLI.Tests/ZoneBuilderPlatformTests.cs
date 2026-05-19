@@ -128,6 +128,11 @@ public class ZoneBuilderPlatformTests
         // MW2 PC rawfile type = 0x24 (MW2 PC adds vertexdecl, shifting IDs +1).
         Assert.Equal(0x24u, zone[0x38]);
         Assert.Equal(0x00u, zone[0x39]);
+
+        // BlockSizeVertex must be 0 on MW2 PC — verified by hex-dumping real retail
+        // zones (patch_mp.zone, mp_rust_load.zone). Using PS3's 0x1000 default would
+        // diverge from every observed sample.
+        Assert.Equal(0u, ReadUInt32Le(zone, 0x20));
     }
 
     [Fact]

@@ -205,7 +205,11 @@ public static class RawFileScanner
         int headerSize;
         int headerStart;
 
-        if (headerStart20 >= 0 &&
+        // MW2 PC always uses 16-byte rawfile headers per docs/MW2_PC_FastFile_Format.md.
+        // The asset table sentinel preceding the first rawfile entry on PC is
+        // `[type LE][FF FF FF FF]`, so a naive "20-byte header = two FF markers in a row"
+        // check false-positives on PC. Gate the 20-byte detection to console-only.
+        if (!isPC && headerStart20 >= 0 &&
             IsFfMarker(data, headerStart20) &&
             IsFfMarker(data, headerStart20 + 4))
         {
