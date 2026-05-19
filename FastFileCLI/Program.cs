@@ -597,8 +597,16 @@ class Program
             return 1;
         }
 
-        GameVersion gameVersion = GameVersion.WaW;
-        string platform = "PS3";
+        // Auto-detect game + platform from the zone bytes. Sniffing MemAlloc1 magic
+        // (with the layout-shape fallback added earlier) recognizes every real WaW
+        // PS3/Xbox 360/PC/Wii, CoD4 PS3/PC, and MW2 PS3/Xbox 360/PC zone we have.
+        // User-supplied --game / --platform overrides still win below.
+        // Read the whole file once — both detectors need the byte array (IsZoneDataPC's
+        // ZoneSize-plausibility check compares against full length).
+        byte[] zoneBytes = File.ReadAllBytes(inputPath);
+        GameVersion gameVersion = FastFileInfo.DetectGameFromZoneData(zoneBytes);
+        if (gameVersion == GameVersion.Unknown) gameVersion = GameVersion.WaW;
+        string platform = FastFileInfo.IsZoneDataPC(zoneBytes) ? "PC" : "PS3";
         bool signed = false;
         string? originalFf = null;
 
@@ -623,6 +631,7 @@ class Program
                         "ps3" => "PS3",
                         "xbox" or "xbox360" => "Xbox360",
                         "pc" => "PC",
+                        "wii" => "Wii",
                         _ => throw new ArgumentException($"Unknown platform: {args[i]}")
                     };
                     break;
@@ -640,7 +649,7 @@ class Program
         Console.WriteLine($"Compressing: {Path.GetFileName(inputPath)}");
         Console.WriteLine($"  Game: {gameVersion}, Platform: {platform}");
 
-        byte[] zoneData = File.ReadAllBytes(inputPath);
+        byte[] zoneData = zoneBytes;
         Compiler compiler;
         if (signed)
         {
