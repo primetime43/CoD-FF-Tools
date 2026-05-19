@@ -23,21 +23,6 @@ public partial class MainForm : Form
         comboBoxPlatform_SelectedIndexChanged(this, EventArgs.Empty);
     }
 
-    /// <summary>
-    /// Marshals <paramref name="action"/> to the UI thread, but swallows the
-    /// <see cref="ObjectDisposedException"/> that fires if the form is closed
-    /// between the dispatched call and the actual invoke. Background workers
-    /// (Task.Run lambdas) keep running briefly after the form is gone — without
-    /// this guard the user gets an exception dialog on app close mid-compile.
-    /// </summary>
-    private void SafeInvoke(Action action)
-    {
-        if (IsDisposed || !IsHandleCreated) return;
-        try { Invoke(action); }
-        catch (ObjectDisposedException) { /* form closed during dispatch */ }
-        catch (InvalidOperationException) when (IsDisposed) { /* same race */ }
-    }
-
     #region Load Existing FastFile
 
     private async void btnLoadExistingFF_Click(object sender, EventArgs e)
@@ -63,15 +48,20 @@ public partial class MainForm : Form
         SetUIEnabled(false);
         UpdateStatus("Loading FastFile...");
 
+        var progress = CreateProgressReporter();
+
         try
         {
-            await Task.Run(() =>
+            // Do all the IO/parse on a background thread; return the results.
+            // The await continuation runs on the captured UI context, so the
+            // state-commit code below executes on the UI thread without Invoke.
+            var loaded = await Task.Run(() =>
             {
                 // Read the FF header up-front so we know the game/platform before
                 // decompressing; the scanner needs both to pick the right rawfile header layout.
                 var ffInfo = FastFileInfo.FromFile(ffPath);
 
-                SafeInvoke(() => UpdateStatus("Decompressing..."));
+                progress.Report((0, "Decompressing..."));
 
                 var zonePath = Path.ChangeExtension(ffPath, ".zone");
                 // FastFileProcessor handles all platforms (PC single-stream, MW2 extended header,
@@ -79,36 +69,27 @@ public partial class MainForm : Form
                 // block format and choked on PC files.
                 FastFileProcessor.Decompress(ffPath, zonePath);
 
-                SafeInvoke(() => UpdateStatus("Parsing zone file..."));
+                progress.Report((0, "Parsing zone file..."));
 
-                // Parse the zone to get raw files
                 var zoneData = File.ReadAllBytes(zonePath);
                 var parsedFiles = ParseZoneRawFiles(zoneData, ffInfo);
                 var (memTemp, memVertex) = ReadZoneMemAlloc(zoneData, ffInfo);
 
-                SafeInvoke(() =>
-                {
-                    _existingFiles.Clear();
-                    foreach (var file in parsedFiles)
-                    {
-                        _existingFiles.Add(file);
-                    }
+                try { File.Delete(zonePath); } catch { /* temp cleanup is best-effort */ }
 
-                    _loadedFastFilePath = ffPath;
-                    _loadedBlockSizeTemp = memTemp;
-                    _loadedBlockSizeVertex = memVertex;
-                    checkBoxIncludeExisting.Enabled = true;
-                    checkBoxIncludeExisting.Checked = true;
-                    labelLoadedFF.Text = $"({_existingFiles.Count} assets)";
-                    labelLoadedFF.ForeColor = System.Drawing.Color.Green;
-
-                    // Set zone name from loaded file
-                    textBoxZoneName.Text = Path.GetFileNameWithoutExtension(ffPath);
-                });
-
-                // Clean up temp zone file - we kept the data in memory
-                try { File.Delete(zonePath); } catch { }
+                return (parsedFiles, memTemp, memVertex);
             });
+
+            _existingFiles.Clear();
+            _existingFiles.AddRange(loaded.parsedFiles);
+            _loadedFastFilePath = ffPath;
+            _loadedBlockSizeTemp = loaded.memTemp;
+            _loadedBlockSizeVertex = loaded.memVertex;
+            checkBoxIncludeExisting.Enabled = true;
+            checkBoxIncludeExisting.Checked = true;
+            labelLoadedFF.Text = $"({_existingFiles.Count} assets)";
+            labelLoadedFF.ForeColor = System.Drawing.Color.Green;
+            textBoxZoneName.Text = Path.GetFileNameWithoutExtension(ffPath);
 
             UpdateStatus($"Loaded {_existingFiles.Count} existing assets from {Path.GetFileName(ffPath)}");
             MessageBox.Show(
@@ -130,6 +111,24 @@ public partial class MainForm : Form
         {
             SetUIEnabled(true);
         }
+    }
+
+    /// <summary>
+    /// Creates a progress reporter that updates the status label and progress bar.
+    /// Must be called on the UI thread — Progress&lt;T&gt; captures the current
+    /// SyncContext at construction and dispatches callbacks through it. The
+    /// IsDisposed guard handles the close-mid-operation race.
+    /// </summary>
+    private IProgress<(int pct, string status)> CreateProgressReporter()
+    {
+        return new Progress<(int pct, string status)>(report =>
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            if (report.pct >= 0 && report.pct <= 100)
+                progressBar.Value = report.pct;
+            if (!string.IsNullOrEmpty(report.status))
+                UpdateStatus(report.status);
+        });
     }
 
     private void ClearLoadedFF()
@@ -552,12 +551,17 @@ public partial class MainForm : Form
         progressBar.Value = 0;
         UpdateStatus("Compiling...");
 
+        var progress = CreateProgressReporter();
+        // Snapshot fields read by the worker so we don't touch UI/instance state off-thread.
+        var loadedTemp = _loadedBlockSizeTemp;
+        var loadedVertex = _loadedBlockSizeVertex;
+        var loadedFastFilePath = _loadedFastFilePath;
+
         try
         {
             await Task.Run(() =>
             {
-                SafeInvoke(() => UpdateStatus("Building zone file..."));
-                SafeInvoke(() => progressBar.Value = 20);
+                progress.Report((20, "Building zone file..."));
 
                 // When rebuilding on top of a loaded source, preserve its MemAlloc values
                 // verbatim — they're per-zone allocations on PC/Wii, and even on console
@@ -565,8 +569,8 @@ public partial class MainForm : Form
                 var builder = new ZoneBuilder(gameVersion, zoneName, platform);
                 if (includeExisting)
                 {
-                    builder.WithBlockSizeTemp(_loadedBlockSizeTemp)
-                           .WithBlockSizeVertex(_loadedBlockSizeVertex);
+                    builder.WithBlockSizeTemp(loadedTemp)
+                           .WithBlockSizeVertex(loadedVertex);
                 }
                 int totalFiles = filesToBuild.Count;
                 int processed = 0;
@@ -584,15 +588,14 @@ public partial class MainForm : Form
                     builder.AddRawFile(rawFile);
 
                     processed++;
-                    int progress = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
-                    SafeInvoke(() => progressBar.Value = progress);
+                    int pct = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
+                    progress.Report((pct, string.Empty));
                 }
 
-                SafeInvoke(() => progressBar.Value = 50);
+                progress.Report((50, string.Empty));
                 byte[] zoneData = builder.Build();
 
-                SafeInvoke(() => UpdateStatus("Compressing..."));
-                SafeInvoke(() => progressBar.Value = 70);
+                progress.Report((70, "Compressing..."));
 
                 // Save zone file first if requested
                 if (saveZone)
@@ -610,7 +613,7 @@ public partial class MainForm : Form
                     if (isXbox360Signed)
                     {
                         // Xbox 360 signed format - use streaming compression with hash table from original
-                        FastFileProcessor.CompressXbox360Signed(tempZonePath, outputPath, gameVersion, _loadedFastFilePath!);
+                        FastFileProcessor.CompressXbox360Signed(tempZonePath, outputPath, gameVersion, loadedFastFilePath!);
                     }
                     else
                     {
@@ -624,7 +627,7 @@ public partial class MainForm : Form
                     try { File.Delete(tempZonePath); } catch { }
                 }
 
-                SafeInvoke(() => progressBar.Value = 100);
+                progress.Report((100, string.Empty));
             });
 
             UpdateStatus($"Successfully compiled: {Path.GetFileName(outputPath)}");

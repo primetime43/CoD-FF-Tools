@@ -141,26 +141,30 @@ public class ZoneBuilder
     /// </summary>
     public byte[] Build()
     {
-        // Build sections in order (footer first since we need sizes for header)
+        // Build sections in order (sections set _*Size fields the header reads).
         var rawFilesSection = BuildRawFilesSection();
         var localizedSection = BuildLocalizedSection();
         var assetTableSection = BuildAssetTableSection();
         var footerSection = BuildFooterSection();
         var headerSection = BuildHeaderSection();
 
-        // Combine all sections
-        var zone = new List<byte>();
-        zone.AddRange(headerSection);
-        zone.AddRange(assetTableSection);
-        zone.AddRange(rawFilesSection);
-        zone.AddRange(localizedSection);
-        zone.AddRange(footerSection);
+        // Single pre-sized buffer + Buffer.BlockCopy keeps Build() O(n). Padding is
+        // implicit — `new byte[]` zero-initializes the tail so we round the length
+        // up to the next 64 KB boundary and stop. Always adds at least one byte of
+        // padding (matches the previous behavior; some downstream tools expect that).
+        int contentSize = headerSection.Length + assetTableSection.Length
+                        + rawFilesSection.Length + localizedSection.Length
+                        + footerSection.Length;
+        int paddedSize = (contentSize / FastFileConstants.BlockSize + 1) * FastFileConstants.BlockSize;
 
-        // Pad to 64KB boundary
-        int padding = (zone.Count / FastFileConstants.BlockSize + 1) * FastFileConstants.BlockSize - zone.Count;
-        zone.AddRange(new byte[padding]);
-
-        return zone.ToArray();
+        var zone = new byte[paddedSize];
+        int off = 0;
+        Buffer.BlockCopy(headerSection,     0, zone, off, headerSection.Length);     off += headerSection.Length;
+        Buffer.BlockCopy(assetTableSection, 0, zone, off, assetTableSection.Length); off += assetTableSection.Length;
+        Buffer.BlockCopy(rawFilesSection,   0, zone, off, rawFilesSection.Length);   off += rawFilesSection.Length;
+        Buffer.BlockCopy(localizedSection,  0, zone, off, localizedSection.Length);  off += localizedSection.Length;
+        Buffer.BlockCopy(footerSection,     0, zone, off, footerSection.Length);
+        return zone;
     }
 
     /// <summary>
@@ -324,34 +328,34 @@ public class ZoneBuilder
     /// </summary>
     private byte[] BuildRawFilesSection()
     {
-        var section = new List<byte>();
-
+        using var ms = new MemoryStream();
         if (_gameVersion == GameVersion.MW2)
-            BuildMw2RawFilesSection(section);
+            WriteMw2RawFilesSection(ms);
         else
-            BuildStandardRawFilesSection(section);
+            WriteStandardRawFilesSection(ms);
 
-        _rawFilesSize = section.Count;
-        return section.ToArray();
+        _rawFilesSize = (int)ms.Length;
+        return ms.ToArray();
     }
 
     private static readonly byte[] FfMarker = { 0xFF, 0xFF, 0xFF, 0xFF };
 
-    private void BuildStandardRawFilesSection(List<byte> section)
+    private void WriteStandardRawFilesSection(MemoryStream ms)
     {
         foreach (var rawFile in _rawFiles)
         {
-            section.AddRange(FfMarker);
-            section.AddRange(GetBigEndianBytes(rawFile.Data.Length));  // BE on all CoD4/WaW platforms
-            section.AddRange(FfMarker);
-            section.AddRange(Encoding.ASCII.GetBytes(rawFile.Name));
-            section.Add(0x00);
-            section.AddRange(rawFile.Data);
-            section.Add(0x00);
+            ms.Write(FfMarker, 0, 4);
+            WriteUInt32Stream(ms, (uint)rawFile.Data.Length, bigEndian: true);  // BE on all CoD4/WaW platforms
+            ms.Write(FfMarker, 0, 4);
+            var nameBytes = Encoding.ASCII.GetBytes(rawFile.Name);
+            ms.Write(nameBytes, 0, nameBytes.Length);
+            ms.WriteByte(0x00);
+            ms.Write(rawFile.Data, 0, rawFile.Data.Length);
+            ms.WriteByte(0x00);
         }
     }
 
-    private void BuildMw2RawFilesSection(List<byte> section)
+    private void WriteMw2RawFilesSection(MemoryStream ms)
     {
         bool isFirst = true;
         foreach (var rawFile in _rawFiles)
@@ -361,15 +365,16 @@ public class ZoneBuilder
             // First file on PS3/Xbox 360 carries an extra leading FF marker (20-byte header).
             // MW2 PC does not appear to use this variant — all entries are 16-byte.
             if (isFirst && !_isPC)
-                section.AddRange(FfMarker);
+                ms.Write(FfMarker, 0, 4);
 
-            section.AddRange(FfMarker);
-            AppendUInt32(section, (uint)compressed.Length);   // compressedLen
-            AppendUInt32(section, (uint)rawFile.Data.Length); // uncompressedLen
-            section.AddRange(FfMarker);
-            section.AddRange(Encoding.ASCII.GetBytes(rawFile.Name));
-            section.Add(0x00);
-            section.AddRange(compressed);
+            ms.Write(FfMarker, 0, 4);
+            WriteUInt32Stream(ms, (uint)compressed.Length, bigEndian: !_isPC);
+            WriteUInt32Stream(ms, (uint)rawFile.Data.Length, bigEndian: !_isPC);
+            ms.Write(FfMarker, 0, 4);
+            var nameBytes = Encoding.ASCII.GetBytes(rawFile.Name);
+            ms.Write(nameBytes, 0, nameBytes.Length);
+            ms.WriteByte(0x00);
+            ms.Write(compressed, 0, compressed.Length);
             // No trailing null — MW2 entries are packed tightly.
 
             isFirst = false;
@@ -377,24 +382,25 @@ public class ZoneBuilder
     }
 
     /// <summary>
-    /// Appends a 32-bit unsigned int at the platform's endianness. Same rule as
-    /// <see cref="WriteUInt32"/> but for List&lt;byte&gt; targets.
+    /// Writes a 32-bit unsigned int to a stream at the requested endianness.
+    /// Used by the section builders for size fields whose endianness is dictated
+    /// by the rawfile-entry format, not by the zone-header endianness rule.
     /// </summary>
-    private void AppendUInt32(List<byte> dst, uint value)
+    private static void WriteUInt32Stream(MemoryStream ms, uint value, bool bigEndian)
     {
-        if (_isPC)
+        if (bigEndian)
         {
-            dst.Add((byte)(value & 0xFF));
-            dst.Add((byte)((value >> 8) & 0xFF));
-            dst.Add((byte)((value >> 16) & 0xFF));
-            dst.Add((byte)((value >> 24) & 0xFF));
+            ms.WriteByte((byte)((value >> 24) & 0xFF));
+            ms.WriteByte((byte)((value >> 16) & 0xFF));
+            ms.WriteByte((byte)((value >> 8) & 0xFF));
+            ms.WriteByte((byte)(value & 0xFF));
         }
         else
         {
-            dst.Add((byte)((value >> 24) & 0xFF));
-            dst.Add((byte)((value >> 16) & 0xFF));
-            dst.Add((byte)((value >> 8) & 0xFF));
-            dst.Add((byte)(value & 0xFF));
+            ms.WriteByte((byte)(value & 0xFF));
+            ms.WriteByte((byte)((value >> 8) & 0xFF));
+            ms.WriteByte((byte)((value >> 16) & 0xFF));
+            ms.WriteByte((byte)((value >> 24) & 0xFF));
         }
     }
 
@@ -404,24 +410,22 @@ public class ZoneBuilder
     /// </summary>
     private byte[] BuildLocalizedSection()
     {
-        var section = new List<byte>();
+        using var ms = new MemoryStream();
+        var marker8 = new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 
         foreach (var entry in _localizedEntries)
         {
-            // Marker: FF FF FF FF FF FF FF FF
-            section.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF });
-
-            // Localized value (null-terminated)
-            section.AddRange(Encoding.Default.GetBytes(entry.Value));
-            section.Add(0x00);
-
-            // Reference key (null-terminated)
-            section.AddRange(Encoding.Default.GetBytes(entry.Reference));
-            section.Add(0x00);
+            ms.Write(marker8, 0, 8);
+            var valueBytes = Encoding.Default.GetBytes(entry.Value);
+            ms.Write(valueBytes, 0, valueBytes.Length);
+            ms.WriteByte(0x00);
+            var refBytes = Encoding.Default.GetBytes(entry.Reference);
+            ms.Write(refBytes, 0, refBytes.Length);
+            ms.WriteByte(0x00);
         }
 
-        _localizedSize = section.Count;
-        return section.ToArray();
+        _localizedSize = (int)ms.Length;
+        return ms.ToArray();
     }
 
     /// <summary>
@@ -430,43 +434,33 @@ public class ZoneBuilder
     /// </summary>
     private byte[] BuildFooterSection()
     {
-        var footer = new List<byte>();
+        using var ms = new MemoryStream();
 
         if (_gameVersion == GameVersion.MW2)
         {
             // MW2 footer: 16 bytes
-            footer.AddRange(new byte[]
+            ms.Write(new byte[]
             {
                 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF
-            });
+            }, 0, 16);
         }
         else
         {
             // CoD4/WaW footer: 12 bytes
-            footer.AddRange(new byte[]
+            ms.Write(new byte[]
             {
                 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
                 0xFF, 0xFF, 0xFF, 0xFF
-            });
+            }, 0, 12);
         }
 
-        // Zone name (null-terminated with extra null)
-        footer.AddRange(Encoding.ASCII.GetBytes(_zoneName));
-        footer.AddRange(new byte[] { 0x00, 0x00 });
+        var nameBytes = Encoding.ASCII.GetBytes(_zoneName);
+        ms.Write(nameBytes, 0, nameBytes.Length);
+        ms.WriteByte(0x00);
+        ms.WriteByte(0x00);
 
-        _footerSize = footer.Count;
-        return footer.ToArray();
-    }
-
-    /// <summary>
-    /// Converts an int to big-endian bytes.
-    /// </summary>
-    private static byte[] GetBigEndianBytes(int value)
-    {
-        byte[] bytes = BitConverter.GetBytes(value);
-        if (BitConverter.IsLittleEndian)
-            Array.Reverse(bytes);
-        return bytes;
+        _footerSize = (int)ms.Length;
+        return ms.ToArray();
     }
 }
