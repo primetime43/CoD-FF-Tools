@@ -5,6 +5,7 @@ using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.Services;
 using Call_of_Duty_FastFile_Editor.UI;
 using Call_of_Duty_FastFile_Editor.ZoneParsers;
+using FastFileLib;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -105,7 +106,6 @@ namespace Call_of_Duty_FastFile_Editor
         private List<ZoneAssetRecord> _zoneAssetRecords;
 
         private AssetRecordCollection _processResult;
-        private IFastFileHandler _fastFileHandler;
 
         /// <summary>
         /// Currently selected MenuList in the menu files tree.
@@ -329,14 +329,11 @@ namespace Call_of_Duty_FastFile_Editor
 
             try
             {
-                // Assign the correct handler for the opened file
-                _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
                 // Show the opened FF path in the program's title text
                 this.SetProgramTitle(_openedFastFile.FfFilePath);
 
                 // Decompress the Fast File to get the zone file
-                _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
+                FastFileProcessor.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
 
                 // Load & parse that zone in one go
                 _openedFastFile.LoadZone();
@@ -446,13 +443,10 @@ namespace Call_of_Duty_FastFile_Editor
                 // Show loading indicator while decompressing
                 ShowLoading($"Decompressing {gameName} FastFile...");
 
-                // Assign the correct handler for the opened file
-                _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
                 // Decompress the Fast File on a background thread
                 await Task.Run(() =>
                 {
-                    _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
+                    FastFileProcessor.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
                 });
 
                 // Update loading message (ensure UI thread)
@@ -1002,7 +996,7 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private void saveFastFileToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (_openedFastFile == null || _fastFileHandler == null)
+            if (_openedFastFile == null)
             {
                 MessageBox.Show("No Fast File is currently opened.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -1065,7 +1059,7 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private void saveFastFileAsToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (_openedFastFile == null || _fastFileHandler == null)
+            if (_openedFastFile == null)
             {
                 MessageBox.Show("No Fast File is currently opened.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -5257,9 +5251,6 @@ namespace Call_of_Duty_FastFile_Editor
             {
                 try
                 {
-                    // Assign the correct handler for the opened file
-                    _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
                     // Show the opened zone path in the program's title text
                     this.SetProgramTitle(_openedFastFile.ZoneFilePath + " (Zone File)");
 
