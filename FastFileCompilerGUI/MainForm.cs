@@ -39,7 +39,10 @@ public partial class MainForm : Form
         {
             await Task.Run(() =>
             {
-                // Load and decompress the FastFile
+                // Read the FF header up-front so we know the game/platform before
+                // decompressing; the scanner needs both to pick the right rawfile header layout.
+                var ffInfo = FastFileInfo.FromFile(ffPath);
+
                 Invoke(() => UpdateStatus("Decompressing..."));
 
                 var zonePath = Path.ChangeExtension(ffPath, ".zone");
@@ -52,7 +55,7 @@ public partial class MainForm : Form
 
                 // Parse the zone to get raw files
                 var zoneData = File.ReadAllBytes(zonePath);
-                var parsedFiles = ParseZoneRawFiles(zoneData);
+                var parsedFiles = ParseZoneRawFiles(zoneData, ffInfo);
 
                 Invoke(() =>
                 {
@@ -111,144 +114,26 @@ public partial class MainForm : Form
     }
 
     /// <summary>
-    /// Valid file extensions for raw files in zone data.
+    /// Parses raw files from zone data via the shared FastFileLib scanner so all
+    /// game/platform header variants (CoD4/WaW 12-byte BE, MW2 16/20-byte BE,
+    /// MW2 PC 16-byte LE with zlib payloads) are handled in one place.
     /// </summary>
-    private static readonly string[] ValidExtensions = {
-        ".cfg", ".gsc", ".atr", ".csc", ".rmb", ".arena", ".vision", ".txt", ".str", ".menu"
-    };
-
-    /// <summary>
-    /// Parses raw files from zone data using pattern-based search.
-    /// Looks for file extensions then backtracks to find the header.
-    /// </summary>
-    private List<RawFileEntry> ParseZoneRawFiles(byte[] zoneData)
+    private static List<RawFileEntry> ParseZoneRawFiles(byte[] zoneData, FastFileInfo ffInfo)
     {
-        var result = new List<RawFileEntry>();
-        var foundOffsets = new HashSet<int>(); // Track found files to avoid duplicates
+        var locations = RawFileScanner.FindRawFiles(zoneData, ffInfo.GameVersion, ffInfo.IsPC);
 
-        // Search for each file extension pattern
-        foreach (var ext in ValidExtensions)
-        {
-            byte[] pattern = System.Text.Encoding.ASCII.GetBytes(ext + "\0");
-
-            for (int i = 0; i <= zoneData.Length - pattern.Length; i++)
+        var result = locations
+            .Select(loc => new RawFileEntry
             {
-                // Check if pattern matches at this position
-                bool match = true;
-                for (int j = 0; j < pattern.Length; j++)
-                {
-                    if (zoneData[i + j] != pattern[j])
-                    {
-                        match = false;
-                        break;
-                    }
-                }
+                AssetName = loc.Name,
+                SourcePath = "[from loaded FF]",
+                Size = loc.Data.Length,
+                Data = loc.Data,
+            })
+            .ToList();
 
-                if (!match) continue;
-
-                // Found extension pattern at position i
-                // Now backtrack to find the FF FF FF FF marker before the filename
-                int ffffPosition = i - 1;
-                while (ffffPosition >= 4)
-                {
-                    if (zoneData[ffffPosition] == 0xFF &&
-                        zoneData[ffffPosition - 1] == 0xFF &&
-                        zoneData[ffffPosition - 2] == 0xFF &&
-                        zoneData[ffffPosition - 3] == 0xFF)
-                    {
-                        break;
-                    }
-                    ffffPosition--;
-
-                    // Don't backtrack too far (max filename length ~256)
-                    if (i - ffffPosition > 300)
-                    {
-                        ffffPosition = -1;
-                        break;
-                    }
-                }
-
-                if (ffffPosition < 4) continue;
-
-                // Check the byte after FF marker isn't 0x00 (would indicate end of filename area)
-                if (zoneData[ffffPosition + 1] == 0x00) continue;
-
-                // Size is 7 bytes before the FF marker position
-                // Structure: [FF FF FF FF] [4-byte size] [FF FF FF FF] [name\0] [data]
-                int sizePosition = ffffPosition - 7;
-                if (sizePosition < 0) continue;
-
-                // Calculate header start (4 bytes before size)
-                int headerStart = sizePosition - 4;
-                if (headerStart < 0) continue;
-
-                // Skip if we already found a file at this header position
-                if (foundOffsets.Contains(headerStart)) continue;
-
-                // Read size (big-endian)
-                int size = (zoneData[sizePosition] << 24) | (zoneData[sizePosition + 1] << 16) |
-                           (zoneData[sizePosition + 2] << 8) | zoneData[sizePosition + 3];
-
-                if (size <= 0 || size > 10_000_000) continue; // Sanity check
-
-                // Extract filename (starts right after FF FF FF FF marker)
-                int nameStart = ffffPosition + 1;
-                int nameEnd = nameStart;
-                while (nameEnd < zoneData.Length && zoneData[nameEnd] != 0)
-                    nameEnd++;
-
-                if (nameEnd <= nameStart) continue;
-
-                string name = System.Text.Encoding.ASCII.GetString(zoneData, nameStart, nameEnd - nameStart);
-
-                // Validate the name has the extension we were looking for
-                if (!name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) continue;
-
-                // Data starts after null terminator
-                int dataStart = nameEnd + 1;
-                if (dataStart + size > zoneData.Length)
-                {
-                    // Adjust size if it exceeds bounds
-                    size = zoneData.Length - dataStart;
-                    if (size <= 0) continue;
-                }
-
-                // Extract data (remove trailing zero padding)
-                byte[] data = new byte[size];
-                Array.Copy(zoneData, dataStart, data, 0, size);
-                data = RemoveZeroPadding(data);
-
-                result.Add(new RawFileEntry
-                {
-                    AssetName = name,
-                    SourcePath = "[from loaded FF]",
-                    Size = data.Length,
-                    Data = data
-                });
-
-                foundOffsets.Add(headerStart);
-            }
-        }
-
-        // Sort by asset name for consistent ordering
         result.Sort((a, b) => string.Compare(a.AssetName, b.AssetName, StringComparison.OrdinalIgnoreCase));
         return result;
-    }
-
-    /// <summary>
-    /// Removes trailing zero bytes from data.
-    /// </summary>
-    private static byte[] RemoveZeroPadding(byte[] content)
-    {
-        int i = content.Length - 1;
-        while (i >= 0 && content[i] == 0x00)
-            i--;
-
-        if (i < 0) return Array.Empty<byte>();
-
-        byte[] trimmed = new byte[i + 1];
-        Array.Copy(content, 0, trimmed, 0, i + 1);
-        return trimmed;
     }
 
     #endregion

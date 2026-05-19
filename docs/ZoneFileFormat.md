@@ -115,7 +115,9 @@ Without this final entry, the game will fail to load the zone correctly.
 
 ## Raw File Entry Format
 
-Each raw file in the Raw Files Section:
+Rawfile entry layout depends on game + platform. `FastFileLib.RawFileScanner` is the canonical parser — call it instead of pattern-scanning by hand.
+
+### CoD4 / WaW (all platforms) — 12-byte header
 ```
 [4 bytes]  Marker: 0xFF 0xFF 0xFF 0xFF
 [4 bytes]  Data size (big-endian)
@@ -124,6 +126,23 @@ Each raw file in the Raw Files Section:
 [N bytes]  File data
 [1 byte]   Null terminator: 0x00
 ```
+PC zones use the same BE size field here — only the outer zone header switches endianness on PC.
+
+### MW2 PS3 / Xbox 360 — subsequent files (16-byte header)
+```
+[4 bytes]  Marker: 0xFF 0xFF 0xFF 0xFF
+[4 bytes]  Compressed length (big-endian)
+[4 bytes]  Uncompressed length (big-endian)
+[4 bytes]  Pointer marker: 0xFF 0xFF 0xFF 0xFF
+[N bytes]  Filename (null-terminated ASCII string)
+[N bytes]  zlib-compressed file data (full zlib header)
+```
+
+### MW2 PS3 / Xbox 360 — first file (20-byte header)
+Same as the 16-byte form but with an extra leading `0xFF 0xFF 0xFF 0xFF` marker.
+
+### MW2 PC — 16-byte header, little-endian size fields
+Same shape as the MW2 console 16-byte form, but `compressedLen` and `uncompressedLen` are stored little-endian. Reading them as BE produces nonsense (e.g. `0x18000000` for a 24-byte payload).
 
 ## Localized String Entry Format
 
