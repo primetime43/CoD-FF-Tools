@@ -112,6 +112,14 @@ namespace Call_of_Duty_FastFile_Editor.Models
             // Create a virtual header based on game type
             OpenedFastFileHeader = new FastFileHeader(gameType);
 
+            // Auto-detect PC vs console from the zone bytes — `FastFileHeader(GameType)`
+            // only knows the game, not the platform. Without this, IsPC stayed false even
+            // for PC zones, so the save path used PS3's BE-version + 64KB-block compressor
+            // and the engine saw -2097086464 instead of 387 at load time. We sniff ZoneSize
+            // endianness + marker layout via FastFileInfo (same helper `ffcli info` uses).
+            try { _isPC = FastFileInfo.IsZonePC(zonePath); }
+            catch { /* leave as default; user can still re-save if needed */ }
+
             // Create zone file reference
             OpenedFastFileZone = new ZoneFile(ZoneFilePath, this);
         }

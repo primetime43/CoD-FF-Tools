@@ -2089,7 +2089,11 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
 
             byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
-            bool isBigEndian = true; // PS3 is big-endian
+            // PC zones store multi-byte values little-endian; console (PS3 / Xbox 360)
+            // and Wii are big-endian. The parser reads with the right endianness via
+            // FastFile.IsPC, so writes must match — otherwise edited colors/rects/floats
+            // get stored byte-swapped and the engine sees garbage values.
+            bool isBigEndian = !_openedFastFile.IsPC;
 
             // Iterate over all menus in all menu lists
             foreach (var menuList in _menuLists)
