@@ -282,6 +282,38 @@ public static class FastFileConstants
         _ => throw new ArgumentOutOfRangeException(nameof(version))
     };
 
+    /// <summary>
+    /// Platform-aware rawfile asset type ID. CoD4/WaW PC drop pixelshader+vertexshader
+    /// (so IDs shift -2 from PS3), Xbox 360 drops only vertexshader (-1 from PS3). MW2
+    /// PC instead *adds* vertexdecl (+1 from PS3, +2 from Xbox 360). Wii uses PC enum.
+    /// </summary>
+    public static byte GetRawFileAssetType(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
+    {
+        bool noShaderSlots = isPC || isWii;
+        return version switch
+        {
+            GameVersion.CoD4 => noShaderSlots ? (byte)0x1F : isXbox360 ? (byte)0x20 : (byte)0x21,
+            GameVersion.WaW  => noShaderSlots ? (byte)0x20 : isXbox360 ? (byte)0x21 : (byte)0x22,
+            GameVersion.MW2  => isPC ? (byte)0x24 : isXbox360 ? (byte)0x22 : (byte)0x23,
+            _ => throw new ArgumentOutOfRangeException(nameof(version))
+        };
+    }
+
+    /// <summary>
+    /// Platform-aware localize asset type ID. Same shift rules as rawfile (see above).
+    /// </summary>
+    public static byte GetLocalizeAssetType(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
+    {
+        bool noShaderSlots = isPC || isWii;
+        return version switch
+        {
+            GameVersion.CoD4 => noShaderSlots ? (byte)0x16 : isXbox360 ? (byte)0x17 : (byte)0x18,
+            GameVersion.WaW  => noShaderSlots ? (byte)0x17 : isXbox360 ? (byte)0x18 : (byte)0x19,
+            GameVersion.MW2  => isPC ? (byte)0x1B : isXbox360 ? (byte)0x19 : (byte)0x1A,
+            _ => throw new ArgumentOutOfRangeException(nameof(version))
+        };
+    }
+
     public static byte[] GetMemAlloc1(GameVersion version) => version switch
     {
         GameVersion.CoD4 => CoD4MemAlloc1,

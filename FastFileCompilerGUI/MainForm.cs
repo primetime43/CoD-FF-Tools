@@ -8,7 +8,6 @@ public partial class MainForm : Form
     private readonly List<RawFileEntry> _rawFiles = new();
     private readonly List<RawFileEntry> _existingFiles = new();
     private string? _loadedFastFilePath;
-    private byte[]? _loadedZoneData; // Original zone data for patching
 
     public MainForm()
     {
@@ -66,7 +65,6 @@ public partial class MainForm : Form
                     }
 
                     _loadedFastFilePath = ffPath;
-                    _loadedZoneData = zoneData; // Store original zone for patching
                     checkBoxIncludeExisting.Enabled = true;
                     checkBoxIncludeExisting.Checked = true;
                     labelLoadedFF.Text = $"({_existingFiles.Count} assets)";
@@ -106,7 +104,6 @@ public partial class MainForm : Form
     {
         _existingFiles.Clear();
         _loadedFastFilePath = null;
-        _loadedZoneData = null;
         checkBoxIncludeExisting.Enabled = false;
         checkBoxIncludeExisting.Checked = false;
         labelLoadedFF.Text = "(No FF loaded)";
@@ -423,6 +420,23 @@ public partial class MainForm : Form
         var zoneName = textBoxZoneName.Text;
         var saveZone = checkBoxSaveZone.Checked;
 
+        // Merge existing rawfiles (from loaded FF) with user-added files. User-added wins on
+        // name collisions so users can replace a loaded file just by adding one with the same name.
+        // Non-rawfile assets from the loaded zone (xmodels, materials, menus, weapons, sounds, etc.)
+        // are intentionally dropped — this tool is for editing rawfiles only.
+        var filesToBuild = new List<RawFileEntry>();
+        if (includeExisting)
+            filesToBuild.AddRange(_existingFiles);
+        foreach (var userFile in _rawFiles)
+        {
+            int existingIdx = filesToBuild.FindIndex(f =>
+                f.AssetName.Equals(userFile.AssetName, StringComparison.OrdinalIgnoreCase));
+            if (existingIdx >= 0)
+                filesToBuild[existingIdx] = userFile;
+            else
+                filesToBuild.Add(userFile);
+        }
+
         // Disable UI during compile
         SetUIEnabled(false);
         progressBar.Value = 0;
@@ -432,73 +446,32 @@ public partial class MainForm : Form
         {
             await Task.Run(() =>
             {
-                byte[] zoneData;
+                Invoke(() => UpdateStatus("Building zone file..."));
+                Invoke(() => progressBar.Value = 20);
 
-                // If we have a loaded zone and want to preserve it, use patching
-                if (includeExisting && _loadedZoneData != null)
+                var builder = new ZoneBuilder(gameVersion, zoneName, platform);
+                int totalFiles = filesToBuild.Count;
+                int processed = 0;
+
+                foreach (var entry in filesToBuild)
                 {
-                    Invoke(() => UpdateStatus("Patching zone file..."));
-                    Invoke(() => progressBar.Value = 20);
+                    byte[] fileData = entry.Data ?? File.ReadAllBytes(entry.SourcePath);
 
-                    // Build list of files to replace (from user's added files)
-                    var filesToReplace = new List<RawFile>();
-                    int totalFiles = _rawFiles.Count;
-                    int processed = 0;
-
-                    foreach (var entry in _rawFiles)
+                    var rawFile = new RawFile
                     {
-                        byte[] fileData = entry.Data ?? File.ReadAllBytes(entry.SourcePath);
+                        Name = entry.AssetName,
+                        Data = fileData
+                    };
+                    rawFile.StripHeaderIfPresent();
+                    builder.AddRawFile(rawFile);
 
-                        var rawFile = new RawFile
-                        {
-                            Name = entry.AssetName,
-                            Data = fileData
-                        };
-                        rawFile.StripHeaderIfPresent();
-                        filesToReplace.Add(rawFile);
-
-                        processed++;
-                        int progress = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
-                        Invoke(() => progressBar.Value = progress);
-                    }
-
-                    Invoke(() => progressBar.Value = 50);
-                    Invoke(() => UpdateStatus("Applying patches..."));
-
-                    // Patch the original zone - preserves all structure, replaces/adds raw files
-                    var patcher = new ZonePatcher(_loadedZoneData, gameVersion);
-                    zoneData = patcher.Patch(filesToReplace);
+                    processed++;
+                    int progress = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
+                    Invoke(() => progressBar.Value = progress);
                 }
-                else
-                {
-                    // No existing zone loaded - build from scratch
-                    Invoke(() => UpdateStatus("Building zone file..."));
-                    Invoke(() => progressBar.Value = 20);
 
-                    var builder = new ZoneBuilder(gameVersion, zoneName);
-                    int totalFiles = _rawFiles.Count;
-                    int processed = 0;
-
-                    foreach (var entry in _rawFiles)
-                    {
-                        byte[] fileData = entry.Data ?? File.ReadAllBytes(entry.SourcePath);
-
-                        var rawFile = new RawFile
-                        {
-                            Name = entry.AssetName,
-                            Data = fileData
-                        };
-                        rawFile.StripHeaderIfPresent();
-                        builder.AddRawFile(rawFile);
-
-                        processed++;
-                        int progress = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
-                        Invoke(() => progressBar.Value = progress);
-                    }
-
-                    Invoke(() => progressBar.Value = 50);
-                    zoneData = builder.Build();
-                }
+                Invoke(() => progressBar.Value = 50);
+                byte[] zoneData = builder.Build();
 
                 Invoke(() => UpdateStatus("Compressing..."));
                 Invoke(() => progressBar.Value = 70);
@@ -543,7 +516,6 @@ public partial class MainForm : Form
             {
                 message += $"\nZone: {Path.ChangeExtension(outputPath, ".zone")}";
             }
-
             MessageBox.Show(message, "Compile Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)

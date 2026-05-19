@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using FastFileLib.GameDefinitions;
 using FastFileLib.Models;
 
 namespace FastFileLib;
@@ -7,6 +8,14 @@ namespace FastFileLib;
 /// <summary>
 /// Builds a zone file from raw files and localized entries.
 /// The zone structure is: [Header] + [AssetTable] + [RawFiles] + [Localized] + [Footer] + [Padding]
+///
+/// Header layout depends on game + platform. We support:
+///   - 48 bytes (MW2 Xbox 360): no BlockSizeVertex slot, asset table @ 0x30
+///   - 52 bytes (default — PS3, CoD4/WaW Xbox 360, CoD4/WaW PC): asset table @ 0x34
+///   - 56 bytes (Wii WaW, MW2 PC): adds BlockSizeIndex slot, asset table @ 0x38
+/// PC zones store all 32-bit fields little-endian; everything else is big-endian.
+/// Asset type IDs also shift per platform (Xbox 360 drops vertexshader, PC drops
+/// pixelshader+vertexshader, MW2 PC adds vertexdecl).
 /// </summary>
 public class ZoneBuilder
 {
@@ -14,6 +23,9 @@ public class ZoneBuilder
     private readonly List<RawFile> _rawFiles;
     private readonly List<LocalizedEntry> _localizedEntries;
     private readonly string _zoneName;
+    private readonly bool _isPC;
+    private readonly bool _isXbox360;
+    private readonly bool _isWii;
 
     // Size tracking for header calculations
     private int _assetTableSize;
@@ -21,12 +33,17 @@ public class ZoneBuilder
     private int _localizedSize;
     private int _footerSize;
 
-    public ZoneBuilder(GameVersion gameVersion, string zoneName = "custom_patch_mp")
+    public ZoneBuilder(GameVersion gameVersion, string zoneName = "custom_patch_mp", string platform = "PS3")
     {
         _gameVersion = gameVersion;
         _rawFiles = new List<RawFile>();
         _localizedEntries = new List<LocalizedEntry>();
         _zoneName = zoneName;
+
+        string p = (platform ?? "PS3").Trim().ToUpperInvariant();
+        _isPC = p == "PC";
+        _isXbox360 = p == "XBOX360" || p == "XBOX 360";
+        _isWii = p == "WII";
     }
 
     /// <summary>
@@ -115,108 +132,140 @@ public class ZoneBuilder
     }
 
     /// <summary>
-    /// Builds the zone header (52 bytes for CoD4/WaW).
-    /// Structure from Zone.md:
-    /// 0x00: ZoneSize, 0x04: ExternalSize, 0x08: BlockSizeTemp, 0x0C: BlockSizePhysical,
-    /// 0x10: BlockSizeRuntime, 0x14: BlockSizeVirtual, 0x18: BlockSizeLarge, 0x1C: BlockSizeCallback,
-    /// 0x20: BlockSizeVertex, 0x24: ScriptStringCount, 0x28: ScriptStringsPtr, 0x2C: AssetCount, 0x30: AssetsPtr
+    /// Builds the zone header at the size dictated by game + platform. See class docs
+    /// for the three supported layouts.
     /// </summary>
     private byte[] BuildHeaderSection()
     {
-        var header = new byte[52];
+        int headerSize = FastFileConstants.GetZoneHeaderSize(_gameVersion, _isXbox360, _isPC, _isWii);
+        var header = new byte[headerSize];
 
-        // Calculate ZoneSize (total size excluding header, but we'll calculate based on content)
+        // ZoneSize = everything after the header (asset table + sections + footer, excluding padding).
         int zoneSize = _assetTableSize + _rawFilesSize + _localizedSize + _footerSize;
-
-        // Asset count
         int assetCount = _assetTableSize / 8;
 
-        // Memory allocation blocks
-        var blockSizeTemp = FastFileConstants.GetMemAlloc1(_gameVersion);
-        var blockSizeVertex = FastFileConstants.GetMemAlloc2(_gameVersion);
+        uint blockSizeTemp = GetBlockSizeTempValue();
+        uint blockSizeVertex = GetBlockSizeVertexValue();
 
-        // 0x00: ZoneSize
-        WriteBigEndian(header, 0x00, zoneSize);
+        // XFile fields up through BlockSizeCallback are at the same offsets in every layout.
+        WriteUInt32(header, 0x00, (uint)zoneSize);                   // ZoneSize
+        WriteUInt32(header, 0x04, 0);                                // ExternalSize
+        WriteUInt32(header, 0x08, blockSizeTemp);                    // BlockSizeTemp
+        WriteUInt32(header, 0x0C, 0);                                // BlockSizePhysical
+        WriteUInt32(header, 0x10, 0);                                // BlockSizeRuntime
+        WriteUInt32(header, 0x14, 0);                                // BlockSizeVirtual
+        WriteUInt32(header, 0x18, (uint)(_rawFilesSize + _localizedSize)); // BlockSizeLarge
+        WriteUInt32(header, 0x1C, 0);                                // BlockSizeCallback
 
-        // 0x04: ExternalSize (0)
-        WriteBigEndian(header, 0x04, 0);
+        // BlockSizeVertex slot exists on every layout EXCEPT MW2 Xbox 360 (48-byte).
+        bool isMw2Xbox360 = _gameVersion == GameVersion.MW2 && _isXbox360;
+        if (!isMw2Xbox360)
+        {
+            WriteUInt32(header, 0x20, blockSizeVertex);
+        }
 
-        // 0x08: BlockSizeTemp
-        blockSizeTemp.CopyTo(header, 0x08);
+        // 56-byte layouts (Wii WaW, MW2 PC) carry an extra BlockSizeIndex slot at 0x24.
+        if (headerSize == FastFileConstants.ZoneHeaderSize_Wii)
+        {
+            WriteUInt32(header, 0x24, 0);                            // BlockSizeIndex
+        }
 
-        // 0x0C: BlockSizePhysical (0)
-        WriteBigEndian(header, 0x0C, 0);
+        // XAssetList offsets float based on layout.
+        int scriptStringCountOffset = FastFileConstants.GetScriptStringCountOffset(_gameVersion, _isXbox360, _isPC, _isWii);
+        int scriptStringsPtrOffset  = scriptStringCountOffset + 4;
+        int assetCountOffset        = scriptStringsPtrOffset + 4;
+        int assetsPtrOffset         = assetCountOffset + 4;
 
-        // 0x10: BlockSizeRuntime (0)
-        WriteBigEndian(header, 0x10, 0);
-
-        // 0x14: BlockSizeVirtual (0 for rawfile-only zones)
-        WriteBigEndian(header, 0x14, 0);
-
-        // 0x18: BlockSizeLarge (set to raw files size + some buffer)
-        WriteBigEndian(header, 0x18, _rawFilesSize + _localizedSize);
-
-        // 0x1C: BlockSizeCallback (0)
-        WriteBigEndian(header, 0x1C, 0);
-
-        // 0x20: BlockSizeVertex
-        blockSizeVertex.CopyTo(header, 0x20);
-
-        // 0x24: ScriptStringCount (0 - no script strings in rawfile-only zones)
-        WriteBigEndian(header, 0x24, 0);
-
-        // 0x28: ScriptStringsPtr (FF FF FF FF)
-        header[0x28] = 0xFF; header[0x29] = 0xFF; header[0x2A] = 0xFF; header[0x2B] = 0xFF;
-
-        // 0x2C: AssetCount
-        WriteBigEndian(header, 0x2C, assetCount);
-
-        // 0x30: AssetsPtr (FF FF FF FF)
-        header[0x30] = 0xFF; header[0x31] = 0xFF; header[0x32] = 0xFF; header[0x33] = 0xFF;
+        WriteUInt32(header, scriptStringCountOffset, 0);
+        WriteUInt32(header, scriptStringsPtrOffset, 0xFFFFFFFF);
+        WriteUInt32(header, assetCountOffset, (uint)assetCount);
+        WriteUInt32(header, assetsPtrOffset, 0xFFFFFFFF);
 
         return header;
     }
 
-    private static void WriteBigEndian(byte[] data, int offset, int value)
+    /// <summary>
+    /// BlockSizeTemp (MemAlloc1). Best-effort defaults — for PC/Wii these are
+    /// per-zone allocations rather than fixed magic constants in retail files;
+    /// when patching from a real source the patcher preserves the original.
+    /// </summary>
+    private uint GetBlockSizeTempValue() => _gameVersion switch
     {
-        data[offset] = (byte)(value >> 24);
-        data[offset + 1] = (byte)(value >> 16);
-        data[offset + 2] = (byte)(value >> 8);
-        data[offset + 3] = (byte)(value & 0xFF);
+        GameVersion.CoD4 => CoD4Definition.MemAlloc1Value,
+        GameVersion.WaW when _isXbox360 => CoD5Definition.Xbox360MemAlloc1Value,
+        GameVersion.WaW => CoD5Definition.MemAlloc1Value,
+        GameVersion.MW2 => MW2Definition.MemAlloc1Value,
+        _ => 0u,
+    };
+
+    /// <summary>BlockSizeVertex (MemAlloc2). See <see cref="GetBlockSizeTempValue"/>.</summary>
+    private uint GetBlockSizeVertexValue() => _gameVersion switch
+    {
+        GameVersion.CoD4 => CoD4Definition.MemAlloc2Value,
+        GameVersion.WaW when _isXbox360 => CoD5Definition.Xbox360MemAlloc2Value,
+        GameVersion.WaW => CoD5Definition.MemAlloc2Value,
+        GameVersion.MW2 => MW2Definition.MemAlloc2Value,
+        _ => 0u,
+    };
+
+    /// <summary>
+    /// Writes a 32-bit unsigned int at the right endianness for the target platform.
+    /// PC zones are little-endian; PS3 / Xbox 360 / Wii are big-endian.
+    /// </summary>
+    private void WriteUInt32(byte[] data, int offset, uint value)
+    {
+        if (_isPC)
+        {
+            data[offset]     = (byte)(value & 0xFF);
+            data[offset + 1] = (byte)((value >> 8) & 0xFF);
+            data[offset + 2] = (byte)((value >> 16) & 0xFF);
+            data[offset + 3] = (byte)((value >> 24) & 0xFF);
+        }
+        else
+        {
+            data[offset]     = (byte)((value >> 24) & 0xFF);
+            data[offset + 1] = (byte)((value >> 16) & 0xFF);
+            data[offset + 2] = (byte)((value >> 8) & 0xFF);
+            data[offset + 3] = (byte)(value & 0xFF);
+        }
     }
 
     /// <summary>
-    /// Builds the asset table section.
-    /// Each asset entry is 8 bytes: [4-byte type: 00 00 00 XX] [4-byte ptr: FF FF FF FF]
-    /// Per Zone.md: "Each record is 8 bytes (big-endian on PS3)"
+    /// Builds the asset table section. Each entry is 8 bytes: [type word][ptr placeholder].
+    /// The type word is a 32-bit int whose low byte holds the per-platform asset type ID, so
+    /// it is BE on consoles/Wii (type byte at offset 3) and LE on PC (type byte at offset 0).
+    /// Asset type IDs themselves shift between platforms — handled by FastFileConstants.
     /// </summary>
     private byte[] BuildAssetTableSection()
     {
-        var table = new List<byte>();
+        byte rawFileType = FastFileConstants.GetRawFileAssetType(_gameVersion, _isXbox360, _isPC, _isWii);
+        byte localizeType = FastFileConstants.GetLocalizeAssetType(_gameVersion, _isXbox360, _isPC, _isWii);
 
-        byte rawFileType = FastFileConstants.GetRawFileAssetType(_gameVersion);
-        byte localizeType = FastFileConstants.GetLocalizeAssetType(_gameVersion);
+        int totalEntries = _rawFiles.Count + _localizedEntries.Count + 1; // +1 trailing rawfile
+        var table = new byte[totalEntries * 8];
+        int offset = 0;
 
-        // Entry for each raw file - format: [type][ptr] = 00 00 00 22 FF FF FF FF
         foreach (var _ in _rawFiles)
         {
-            byte[] entry = { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF };
-            table.AddRange(entry);
+            WriteAssetTableEntry(table, offset, rawFileType);
+            offset += 8;
         }
-
-        // Entry for each localized string
         foreach (var _ in _localizedEntries)
         {
-            byte[] entry = { 0x00, 0x00, 0x00, localizeType, 0xFF, 0xFF, 0xFF, 0xFF };
-            table.AddRange(entry);
+            WriteAssetTableEntry(table, offset, localizeType);
+            offset += 8;
         }
+        // Trailing final rawfile entry — required by the format; without it the engine hangs.
+        WriteAssetTableEntry(table, offset, rawFileType);
 
-        // Final rawfile entry (required by format)
-        byte[] finalEntry = { 0x00, 0x00, 0x00, rawFileType, 0xFF, 0xFF, 0xFF, 0xFF };
-        table.AddRange(finalEntry);
+        _assetTableSize = table.Length;
+        return table;
+    }
 
-        _assetTableSize = table.Count;
-        return table.ToArray();
+    private void WriteAssetTableEntry(byte[] table, int offset, byte typeId)
+    {
+        WriteUInt32(table, offset, typeId);          // type word @ +0
+        WriteUInt32(table, offset + 4, 0xFFFFFFFF);  // ptr placeholder @ +4
     }
 
     /// <summary>
