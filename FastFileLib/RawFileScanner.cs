@@ -123,7 +123,7 @@ public static class RawFileScanner
             // range; an out-of-range read just means this candidate isn't a rawfile.
             var loc = gameVersion == GameVersion.MW2
                 ? TryParseMw2Header(zoneData, markerEnd, nameStart, nameEnd, isPC)
-                : TryParseStandardHeader(zoneData, markerEnd, nameStart, nameEnd);
+                : TryParseStandardHeader(zoneData, markerEnd, nameStart, nameEnd, isPC);
 
             if (loc is null) continue;
             if (!seenHeaders.Add(loc.HeaderOffset)) continue;
@@ -134,6 +134,68 @@ public static class RawFileScanner
 
         results.Sort((a, b) => a.HeaderOffset.CompareTo(b.HeaderOffset));
         return results;
+    }
+
+    /// <summary>
+    /// Parses a single rawfile entry whose header is known to start at
+    /// <paramref name="headerOffset"/>. Returns null if the bytes there don't
+    /// match the expected header layout for the given game/platform.
+    /// Use this when sequential walking has located the next entry's start —
+    /// it's faster than the bulk pattern scan and avoids false positives from
+    /// rawfile-extension byte sequences embedded in other asset blobs.
+    /// </summary>
+    public static RawFileLocation? TryParseAt(byte[] zoneData, int headerOffset, GameVersion gameVersion, bool isPC)
+    {
+        if (zoneData is null) throw new ArgumentNullException(nameof(zoneData));
+        if (headerOffset < 0 || headerOffset >= zoneData.Length) return null;
+
+        // Expected layout:
+        //   CoD4/WaW: [FFFF][size][FFFF][name\0][data][\0]   (12-byte header)
+        //   MW2 cons: [FFFF][compLen][len][FFFF][name\0][zlib data]   (16-byte; first file may be 20)
+        //   MW2 PC:   same as above with LE sizes
+        // Find the second FF marker by skipping past the header to where the name starts.
+        int markerEnd;
+        int nameStart;
+
+        if (gameVersion == GameVersion.MW2)
+        {
+            // Check the 20-byte first-file variant on console (extra leading FF marker).
+            bool isFirstFileLayout = !isPC
+                && headerOffset + 20 <= zoneData.Length
+                && IsFfMarker(zoneData, headerOffset)
+                && IsFfMarker(zoneData, headerOffset + 4);
+            int headerSize = isFirstFileLayout ? 20 : 16;
+            if (headerOffset + headerSize > zoneData.Length) return null;
+            if (!IsFfMarker(zoneData, headerOffset)) return null;
+            if (!IsFfMarker(zoneData, headerOffset + headerSize - 4)) return null;
+            markerEnd = headerOffset + headerSize - 1;
+        }
+        else
+        {
+            if (headerOffset + 12 > zoneData.Length) return null;
+            if (!IsFfMarker(zoneData, headerOffset)) return null;
+            if (!IsFfMarker(zoneData, headerOffset + 8)) return null;
+            markerEnd = headerOffset + 11;
+        }
+
+        nameStart = markerEnd + 1;
+        int nameEnd = nameStart;
+        while (nameEnd < zoneData.Length && zoneData[nameEnd] != 0) nameEnd++;
+        if (nameEnd <= nameStart || nameEnd >= zoneData.Length) return null;
+
+        string name = Encoding.ASCII.GetString(zoneData, nameStart, nameEnd - nameStart);
+        if (!LooksLikeValidName(name)) return null;
+        // We deliberately don't require a specific extension here — callers walking
+        // by structure know they're sitting on a rawfile slot, so any plausible
+        // filename should be accepted.
+
+        var loc = gameVersion == GameVersion.MW2
+            ? TryParseMw2Header(zoneData, markerEnd, nameStart, nameEnd, isPC)
+            : TryParseStandardHeader(zoneData, markerEnd, nameStart, nameEnd, isPC);
+
+        if (loc is null) return null;
+        loc.Name = name;
+        return loc;
     }
 
     private static int FindPreviousFfMarker(byte[] data, int searchStart, int maxScanBack)
@@ -153,9 +215,11 @@ public static class RawFileScanner
 
     /// <summary>
     /// CoD4/WaW 12-byte uncompressed header. markerEnd is the last byte of the
-    /// trailing FF marker; the length sits at markerEnd - 7 (BE).
+    /// trailing FF marker; the length sits at markerEnd - 7. Per
+    /// docs/PC_WaW_FastFile_Format.md, PC WaW stores all multi-byte values
+    /// little-endian (including the rawfile size); console is big-endian.
     /// </summary>
-    private static RawFileLocation? TryParseStandardHeader(byte[] data, int markerEnd, int nameStart, int nameEnd)
+    private static RawFileLocation? TryParseStandardHeader(byte[] data, int markerEnd, int nameStart, int nameEnd, bool isPC)
     {
         int sizeOffset = markerEnd - 7;
         int headerStart = sizeOffset - 4;
@@ -164,7 +228,7 @@ public static class RawFileScanner
         // Confirm the leading FF marker is actually present.
         if (!IsFfMarker(data, headerStart)) return null;
 
-        int size = ReadInt32BigEndian(data, sizeOffset);
+        int size = isPC ? ReadInt32LittleEndian(data, sizeOffset) : ReadInt32BigEndian(data, sizeOffset);
         if (size <= 0 || size > MaxRawFileSize) return null;
 
         int dataOffset = nameEnd + 1;

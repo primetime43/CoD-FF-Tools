@@ -30,18 +30,24 @@ public class RawFileScannerTests
     }
 
     [Fact]
-    public void FindRawFiles_WaWPc_ParsesTwelveByteBeEntry()
+    public void FindRawFiles_WaWPc_ParsesTwelveByteLeEntry()
     {
-        // PC WaW zones still use BE size fields in the rawfile header (only the
-        // outer zone header switches endianness on PC).
+        // PC WaW stores all multi-byte values little-endian, including the rawfile
+        // header's size field. (Earlier docs misstated this as BE — verified against
+        // real samples in docs/PC_WaW_FastFile_Format.md.)
         byte[] payload = Encoding.ASCII.GetBytes("// pc waw\nset r_fullbright 1\n");
-        byte[] zone = BuildStandardEntry("scripts/pc_only.cfg", payload);
+        byte[] zone = BuildStandardEntry("scripts/pc_only.cfg", payload, isPC: true);
 
         var found = RawFileScanner.FindRawFiles(zone, GameVersion.WaW, isPC: true);
 
         var entry = Assert.Single(found);
         Assert.Equal("scripts/pc_only.cfg", entry.Name);
         Assert.Equal(payload, entry.Data);
+
+        // Sanity: reading the same bytes as console (BE) must NOT succeed — proves
+        // the LE/BE branch is actually doing something.
+        var foundBe = RawFileScanner.FindRawFiles(zone, GameVersion.WaW, isPC: false);
+        Assert.Empty(foundBe);
     }
 
     [Fact]
@@ -124,13 +130,43 @@ public class RawFileScannerTests
         Assert.Empty(found);
     }
 
+    [Fact]
+    public void TryParseAt_KnownHeaderOffset_ParsesSingleEntry()
+    {
+        // Single-entry primitive used by the Editor's sequential walker. Pad the
+        // start so HeaderOffset is non-zero, then point TryParseAt directly at the
+        // header without any pattern scanning.
+        byte[] payload = Encoding.ASCII.GetBytes("// targeted parse test\n");
+        var entryBytes = BuildStandardEntry("test.gsc", payload);
+        var zone = new byte[16 + entryBytes.Length];
+        Array.Copy(entryBytes, 0, zone, 16, entryBytes.Length);
+
+        var loc = RawFileScanner.TryParseAt(zone, 16, GameVersion.WaW, isPC: false);
+
+        Assert.NotNull(loc);
+        Assert.Equal("test.gsc", loc!.Name);
+        Assert.Equal(12, loc.HeaderSize);
+        Assert.Equal(payload, loc.Data);
+    }
+
+    [Fact]
+    public void TryParseAt_WrongOffset_ReturnsNull()
+    {
+        // Pointing TryParseAt at bytes that aren't a rawfile header must return
+        // null cleanly (not throw, not return a garbage RawFileLocation).
+        byte[] zone = new byte[64];   // all zeros
+        Assert.Null(RawFileScanner.TryParseAt(zone, 0, GameVersion.WaW, isPC: false));
+        Assert.Null(RawFileScanner.TryParseAt(zone, 32, GameVersion.MW2, isPC: true));
+    }
+
     // ------------ helpers ------------
 
-    private static byte[] BuildStandardEntry(string name, byte[] payload)
+    private static byte[] BuildStandardEntry(string name, byte[] payload, bool isPC = false)
     {
         var ms = new MemoryStream();
         ms.Write(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
-        WriteInt32Be(ms, payload.Length);
+        if (isPC) WriteInt32Le(ms, payload.Length);
+        else      WriteInt32Be(ms, payload.Length);
         ms.Write(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
         ms.Write(Encoding.ASCII.GetBytes(name));
         ms.WriteByte(0x00);

@@ -342,10 +342,13 @@ public class ZoneBuilder
 
     private void WriteStandardRawFilesSection(MemoryStream ms)
     {
+        // CoD4/WaW console = BE size field; PC = LE (verified against retail PC WaW
+        // samples — see docs/PC_WaW_FastFile_Format.md "All values are little-endian").
+        bool be = !_isPC;
         foreach (var rawFile in _rawFiles)
         {
             ms.Write(FfMarker, 0, 4);
-            WriteUInt32Stream(ms, (uint)rawFile.Data.Length, bigEndian: true);  // BE on all CoD4/WaW platforms
+            WriteUInt32Stream(ms, (uint)rawFile.Data.Length, bigEndian: be);
             ms.Write(FfMarker, 0, 4);
             var nameBytes = Encoding.ASCII.GetBytes(rawFile.Name);
             ms.Write(nameBytes, 0, nameBytes.Length);
