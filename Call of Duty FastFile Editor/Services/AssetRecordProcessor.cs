@@ -547,7 +547,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         // between menufiles (e.g. ui_mp.ff: ~18MB between the 2 MenuLists), so
                         // a small window like 1MB silently drops most of them.
                         int maxSearchBytes = zoneData.Length - menuFileSearchOffset;
-                        var menuList = FindNextMenuList(zoneData, menuFileSearchOffset, maxSearchBytes, isBigEndian: true, gameDefinition);
+                        var menuList = FindNextMenuList(zoneData, menuFileSearchOffset, maxSearchBytes, isBigEndian: !openedFastFile.IsPC, gameDefinition);
 
                         if (menuList == null)
                         {
@@ -1169,20 +1169,20 @@ namespace Call_of_Duty_FastFile_Editor.Services
             for (int pos = startOffset; pos < endOffset; pos++)
             {
                 // Look for the pattern: [FF FF FF FF] [4 bytes count] [FF FF FF FF]
-                uint namePtr = ReadUInt32BE(zoneData, pos);
-                if (namePtr != 0xFFFFFFFF)
+                // The 0xFFFFFFFF markers are endian-agnostic but the count must be read
+                // with the right byte order — PC zones store it little-endian.
+                if (zoneData[pos] != 0xFF || zoneData[pos + 1] != 0xFF || zoneData[pos + 2] != 0xFF || zoneData[pos + 3] != 0xFF)
                     continue;
 
-                // Check if menus pointer at offset +8 is also 0xFFFFFFFF
                 if (pos + 12 >= zoneData.Length)
                     continue;
 
-                uint menusPtr = ReadUInt32BE(zoneData, pos + 8);
-                if (menusPtr != 0xFFFFFFFF)
+                if (zoneData[pos + 8] != 0xFF || zoneData[pos + 9] != 0xFF || zoneData[pos + 10] != 0xFF || zoneData[pos + 11] != 0xFF)
                     continue;
 
-                // Read menu count
-                int menuCount = (int)ReadUInt32BE(zoneData, pos + 4);
+                int menuCount = isBigEndian
+                    ? (int)ReadUInt32BE(zoneData, pos + 4)
+                    : BitConverter.ToInt32(zoneData, pos + 4);
                 if (menuCount < 0 || menuCount > 500)
                     continue;
 
