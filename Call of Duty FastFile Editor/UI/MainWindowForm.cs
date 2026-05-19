@@ -1919,10 +1919,14 @@ namespace Call_of_Duty_FastFile_Editor
             menuFilesTextEditor.TextChanged -= MenuFilesTextEditor_TextChanged;
             menuFilesTextEditor.TextChanged += MenuFilesTextEditor_TextChanged;
 
-            // Create decompiler for formatting menu data (PS3 = big endian)
+            // Endianness must match the zone's actual byte order — PC zones are little-endian,
+            // PS3/Xbox/Wii are big-endian. Hardcoding BE here used to mis-read every float/int
+            // on PC zones, so MenuValue.Offset ended up pointing at the wrong bytes and the
+            // matching write in ApplyMenuFileChangesToZone corrupted random parts of the zone
+            // (caused "unsupported compression method" errors when reopening the saved FF).
             var decompiler = new ZoneParsers.MenuDecompiler(
                 _openedFastFile.OpenedFastFileZone.Data,
-                isBigEndian: true);
+                isBigEndian: !_openedFastFile.IsPC);
 
             // Tree layout:
             //   - menufile contains exactly 1 menu, parser found it    → flat row "name [N items]"
