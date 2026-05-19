@@ -897,9 +897,9 @@ namespace Call_of_Duty_FastFile_Editor
                     // vanishes the next time the FF is reopened (issue #14).
                     try
                     {
-                        FastFileSaveService.Save(_openedFastFile.ZoneFilePath,
-                                                 _openedFastFile.FfFilePath,
-                                                 _openedFastFile);
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath,
+                                          _openedFastFile.FfFilePath,
+                                          _openedFastFile);
                     }
                     catch (Exception ex)
                     {
@@ -1020,7 +1020,7 @@ namespace Call_of_Duty_FastFile_Editor
                 File.WriteAllBytes(_openedFastFile.ZoneFilePath, _openedFastFile.OpenedFastFileZone.Data);
 
                 // Recompress to FF
-                FastFileSaveService.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
+                FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                 // Build save message
                 var changes = new List<string>();
@@ -1086,7 +1086,7 @@ namespace Call_of_Duty_FastFile_Editor
                         File.WriteAllBytes(_openedFastFile.ZoneFilePath, _openedFastFile.OpenedFastFileZone.Data);
 
                         // Recompress to the original FF path first
-                        FastFileSaveService.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                         // Now copy the saved FF to the new location
                         File.Copy(_openedFastFile.FfFilePath, newFilePath, overwrite: true);
@@ -1572,9 +1572,9 @@ namespace Call_of_Duty_FastFile_Editor
                     // mtime and the edit never reaches the game. (Root cause of issue #14.)
                     try
                     {
-                        FastFileSaveService.Save(_openedFastFile.ZoneFilePath,
-                                                 _openedFastFile.FfFilePath,
-                                                 _openedFastFile);
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath,
+                                          _openedFastFile.FfFilePath,
+                                          _openedFastFile);
                     }
                     catch (Exception ex)
                     {
@@ -1742,7 +1742,7 @@ namespace Call_of_Duty_FastFile_Editor
             // so File > Save would otherwise see no work to do.
             try
             {
-                FastFileSaveService.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
+                FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
             }
             catch (Exception ex)
             {
@@ -3532,7 +3532,7 @@ namespace Call_of_Duty_FastFile_Editor
                     }
 
                     // Recompress zone -> ff
-                    FastFileSaveService.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
+                    FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                     // Clear the dirty flag after successful save
                     _hasUnsavedChanges = false;
@@ -4532,9 +4532,9 @@ namespace Call_of_Duty_FastFile_Editor
                         // save again after this since the editor is closing.
                         try
                         {
-                            FastFileSaveService.Save(_openedFastFile.ZoneFilePath,
-                                                     _openedFastFile.FfFilePath,
-                                                     _openedFastFile);
+                            FastFileSave.Save(_openedFastFile.ZoneFilePath,
+                                              _openedFastFile.FfFilePath,
+                                              _openedFastFile);
                         }
                         catch (Exception ex)
                         {
@@ -4645,7 +4645,7 @@ namespace Call_of_Duty_FastFile_Editor
                         File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
 
                         // Recompress zone back to FF
-                        FastFileSaveService.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                         MessageBox.Show($"File '{selectedNode.FileName}' size increased to {newSize} bytes successfully.\nZone file rebuilt and FF updated.",
                             "Size Increase Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -4748,7 +4748,7 @@ namespace Call_of_Duty_FastFile_Editor
                         File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
 
                         // Recompress zone back to FF
-                        FastFileSaveService.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                         string modeText = useInPlace ? "All assets preserved." : "Zone rebuilt (raw files and localized entries only).";
 
@@ -5064,9 +5064,9 @@ namespace Call_of_Duty_FastFile_Editor
             try
             {
                 // No FastFile context here — we're compressing an arbitrary zone the user picked.
-                // FastFileSaveService.SaveDetectingFromZone sniffs platform from the zone bytes
-                // so PC zones don't fall through to the PS3 default compressor.
-                FastFileSaveService.SaveDetectingFromZone(zoneData, ffPath, fallbackGame: selectedVersion);
+                // The lib's SaveDetectingFromZone sniffs platform from the zone bytes so PC/Wii
+                // zones don't fall through to the PS3 default compressor.
+                FastFileLib.FastFileSaveService.SaveDetectingFromZone(zoneData, ffPath, fallbackGame: selectedVersion);
 
                 MessageBox.Show($"Successfully compressed zone to FastFile:\n{ffPath}", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
@@ -5134,7 +5134,7 @@ namespace Call_of_Duty_FastFile_Editor
                 File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
 
                 // Recompress zone back to FF
-                FastFileSaveService.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
+                FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                 // Remove from TreeView
                 filesTreeView.Nodes.Remove(filesTreeView.SelectedNode);

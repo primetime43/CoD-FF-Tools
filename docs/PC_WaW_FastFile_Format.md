@@ -154,7 +154,7 @@ Example observed first asset entry:
 |---|---|
 | `FastFileInfo.GetVersionBytes(platform="PC")` | Returns LE-ordered version bytes (e.g., `83 01 00 00` for WaW PC) |
 | `Compiler.Compile()` | Branches on `_platform == "PC"` → calls `CompilePc()` which emits `IWffu100 + LE version + single zlib stream` |
-| `FastFileSaveService.Save` | Editor's single canonical save path. Reads `openedFastFile.IsPC` → passes `platform="PC"` to `FastFileProcessor.Recompress` → routes to `Compiler.CompilePc`. All editor save call sites now funnel through here. |
+| `FastFileLib.FastFileSaveService` | Canonical save path used by every GUI + the CLI. For PC the editor's `FastFileSave` shim reads `openedFastFile.IsPC` → passes `platform="PC"` to `FastFileSaveService.Save` → routes through `FastFileProcessor.Recompress` → `Compiler.CompileSingleStream`. |
 | `ZoneFileHeaderConstants.PC_*Offset` | Uses 52-byte layout: `ScriptStringCount @0x24`, `AssetCount @0x2C`, etc. |
 | `FastFileConstants.ZoneHeaderSize_PC` | `0x34` (52 bytes) — but note that ui.zone uses 56-byte (see "ui.zone exception" below) |
 | `StructureBasedZoneParser` | Detects Format A LE `[type LE][ptr]` for PC; includes a backup-4-bytes check for the tag-end overshoot case |

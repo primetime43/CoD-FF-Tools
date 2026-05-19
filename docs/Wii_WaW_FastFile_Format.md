@@ -138,7 +138,7 @@ is BE *and* uses the 56-byte layout (markers at 0x2C and 0x34, no marker at
 0x28). The CLI's `ffcli compress` checks PC first, then Wii, then defaults to
 PS3 — so Wii zones get correctly identified without needing `--platform wii`.
 
-Editor saves of Wii FFs flow through `FastFileSaveService.Save`, which derives
+Editor saves of Wii FFs flow through the editor's `FastFileSave` shim → `FastFileLib.FastFileSaveService.Save`, which derives
 `platform="Wii"` from `openedFastFile.IsWii` (set by `FastFileInfo.FromFile` at
 open time when version `0x19B` is detected).
 

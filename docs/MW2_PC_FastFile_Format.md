@@ -243,7 +243,7 @@ correctly rejected.
 | `MW2GameDefinition.TryParseMW2Format` | Reads `compressedLen` / `len` as LE when `IsPC`; uses `IsValidRawFileName` whitelist |
 | `FastFileLib.RawFileScanner` | LE size reads when `isPC=true`; handles MW2 PC's 16-byte LE header + zlib decompression. Editor's `RawFileParser` is a shim that wraps each `RawFileLocation` as a `RawFileNode`. |
 | `FastFileProcessor.Recompress` / `CompressMW2PC` | Writes the unsigned PC layout (12-byte standard header + 9-byte preamble + single zlib at `0x15`). Signed retail input → unsigned output since IW's RSA-2048 private key isn't available. |
-| `FastFileSaveService` (editor) | Routes editor saves of MW2 PC through `FastFileProcessor.Recompress` with `platform="PC"`. |
+| `FastFileLib.FastFileSaveService` | Routes saves of MW2 PC through `FastFileProcessor.Recompress` with `platform="PC"`. Used by the editor's `FastFileSave` shim and by `ffcli compress`. |
 
 ## Lessons learned along the way
 

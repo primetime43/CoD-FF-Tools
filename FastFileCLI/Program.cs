@@ -597,26 +597,11 @@ class Program
             return 1;
         }
 
-        // Auto-detect game + platform from the zone bytes. Sniffing MemAlloc1 magic
-        // (with the layout-shape fallback added earlier) recognizes every real WaW
-        // PS3/Xbox 360/PC/Wii, CoD4 PS3/PC, and MW2 PS3/Xbox 360/PC zone we have.
-        // User-supplied --game / --platform overrides still win below.
-        // Read the whole file once — both detectors need the byte array (IsZoneDataPC's
-        // ZoneSize-plausibility check compares against full length).
+        // Auto-detect game + platform via the lib's shared DetectFromZone (same detection
+        // the editor's "Compress Zone to FF" flow uses). --game / --platform / --signed
+        // overrides applied below — explicit user choice always wins.
         byte[] zoneBytes = File.ReadAllBytes(inputPath);
-        GameVersion gameVersion = FastFileInfo.DetectGameFromZoneData(zoneBytes);
-        if (gameVersion == GameVersion.Unknown) gameVersion = GameVersion.WaW;
-        // Detection order: PC (LE) → Wii (BE + 56-byte) → Xbox 360 (where distinguishable
-        // from PS3) → PS3 default. Xbox 360 detection is partial — only WaW Xbox 360's
-        // magic MemAlloc1 (0x0A90) is uniquely identifiable; CoD4 Xbox 360 zones are
-        // byte-identical to CoD4 PS3 so we can't tell them apart. For *unsigned* output
-        // that's harmless — PS3 and Xbox 360 unsigned share the same BE block format.
-        // Signed Xbox 360 needs --signed --original regardless of auto-detect.
-        string platform =
-            FastFileInfo.IsZoneDataPC(zoneBytes) ? "PC" :
-            FastFileInfo.IsZoneDataWii(zoneBytes) ? "Wii" :
-            FastFileInfo.IsZoneDataXbox360(zoneBytes) ? "Xbox360" :
-            "PS3";
+        var (gameVersion, platform) = FastFileSaveService.DetectFromZone(zoneBytes);
         bool signed = false;
         string? originalFf = null;
 
@@ -656,30 +641,23 @@ class Program
             }
         }
 
+        if (signed && string.IsNullOrEmpty(originalFf))
+        {
+            Console.Error.WriteLine("Signed format requires --original <file.ff>");
+            return 1;
+        }
+
         Console.WriteLine($"Compressing: {Path.GetFileName(inputPath)}");
         Console.WriteLine($"  Game: {gameVersion}, Platform: {platform}");
 
-        byte[] zoneData = zoneBytes;
-        Compiler compiler;
-        if (signed)
-        {
-            if (string.IsNullOrEmpty(originalFf))
-            {
-                Console.Error.WriteLine("Signed format requires --original <file.ff>");
-                return 1;
-            }
-            compiler = Compiler.ForXbox360Signed(gameVersion, originalFf);
-        }
-        else
-        {
-            compiler = new Compiler(gameVersion, platform);
-        }
-
-        byte[] ffData = compiler.Compile(zoneData);
-        File.WriteAllBytes(outputPath, ffData);
+        // The lib's save service is the single canonical entry point — it routes through
+        // FastFileProcessor.Recompress which handles every platform variant (single zlib
+        // for PC/Wii, block format for PS3/Xbox 360 unsigned, signed Xbox 360 streaming,
+        // MW2 PC quirky preamble). Editor uses the same call.
+        FastFileSaveService.Save(inputPath, outputPath, gameVersion, platform, signed, originalFf);
 
         Console.WriteLine($"  Output: {outputPath}");
-        Console.WriteLine($"  FF size: {FastFileInfo.FormatFileSize(ffData.Length)}");
+        Console.WriteLine($"  FF size: {FastFileInfo.FormatFileSize(new FileInfo(outputPath).Length)}");
         return 0;
     }
 
