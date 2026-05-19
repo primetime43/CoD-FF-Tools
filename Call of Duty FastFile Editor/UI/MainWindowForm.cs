@@ -4993,22 +4993,18 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
             }
 
-            // Detect game version from zone header
-            // Zone header has MemAlloc1 at offset 0x08 (4 bytes, big-endian)
-            // WaW: 0x000010B0, CoD4: 0x00000F70, MW2: 0x000003B4
-            FastFileLib.GameVersion? detectedVersion = null;
-
-            if (zoneData.Length >= 12)
-            {
-                uint memAlloc1 = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
-
-                if (memAlloc1 == 0x000010B0)
-                    detectedVersion = FastFileLib.GameVersion.WaW;
-                else if (memAlloc1 == 0x00000F70)
-                    detectedVersion = FastFileLib.GameVersion.CoD4;
-                else if (memAlloc1 == 0x000003B4)
-                    detectedVersion = FastFileLib.GameVersion.MW2;
-            }
+            // Detect game version + platform from zone bytes. The previous code only
+            // matched BE MemAlloc1 magic constants — for PC zones (LE, often custom
+            // per-zone MemAlloc), detection silently fell through to WaW + PS3 and
+            // the compressor wrote BE 64KB-block format. The engine then read the
+            // version field LE, got 0x83010000 = -2097086464, and bailed with
+            // "newer than client executable". Use FastFileLib helpers that handle
+            // all formats including PC zones with non-magic MemAlloc.
+            var libGameVersion = FastFileLib.FastFileInfo.DetectGameFromZoneData(zoneData);
+            FastFileLib.GameVersion? detectedVersion = libGameVersion == FastFileLib.GameVersion.Unknown
+                ? null
+                : (FastFileLib.GameVersion?)libGameVersion;
+            bool detectedIsPC = FastFileLib.FastFileInfo.IsZoneDataPC(zoneData);
 
             // Ask user to confirm or select game version
             string[] versionOptions = { "Call of Duty: World at War (WaW)", "Call of Duty 4: Modern Warfare (CoD4)", "Call of Duty: Modern Warfare 2 (MW2)" };
@@ -5073,8 +5069,13 @@ namespace Call_of_Duty_FastFile_Editor
 
             try
             {
-                var compiler = new FastFileLib.Compiler(selectedVersion);
+                // Pass detected platform — Compiler defaults to PS3 if we don't, which
+                // produces BE version + 64KB block-format output that PC clients can't load.
+                string platform = detectedIsPC ? "PC" : "PS3";
+                var compiler = new FastFileLib.Compiler(selectedVersion, platform);
                 compiler.CompileToFile(zoneData, ffPath, saveZone: false);
+                FastFileLib.Logging.LogService.Info("CompressZoneToFF",
+                    $"file='{System.IO.Path.GetFileName(ffPath)}' game={selectedVersion} platform={platform}");
 
                 MessageBox.Show($"Successfully compressed zone to FastFile:\n{ffPath}", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }

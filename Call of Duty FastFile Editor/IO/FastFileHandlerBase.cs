@@ -25,6 +25,14 @@ namespace Call_of_Duty_FastFile_Editor.IO
                             : openedFastFile.IsXbox360 ? "Xbox360"
                             : "PS3";
 
+            // Diagnostic log: catches the case where IsPC mysteriously flips to false
+            // between opening a PC FF and recompressing it. View > Logs in the editor
+            // shows these; they print platform per save so we can see if/when it changes.
+            FastFileLib.Logging.LogService.Info("Recompress",
+                $"file='{System.IO.Path.GetFileName(ffFilePath)}' game={Game} platform={platform} " +
+                $"IsPC={openedFastFile.IsPC} IsWii={openedFastFile.IsWii} IsXbox360={openedFastFile.IsXbox360} " +
+                $"IsSigned={openedFastFile.IsSigned}");
+
             FastFileProcessor.Recompress(
                 zoneFilePath,
                 ffFilePath,
