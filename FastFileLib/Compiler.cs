@@ -59,11 +59,13 @@ public class Compiler
             return CompileXbox360Signed(zoneData);
         }
 
-        // PC WaW/CoD4 use a different layout: IWffu100 + LE version + single zlib stream.
-        // No 64KB blocks, no end marker. Verified against real PC WaW samples.
-        if (string.Equals(_platform, "PC", StringComparison.OrdinalIgnoreCase))
+        // PC WaW/CoD4 and Wii WaW use the same layout: IWffu100 + version + single
+        // zlib stream (no 64KB blocks, no end marker). PC stores the version LE; Wii
+        // stores it BE (0x0000019B). Both share the same compressor — only the
+        // version bytes differ. Verified against retail PC WaW and Wii WaW samples.
+        if (IsSingleStreamPlatform(_platform))
         {
-            return CompilePc(zoneData);
+            return CompileSingleStream(zoneData);
         }
 
         var fastFile = new List<byte>();
@@ -83,18 +85,23 @@ public class Compiler
     }
 
     /// <summary>
-    /// PC variant: 12-byte header (magic + LE version) followed by a single zlib stream
-    /// covering the entire zone. No block prefixes, no end marker.
+    /// Single-zlib-stream variant: 12-byte header (magic + version) followed by a
+    /// single zlib stream covering the entire zone. No block prefixes, no end marker.
+    /// Used by PC WaW/CoD4 (LE version bytes) and Wii WaW (BE version bytes); the
+    /// shape is identical — only <see cref="FastFileInfo.GetVersionBytes"/> differs
+    /// per platform.
     /// </summary>
-    private byte[] CompilePc(byte[] zoneData)
+    private byte[] CompileSingleStream(byte[] zoneData)
     {
         using var output = new MemoryStream();
 
         // 8-byte unsigned magic
         output.Write(Encoding.ASCII.GetBytes(FastFileConstants.UnsignedHeader));
 
-        // 4-byte version (FastFileInfo returns LE bytes when platform="PC")
-        output.Write(FastFileInfo.GetVersionBytes(_gameVersion, "PC"));
+        // 4-byte version. Endianness follows the platform: PC = LE (e.g. 83 01 00 00
+        // for WaW 0x183), Wii = BE (e.g. 00 00 01 9B for WaW Wii 0x19B). GetVersionBytes
+        // returns the right bytes when given the platform string.
+        output.Write(FastFileInfo.GetVersionBytes(_gameVersion, _platform));
 
         // Single zlib stream covering the entire zone.
         // CompressionLevel.Optimal produces 78 9C; SmallestSize produces 78 DA.
@@ -106,6 +113,17 @@ public class Compiler
         }
 
         return output.ToArray();
+    }
+
+    /// <summary>
+    /// True when the platform uses the single-zlib-stream FF layout (PC + Wii).
+    /// Both produce <c>IWffu100 + version + single zlib</c>; PS3/Xbox 360 instead
+    /// use the 64KB block-format compressor.
+    /// </summary>
+    private static bool IsSingleStreamPlatform(string platform)
+    {
+        return string.Equals(platform, "PC", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(platform, "Wii", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

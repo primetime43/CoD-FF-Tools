@@ -9,8 +9,11 @@ Verified from real WaW Wii samples (`credits.ff`, `see1.ff`, `ber1.ff`, load fil
 - ✅ Parse asset pool entries using PC-style asset type enum (no shader slots)
 - ✅ Parse and edit rawfile assets
 - ✅ Parse and edit localize entries
-- ✅ Recompress zone → Wii FF
-- 🔄 In-game verification pending (no real-WaW-Wii test yet)
+- ✅ Recompress zone → Wii FF (single zlib stream + BE Wii version `00 00 01 9B`).
+  Verified round-trip on retail `ber1.ff`: original zone bytes byte-identical after
+  compress → decompress. Differs from original only in zlib compression level
+  (`78 9C` Optimal vs retail's `78 01` lowest); both are valid loadable variants.
+- 🔄 In-game verification pending (no real WaW-Wii hardware/emulator test yet)
 - ❌ weapon / menufile / xanim / stringtable / material / techset / image — listed in
   asset pool but not yet parsed on Wii (same scope as PC)
 
@@ -123,11 +126,21 @@ doesn't allocate `pixelshader` / `vertexshader` asset types like PS3 does.
 
 ## Save path
 
-Same as PC: `Compiler.CompilePc()` writes `IWffu100 + version + single zlib stream`.
-The `CoD5FastFileHandler.Recompress` could be extended to route Wii files through
-this same path (currently Wii would fall through to the block-format console branch
-— TODO: add a Wii branch that delegates to the single-stream compiler with BE LE
-version bytes).
+Wii FFs use the same shape as PC: `IWffu100 + version + single zlib stream`. The
+lib's `Compiler.Compile` routes both PC and Wii through one `CompileSingleStream`
+method (renamed from the old PC-specific `CompilePc`); the only per-platform
+difference is which version bytes `FastFileInfo.GetVersionBytes` emits — PC LE
+`83 01 00 00`, Wii BE `00 00 01 9B`. `FastFileProcessor.Recompress` accepts
+`platform="Wii"` and dispatches to that single-stream path.
+
+Auto-detection: `FastFileInfo.IsZoneDataWii(byte[])` returns true when the zone
+is BE *and* uses the 56-byte layout (markers at 0x2C and 0x34, no marker at
+0x28). The CLI's `ffcli compress` checks PC first, then Wii, then defaults to
+PS3 — so Wii zones get correctly identified without needing `--platform wii`.
+
+Editor saves of Wii FFs flow through `FastFileSaveService.Save`, which derives
+`platform="Wii"` from `openedFastFile.IsWii` (set by `FastFileInfo.FromFile` at
+open time when version `0x19B` is detected).
 
 ## Known unknowns
 

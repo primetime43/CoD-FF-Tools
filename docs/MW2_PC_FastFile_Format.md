@@ -241,8 +241,9 @@ correctly rejected.
 | `FastFileConstants.GetZoneHeaderSize` / `GetAssetCountOffset` / `GetScriptStringCountOffset` | Routes MW2+PC through `UsesEightBlockSizeLayout` → same offsets as Wii |
 | `StructureBasedZoneParser` | 56-byte header, LE asset entries (Format A LE path) |
 | `MW2GameDefinition.TryParseMW2Format` | Reads `compressedLen` / `len` as LE when `IsPC`; uses `IsValidRawFileName` whitelist |
-| `RawFileParser.ExtractSingleRawFileNodeWithPattern` (MW2 overload) | LE size reads when `gameDefinition.IsPC` |
-| `FastFileProcessor.Recompress` | Throws `NotSupportedException` for MW2 + PC (no save path yet) |
+| `FastFileLib.RawFileScanner` | LE size reads when `isPC=true`; handles MW2 PC's 16-byte LE header + zlib decompression. Editor's `RawFileParser` is a shim that wraps each `RawFileLocation` as a `RawFileNode`. |
+| `FastFileProcessor.Recompress` / `CompressMW2PC` | Writes the unsigned PC layout (12-byte standard header + 9-byte preamble + single zlib at `0x15`). Signed retail input → unsigned output since IW's RSA-2048 private key isn't available. |
+| `FastFileSaveService` (editor) | Routes editor saves of MW2 PC through `FastFileProcessor.Recompress` with `platform="PC"`. |
 
 ## Lessons learned along the way
 
@@ -272,8 +273,10 @@ correctly rejected.
    `len`. They now branch on `IsPC`.
 7. **The MW2 pattern-matching fallback was ALSO BE-only.** When structure-based
    parsing failed (which it always did because the editor couldn't navigate past
-   MW2 PC's techsets/menufiles), `RawFileParser.ExtractSingleRawFileNodeWithPattern`
-   was the recovery path — and it had the same BE hardcoding.
+   MW2 PC's techsets/menufiles), the editor's pattern-matching fallback was the
+   recovery path — and it had the same BE hardcoding. The fix was consolidating
+   into `FastFileLib.RawFileScanner` which takes an explicit `isPC` flag; the
+   editor's `RawFileParser` now delegates to it.
 8. **Lenient extension check let `.csv` (stringtables) through as rawfiles.** The
    parsers now use `IsValidRawFileName`, which enforces the
    `RawFileConstants.FileNamePatternStrings` whitelist — single source of truth
@@ -281,10 +284,10 @@ correctly rejected.
 
 ## Known unknowns
 
-- **Recompression** — not implemented. The library throws
-  `NotSupportedException` for MW2 + PC. Would need to (a) write a proper MW2 PC
-  unsigned compressor (single zlib stream at `0x15`) and (b) figure out whether
-  signed files can be re-signed at all (RSA private key not public).
+- **Signed re-signing** — not implemented. `FastFileProcessor.CompressMW2PC`
+  writes the **unsigned** layout; signed retail input → unsigned output. Properly
+  re-signing the `DB_AuthHeader` requires IW's RSA-2048 private key, which isn't
+  public. The unsigned output still loads in any client that accepts unsigned FFs.
 - **Non-rawfile asset parsing** — `techset`, `menufile`, `xanim`, `stringtable`,
   `material`, `image` all use BE parsers right now; would need LE-aware variants
   for MW2 PC. Same scope of work as PC WaW.

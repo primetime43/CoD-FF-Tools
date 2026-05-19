@@ -154,13 +154,13 @@ Example observed first asset entry:
 |---|---|
 | `FastFileInfo.GetVersionBytes(platform="PC")` | Returns LE-ordered version bytes (e.g., `83 01 00 00` for WaW PC) |
 | `Compiler.Compile()` | Branches on `_platform == "PC"` → calls `CompilePc()` which emits `IWffu100 + LE version + single zlib stream` |
-| `CoD5FastFileHandler.Recompress` / `CoD4FastFileHandler.Recompress` | Checks `openedFastFile.IsPC` → delegates to `new Compiler(WaW, "PC").Compile(...)` |
+| `FastFileSaveService.Save` | Editor's single canonical save path. Reads `openedFastFile.IsPC` → passes `platform="PC"` to `FastFileProcessor.Recompress` → routes to `Compiler.CompilePc`. All editor save call sites now funnel through here. |
 | `ZoneFileHeaderConstants.PC_*Offset` | Uses 52-byte layout: `ScriptStringCount @0x24`, `AssetCount @0x2C`, etc. |
-| `FastFileConstants.ZoneHeaderSize_PC` | `0x34` (52 bytes) |
+| `FastFileConstants.ZoneHeaderSize_PC` | `0x34` (52 bytes) — but note that ui.zone uses 56-byte (see "ui.zone exception" below) |
 | `StructureBasedZoneParser` | Detects Format A LE `[type LE][ptr]` for PC; includes a backup-4-bytes check for the tag-end overshoot case |
 | `CoD5PCGameDefinition.ParseRawFile` | Reads size little-endian, otherwise identical to base class |
 | `CoD5PCGameDefinition.ParseLocalizedEntry` | Same as base (byte-order-independent) |
-| `RawFileParser.ExtractSingleRawFileNodeWithPattern` | Endian-aware size read for pattern-matching fallback |
+| `FastFileLib.RawFileScanner` | Canonical rawfile locator. Editor's `RawFileParser` is a thin shim — reads size LE for PC via `TryParseStandardHeader`'s `isPC` path. |
 
 ## Lessons learned along the way
 

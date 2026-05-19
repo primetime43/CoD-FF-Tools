@@ -830,19 +830,23 @@ public static class FastFileProcessor
     /// hash table / extended header from. Pass null for fresh builds.</param>
     public static void Recompress(string zoneFilePath, string ffFilePath, GameVersion gameVersion, string platform, bool signed, string? originalFfPath = null)
     {
-        // PC: single zlib stream with LE version.
-        // MW2 PC has its own layout (9-byte preamble after the 12-byte header, then zlib
-        // at 0x15) and is handled by CompressMW2PC. CoD4/WaW PC use Compiler.CompilePc().
-        // Signed MW2 PC inputs are saved as unsigned — RSA re-signing isn't possible.
-        if (string.Equals(platform, "PC", StringComparison.OrdinalIgnoreCase))
+        // PC and Wii: single zlib stream variants. Same compressor — only version
+        // bytes differ (PC LE, Wii BE). MW2 PC has its own quirk layout (9-byte
+        // preamble after the 12-byte header, then zlib at 0x15) and is handled by
+        // CompressMW2PC. Signed MW2 PC inputs are saved as unsigned — RSA re-signing
+        // isn't possible without IW's private key.
+        bool isSingleStream = string.Equals(platform, "PC", StringComparison.OrdinalIgnoreCase)
+                           || string.Equals(platform, "Wii", StringComparison.OrdinalIgnoreCase);
+        if (isSingleStream)
         {
-            if (gameVersion == GameVersion.MW2)
+            if (gameVersion == GameVersion.MW2 &&
+                string.Equals(platform, "PC", StringComparison.OrdinalIgnoreCase))
             {
                 CompressMW2PC(zoneFilePath, ffFilePath, originalFfPath);
                 return;
             }
             byte[] zoneData = File.ReadAllBytes(zoneFilePath);
-            byte[] ffData = new Compiler(gameVersion, "PC").Compile(zoneData);
+            byte[] ffData = new Compiler(gameVersion, platform).Compile(zoneData);
             File.WriteAllBytes(ffFilePath, ffData);
             return;
         }

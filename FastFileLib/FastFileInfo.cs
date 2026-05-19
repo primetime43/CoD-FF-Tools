@@ -410,7 +410,10 @@ public class FastFileInfo
             header[offset + 2] == 0xFF && header[offset + 3] == 0xFF;
 
         // 56-byte layout (ScriptStringsPtr @ 0x2C, AssetsPtr @ 0x34): MW2 PC (LE) or WaW Wii (BE).
-        if (Has(0x2C) && Has(0x34))
+        // MW2 Xbox 360's 48-byte layout *coincidentally* puts FFFFFFFF at both 0x2C (AssetsPtr)
+        // AND 0x34 (first asset entry's ptr placeholder), so we additionally require that the
+        // value at 0x30 looks like an AssetCount (>0x29) rather than a small asset type id.
+        if (Has(0x2C) && Has(0x34) && Plausible56ByteAssetCount(header))
         {
             if (isLE == true) return GameVersion.MW2;
             if (isLE == false) return GameVersion.WaW;
@@ -433,6 +436,28 @@ public class FastFileInfo
         }
 
         return GameVersion.Unknown;
+    }
+
+    /// <summary>
+    /// Heuristic: does the byte pattern at 0x28+0x30 look like a 56-byte zone header
+    /// (Wii / MW2 PC) rather than MW2 Xbox 360's 48-byte layout? Both layouts can have
+    /// 0xFFFFFFFF at 0x2C and 0x34, so additional context is needed.
+    ///   - 56-byte: 0x28 = ScriptStringCount, 0x30 = AssetCount.
+    ///   - 48-byte (MW2 Xbox 360): 0x28 = AssetCount, 0x30 = first asset's type word
+    ///     (low byte holds the type id, high 3 bytes zero — value ≤ 0x29).
+    /// We accept the 56-byte interpretation when EITHER (a) the AssetCount at 0x30
+    /// exceeds 0x29 (a real AssetCount; impossible for a type id) OR (b) the value at
+    /// 0x28 is zero (likely ScriptStringCount=0, since AssetCount=0 means an empty
+    /// pool and is improbable for any real zone).
+    /// </summary>
+    private static bool Plausible56ByteAssetCount(byte[] header)
+    {
+        if (header.Length < 0x34) return false;
+        uint at30 = (uint)((header[0x30] << 24) | (header[0x31] << 16)
+                          | (header[0x32] << 8) | header[0x33]);
+        uint at28 = (uint)((header[0x28] << 24) | (header[0x29] << 16)
+                          | (header[0x2A] << 8) | header[0x2B]);
+        return at30 > 0x29 || at28 == 0;
     }
 
     /// <summary>
@@ -497,6 +522,71 @@ public class FastFileInfo
         // Fallback: pick endianness via ZoneSize plausibility. Catches retail PC zones
         // (and any other zone) whose MemAlloc1 isn't a known magic value.
         return DetectEndianness(header, fileSize) == true;
+    }
+
+    /// <summary>
+    /// Detects if a zone file is from Wii. Wii zones are big-endian (like PS3/Xbox 360)
+    /// but use a 56-byte header layout (8 blockSize slots — extra `BlockSizeIndex`).
+    /// This distinguishes Wii from PS3/Xbox 360 which both use a 52-byte (or MW2 Xbox
+    /// 360's 48-byte) layout.
+    /// </summary>
+    public static bool IsZoneWii(string zonePath)
+    {
+        try
+        {
+            long fileSize = new FileInfo(zonePath).Length;
+            if (fileSize < 0x38) return false;
+
+            int toRead = (int)Math.Min(fileSize, 0x40);
+            byte[] header = new byte[toRead];
+            using (var fs = new FileStream(zonePath, FileMode.Open, FileAccess.Read))
+            {
+                fs.Read(header, 0, toRead);
+            }
+            return IsZoneWiiInternal(header, fileSize);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Detects if zone data is from Wii: big-endian + 56-byte layout. The 56-byte
+    /// layout signature is 0xFFFFFFFF markers at offsets 0x2C (ScriptStringsPtr) and
+    /// 0x34 (AssetsPtr); the 52-byte layout has them at 0x28 and 0x30 instead.
+    /// </summary>
+    public static bool IsZoneDataWii(byte[] zoneData)
+    {
+        if (zoneData == null || zoneData.Length < 0x38) return false;
+        return IsZoneWiiInternal(zoneData, zoneData.Length);
+    }
+
+    private static bool IsZoneWiiInternal(byte[] header, long fileSize)
+    {
+        // Wii is BE (PC is the only LE platform among the games we support).
+        if (IsZonePCInternal(header, fileSize)) return false;
+
+        // Need 56-byte layout: ScriptStringsPtr @0x2C, AssetsPtr @0x34 (both 0xFFFFFFFF),
+        // and AssetCount at 0x30. The tricky part is MW2 Xbox 360's 48-byte layout
+        // *coincidentally* has 0xFFFFFFFF at 0x34 — but that's the first asset entry's
+        // ptr placeholder, not AssetsPtr; what sits at 0x30 there is the first asset's
+        // type word (BE int with low byte = type ID, e.g. `00 00 00 07` for image=0x07).
+        //
+        // Distinguish them by reading 0x30 as a BE int:
+        //   - Wii 56-byte: AssetCount — typically > 0x29 (any zone with more than a
+        //     handful of assets has more than the max asset-type-id of 0x29).
+        //   - MW2 Xbox 360 48-byte: first asset's type word — high 3 bytes are zero,
+        //     low byte is a small type ID (≤ 0x29).
+        bool HasMarker(int offset) =>
+            offset + 4 <= header.Length &&
+            header[offset] == 0xFF && header[offset + 1] == 0xFF &&
+            header[offset + 2] == 0xFF && header[offset + 3] == 0xFF;
+
+        if (!HasMarker(0x2C) || !HasMarker(0x34) || HasMarker(0x28)) return false;
+        // Same 56-byte-vs-48-byte heuristic as DetectGameByHeaderShape uses — see
+        // Plausible56ByteAssetCount comments for the reasoning.
+        return Plausible56ByteAssetCount(header);
     }
 
     /// <summary>

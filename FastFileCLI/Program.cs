@@ -606,7 +606,17 @@ class Program
         byte[] zoneBytes = File.ReadAllBytes(inputPath);
         GameVersion gameVersion = FastFileInfo.DetectGameFromZoneData(zoneBytes);
         if (gameVersion == GameVersion.Unknown) gameVersion = GameVersion.WaW;
-        string platform = FastFileInfo.IsZoneDataPC(zoneBytes) ? "PC" : "PS3";
+        // Detection order: PC (LE) → Wii (BE + 56-byte) → Xbox 360 (where distinguishable
+        // from PS3) → PS3 default. Xbox 360 detection is partial — only WaW Xbox 360's
+        // magic MemAlloc1 (0x0A90) is uniquely identifiable; CoD4 Xbox 360 zones are
+        // byte-identical to CoD4 PS3 so we can't tell them apart. For *unsigned* output
+        // that's harmless — PS3 and Xbox 360 unsigned share the same BE block format.
+        // Signed Xbox 360 needs --signed --original regardless of auto-detect.
+        string platform =
+            FastFileInfo.IsZoneDataPC(zoneBytes) ? "PC" :
+            FastFileInfo.IsZoneDataWii(zoneBytes) ? "Wii" :
+            FastFileInfo.IsZoneDataXbox360(zoneBytes) ? "Xbox360" :
+            "PS3";
         bool signed = false;
         string? originalFf = null;
 

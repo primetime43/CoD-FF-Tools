@@ -59,6 +59,31 @@ public class CompressAutoDetectTests
     }
 
     [Fact]
+    public void Compress_WiiZone_NoFlags_AutoDetectsWii()
+    {
+        // Wii zones are BE (like PS3/Xbox 360) but use the 56-byte layout (extra
+        // BlockSizeIndex slot). Previously this was the bug case: auto-detect saw "BE"
+        // and defaulted to PS3, so Wii zones came out as block-format with the WaW
+        // console version (00 00 01 83) instead of Wii's (00 00 01 9B).
+        using var dir = new TempDir();
+        var zonePath = WriteWiiZone(dir, GameVersion.WaW);
+        var outPath = Path.Combine(dir.Path, "out.ff");
+
+        var r = CliRunner.Run("compress", zonePath, outPath);
+        Assert.Equal(0, r.ExitCode);
+        Assert.Contains("Platform: Wii", r.Stdout);
+
+        // Wii WaW FF: "IWffu100" + version 0x19B BE (00 00 01 9B) + single zlib stream.
+        var ff = File.ReadAllBytes(outPath);
+        Assert.Equal("IWffu100", Encoding.ASCII.GetString(ff, 0, 8));
+        Assert.Equal(0x00, ff[8]);
+        Assert.Equal(0x00, ff[9]);
+        Assert.Equal(0x01, ff[10]);
+        Assert.Equal(0x9B, ff[11]);  // <- Wii-specific version byte
+        Assert.Equal(0x78, ff[12]);  // zlib stream begins (not block-format length prefix)
+    }
+
+    [Fact]
     public void Compress_ExplicitPlatformFlag_OverridesAutoDetect()
     {
         // User-supplied --platform must still win in case auto-detect picks wrong.
@@ -82,6 +107,11 @@ public class CompressAutoDetectTests
 
     private static string WriteConsoleZone(TempDir dir, GameVersion gv) =>
         dir.Write("ps3.zone", new ZoneBuilder(gv, "auto_test", "PS3")
+            .AddRawFile(new RawFile("a.gsc", Encoding.ASCII.GetBytes("x")))
+            .Build());
+
+    private static string WriteWiiZone(TempDir dir, GameVersion gv) =>
+        dir.Write("wii.zone", new ZoneBuilder(gv, "auto_test", "Wii")
             .AddRawFile(new RawFile("a.gsc", Encoding.ASCII.GetBytes("x")))
             .Build());
 }
