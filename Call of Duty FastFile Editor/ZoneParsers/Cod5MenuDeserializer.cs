@@ -74,21 +74,128 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     /// </summary>
     public class Cod5MenuDeserializer
     {
-        private const int WindowDefSize = 0xA8;   // 168 bytes (WaW console)
-        private const int MenuDefSize   = 0x138;  // 312 bytes (WaW console)
-        private const int RectDefSize   = 0x18;   // 24 bytes (4 floats + 2 ints)
-        private const int ItemCountOffset = 0xB0; // within menuDef_t
+        // ===== Per-platform struct sizes =====
+        // PC differs from console (PS3/Xbox 360) in two places:
+        //   - windowDef_t.dynamicFlags[N] is [1] on PC, [4] on console (saves 12 bytes)
+        //   - menuDef_t.cursorItem[N]      is [1] on PC, [4] on console (saves 12 bytes)
+        // rectDef_s stays 24 bytes (4 floats + 2 ints) on both. So:
+        //   PC windowDef = 168 - 12 = 156 (0x9C),  console = 168 (0xA8)
+        //   PC menuDef   = 312 - 24 = 288 (0x120), console = 312 (0x138)
+        // Verified empirically against retail ui.ff zones from both PS3 and PC builds.
+        private const int ConsoleWindowDefSize = 0xA8;
+        private const int ConsoleMenuDefSize   = 0x138;
+        private const int PcWindowDefSize      = 0x9C;
+        private const int PcMenuDefSize        = 0x120;
 
         private readonly byte[] _data;
         private readonly bool _isBigEndian;
+        private readonly bool _isPC;
         private int _pos;
 
-        public Cod5MenuDeserializer(byte[] zoneData, int startOffset, bool isBigEndian)
+        public int WindowDefSize => _isPC ? PcWindowDefSize : ConsoleWindowDefSize;
+        public int MenuDefSize   => _isPC ? PcMenuDefSize   : ConsoleMenuDefSize;
+
+        public Cod5MenuDeserializer(byte[] zoneData, int startOffset, bool isBigEndian, bool isPC = false)
         {
             _data = zoneData;
             _pos = startOffset;
             _isBigEndian = isBigEndian;
+            _isPC = isPC;
         }
+
+        /// <summary>
+        /// Per-platform field offsets within a WaW menuDef_t binary. Offsets up through
+        /// staticFlags (0x4C) are identical; after that PC saves 12 bytes for dynamicFlags
+        /// and another 12 for cursorItem, so all later fields are -24 from console.
+        /// </summary>
+        private readonly struct Offsets
+        {
+            // windowDef_t (only fields whose offset differs from console)
+            public int NextTime { get; }
+            public int ForeColor { get; }
+            public int BackColor { get; }
+            public int BorderColor { get; }
+            public int OutlineColor { get; }
+            // menuDef_t-specific
+            public int Font { get; }
+            public int FullScreen { get; }
+            public int ItemCount { get; }
+            public int FontIndex { get; }
+            public int CursorItem { get; }
+            public int FadeCycle { get; }
+            public int FadeClamp { get; }
+            public int FadeAmount { get; }
+            public int FadeInAmount { get; }
+            public int BlurRadius { get; }
+            public int OnOpen { get; }
+            public int OnFocus { get; }
+            public int OnClose { get; }
+            public int OnESC { get; }
+            public int OnKey { get; }
+            public int VisibleExpCount { get; }
+            public int VisibleExpEntries { get; }
+            public int AllowedBinding { get; }
+            public int SoundName { get; }
+            public int ImageTrack { get; }
+            public int FocusColor { get; }
+            public int DisableColor { get; }
+            public int RectXExpCount { get; }
+            public int RectXExpEntries { get; }
+            public int RectYExpCount { get; }
+            public int RectYExpEntries { get; }
+            public int Items { get; }
+            // Validation-only views
+            public int Background { get; }      // windowDef.background ptr
+            public int[] PointerFields { get; } // all 15 pointer slots for FitsMenuDefStruct
+
+            public Offsets(bool isPC)
+            {
+                int s = isPC ? -12 : 0;   // shift after dynamicFlags ends (PC vs console)
+                int s2 = isPC ? -24 : 0;  // shift after cursorItem ends
+                NextTime     = 0x60 + s;
+                ForeColor    = 0x64 + s;
+                BackColor    = 0x74 + s;
+                BorderColor  = 0x84 + s;
+                OutlineColor = 0x94 + s;
+                Background   = 0xA4 + s;
+                Font         = 0xA8 + s;
+                FullScreen   = 0xAC + s;
+                ItemCount    = 0xB0 + s;
+                FontIndex    = 0xB4 + s;
+                CursorItem   = 0xB8 + s;
+                FadeCycle         = 0xC8 + s2;
+                FadeClamp         = 0xCC + s2;
+                FadeAmount        = 0xD0 + s2;
+                FadeInAmount      = 0xD4 + s2;
+                BlurRadius        = 0xD8 + s2;
+                OnOpen            = 0xDC + s2;
+                OnFocus           = 0xE0 + s2;
+                OnClose           = 0xE4 + s2;
+                OnESC             = 0xE8 + s2;
+                OnKey             = 0xEC + s2;
+                VisibleExpCount   = 0xF0 + s2;
+                VisibleExpEntries = 0xF4 + s2;
+                AllowedBinding    = 0xF8 + s2;
+                SoundName         = 0xFC + s2;
+                ImageTrack        = 0x100 + s2;
+                FocusColor        = 0x104 + s2;
+                DisableColor      = 0x114 + s2;
+                RectXExpCount     = 0x124 + s2;
+                RectXExpEntries   = 0x128 + s2;
+                RectYExpCount     = 0x12C + s2;
+                RectYExpEntries   = 0x130 + s2;
+                Items             = 0x134 + s2;
+                PointerFields = new[] {
+                    0x00, 0x34, Background, Font,
+                    OnOpen, OnFocus, OnClose, OnESC, OnKey,
+                    VisibleExpEntries, AllowedBinding, SoundName,
+                    RectXExpEntries, RectYExpEntries, Items,
+                };
+            }
+        }
+
+        private static Offsets GetOffsets(bool isPC) => new Offsets(isPC);
+        private static int MenuDefSizeFor(bool isPC) => isPC ? PcMenuDefSize : ConsoleMenuDefSize;
 
         public int Position
         {
@@ -119,7 +226,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             // is not a menu — return null so the caller can advance and try the next byte.
             // This is what catches the old "menu #1 [536870946 items]" garbage: 536870946 is
             // an ASCII fragment ("\x20\x00\x00\x22"), not a valid item count.
-            if (!FitsMenuDefStruct(_data, menuStart, _isBigEndian, out string failReason))
+            if (!FitsMenuDefStruct(_data, menuStart, _isBigEndian, _isPC, out string failReason))
             {
                 Debug.WriteLine($"[Cod5MenuDeserializer] menu[{menuIndex}] @ 0x{menuStart:X}: not a menuDef_t — {failReason}");
                 return null;
@@ -127,8 +234,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
             uint namePtr = ReadU32(menuStart);
             var menu = new MenuDef { StartOffset = menuStart, Window = new WindowDef() };
+            var o = GetOffsets(_isPC);
 
-            // === windowDef_t (0xA8 bytes) ===
+            // === windowDef_t ===
+            // Fields that are at the same offset on both platforms (everything up through staticFlags).
             menu.Window.Rect       = ReadRect(menuStart + 0x04);
             menu.Window.RectClient = ReadRect(menuStart + 0x1C);
             menu.Window.Style          = ReadI32(menuStart + 0x38);
@@ -137,43 +246,41 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             menu.Window.OwnerDrawFlags = ReadI32(menuStart + 0x44);
             menu.Window.BorderSize     = ReadF32(menuStart + 0x48);
             menu.Window.StaticFlags    = ReadI32(menuStart + 0x4C);
-            menu.Window.DynamicFlags   = new[] {
-                ReadI32(menuStart + 0x50), ReadI32(menuStart + 0x54),
-                ReadI32(menuStart + 0x58), ReadI32(menuStart + 0x5C)
-            };
-            menu.Window.NextTime       = ReadI32(menuStart + 0x60);
-            menu.Window.ForeColor      = ReadColor(menuStart + 0x64);
-            menu.Window.BackColor      = ReadColor(menuStart + 0x74);
-            menu.Window.BorderColor    = ReadColor(menuStart + 0x84);
-            menu.Window.OutlineColor   = ReadColor(menuStart + 0x94);
+            // dynamicFlags is [1] on PC, [4] on console — pad the array on PC for consistency.
+            menu.Window.DynamicFlags   = _isPC
+                ? new[] { ReadI32(menuStart + 0x50), 0, 0, 0 }
+                : new[] { ReadI32(menuStart + 0x50), ReadI32(menuStart + 0x54),
+                          ReadI32(menuStart + 0x58), ReadI32(menuStart + 0x5C) };
+            menu.Window.NextTime       = ReadI32(menuStart + o.NextTime);
+            menu.Window.ForeColor      = ReadColor(menuStart + o.ForeColor);
+            menu.Window.BackColor      = ReadColor(menuStart + o.BackColor);
+            menu.Window.BorderColor    = ReadColor(menuStart + o.BorderColor);
+            menu.Window.OutlineColor   = ReadColor(menuStart + o.OutlineColor);
 
             // === menuDef_t-specific fields ===
-            menu.Fullscreen   = ReadI32(menuStart + 0xAC);
-            menu.ItemCount    = ReadI32(menuStart + ItemCountOffset);
-            menu.FontIndex    = ReadI32(menuStart + 0xB4);
-            menu.CursorItems  = new[] {
-                ReadI32(menuStart + 0xB8), ReadI32(menuStart + 0xBC),
-                ReadI32(menuStart + 0xC0), ReadI32(menuStart + 0xC4),
-            };
-            menu.FadeCycle    = ReadI32(menuStart + 0xC8);
-            menu.FadeClamp    = ReadF32(menuStart + 0xCC);
-            menu.FadeAmount   = ReadF32(menuStart + 0xD0);
-            menu.FadeInAmount = ReadF32(menuStart + 0xD4);
-            menu.BlurRadius   = ReadF32(menuStart + 0xD8);
-            uint onOpenPtr           = ReadU32(menuStart + 0xDC);
-            uint onFocusPtr          = ReadU32(menuStart + 0xE0);
-            uint onClosePtr          = ReadU32(menuStart + 0xE4);
-            uint onESCPtr            = ReadU32(menuStart + 0xE8);
-            uint onKeyPtr            = ReadU32(menuStart + 0xEC);
-            uint visibleExpEntries   = ReadU32(menuStart + 0xF4);
-            uint allowedBindingPtr   = ReadU32(menuStart + 0xF8);
-            uint soundNamePtr        = ReadU32(menuStart + 0xFC);
-            menu.ImageTrack          = ReadI32(menuStart + 0x100);
-            menu.FocusColor          = ReadColor(menuStart + 0x104);
-            menu.Window.DisableColor = ReadColor(menuStart + 0x114); // moved to menuDef_t in WaW
-            uint rectXExpEntries     = ReadU32(menuStart + 0x128);
-            uint rectYExpEntries     = ReadU32(menuStart + 0x130);
-            uint itemsPtr            = ReadU32(menuStart + 0x134);
+            menu.Fullscreen   = ReadI32(menuStart + o.FullScreen);
+            menu.ItemCount    = ReadI32(menuStart + o.ItemCount);
+            menu.FontIndex    = ReadI32(menuStart + o.FontIndex);
+            menu.CursorItems  = _isPC
+                ? new[] { ReadI32(menuStart + o.CursorItem), 0, 0, 0 }
+                : new[] { ReadI32(menuStart + o.CursorItem),     ReadI32(menuStart + o.CursorItem + 4),
+                          ReadI32(menuStart + o.CursorItem + 8), ReadI32(menuStart + o.CursorItem + 12) };
+            menu.FadeCycle    = ReadI32(menuStart + o.FadeCycle);
+            menu.FadeClamp    = ReadF32(menuStart + o.FadeClamp);
+            menu.FadeAmount   = ReadF32(menuStart + o.FadeAmount);
+            menu.FadeInAmount = ReadF32(menuStart + o.FadeInAmount);
+            menu.BlurRadius   = ReadF32(menuStart + o.BlurRadius);
+            uint onOpenPtr           = ReadU32(menuStart + o.OnOpen);
+            uint onFocusPtr          = ReadU32(menuStart + o.OnFocus);
+            uint onClosePtr          = ReadU32(menuStart + o.OnClose);
+            uint onESCPtr            = ReadU32(menuStart + o.OnESC);
+            uint onKeyPtr            = ReadU32(menuStart + o.OnKey);
+            uint allowedBindingPtr   = ReadU32(menuStart + o.AllowedBinding);
+            uint soundNamePtr        = ReadU32(menuStart + o.SoundName);
+            menu.ImageTrack          = ReadI32(menuStart + o.ImageTrack);
+            menu.FocusColor          = ReadColor(menuStart + o.FocusColor);
+            menu.Window.DisableColor = ReadColor(menuStart + o.DisableColor);
+            uint itemsPtr            = ReadU32(menuStart + o.Items);
 
             int binaryEnd = menuStart + MenuDefSize;
             _pos = binaryEnd;
@@ -205,14 +312,14 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             menu.EditableValues.Add(MenuValue.CreateRect("rect",
                 menu.Window.Rect.X, menu.Window.Rect.Y, menu.Window.Rect.W, menu.Window.Rect.H,
                 menuStart + 0x04));
-            menu.EditableValues.Add(MenuValue.CreateColor("foreColor",    menu.Window.ForeColor,    menuStart + 0x64));
-            menu.EditableValues.Add(MenuValue.CreateColor("backColor",    menu.Window.BackColor,    menuStart + 0x74));
-            menu.EditableValues.Add(MenuValue.CreateColor("borderColor",  menu.Window.BorderColor,  menuStart + 0x84));
-            menu.EditableValues.Add(MenuValue.CreateColor("outlineColor", menu.Window.OutlineColor, menuStart + 0x94));
-            menu.EditableValues.Add(MenuValue.CreateColor("focusColor",   menu.FocusColor,          menuStart + 0x104));
-            menu.EditableValues.Add(MenuValue.CreateColor("disableColor", menu.Window.DisableColor, menuStart + 0x114));
-            menu.EditableValues.Add(MenuValue.CreateInt("itemCount", menu.ItemCount, menuStart + ItemCountOffset));
-            menu.EditableValues.Add(MenuValue.CreateInt("fullScreen", menu.Fullscreen, menuStart + 0xAC));
+            menu.EditableValues.Add(MenuValue.CreateColor("foreColor",    menu.Window.ForeColor,    menuStart + o.ForeColor));
+            menu.EditableValues.Add(MenuValue.CreateColor("backColor",    menu.Window.BackColor,    menuStart + o.BackColor));
+            menu.EditableValues.Add(MenuValue.CreateColor("borderColor",  menu.Window.BorderColor,  menuStart + o.BorderColor));
+            menu.EditableValues.Add(MenuValue.CreateColor("outlineColor", menu.Window.OutlineColor, menuStart + o.OutlineColor));
+            menu.EditableValues.Add(MenuValue.CreateColor("focusColor",   menu.FocusColor,          menuStart + o.FocusColor));
+            menu.EditableValues.Add(MenuValue.CreateColor("disableColor", menu.Window.DisableColor, menuStart + o.DisableColor));
+            menu.EditableValues.Add(MenuValue.CreateInt("itemCount", menu.ItemCount, menuStart + o.ItemCount));
+            menu.EditableValues.Add(MenuValue.CreateInt("fullScreen", menu.Fullscreen, menuStart + o.FullScreen));
 
             menu.EndOffset = _pos;
             Debug.WriteLine($"[Cod5MenuDeserializer] menu[{menuIndex}] @ 0x{menuStart:X}..0x{_pos:X} name='{menu.Window.Name}' itemCount={menu.ItemCount}");
@@ -288,28 +395,19 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
         /// <summary>
         /// Scans forward from <paramref name="from"/> for the next plausible CoD5 menuDef_t
-        /// start. We can't rely on IW4-style scanning here — IW4's rectDef_s is 20 bytes with
-        /// horz/vert as bytes at +16/+17, whereas WaW's is 24 bytes with horz/vert as INTS at
-        /// +16/+20. The looser IW4 check passes for any block of zeros inside inline event
-        /// handler data, which is why a naive scan drifts.
-        ///
-        /// Stronger CoD5-specific check:
-        ///   - +0x00:           FFFFFFFF (window.name)
-        ///   - +0x04..+0x1B:    rect — 4 bounded floats + 2 ints in [0,3]
-        ///   - +0x1C..+0x33:    rectClient — same shape
-        ///   - +0x34:           group ptr — 0 or FFFFFFFF only
-        ///   - +0xAC:           fullScreen — 0 or 1
-        ///   - +0xB0:           itemCount — 0..200
-        ///   - +0x138:          first inline byte — printable ASCII identifier char or 0
+        /// start. Uses the strict struct-fit check that knows the platform-specific layout
+        /// (PC menuDef is 288 bytes / windowDef 156, console is 312 / 168). The IW4 looser
+        /// scanner can't be used — its rectDef_s is 20 bytes with byte aligns, whereas
+        /// WaW's is 24 bytes with int aligns.
         /// </summary>
-        public static int FindNextCod5MenuStart(byte[] data, int from, bool isBigEndian)
+        public static int FindNextCod5MenuStart(byte[] data, int from, bool isBigEndian, bool isPC = false)
         {
-            int end = data.Length - MenuDefSize;
+            int end = data.Length - MenuDefSizeFor(isPC);
             for (int p = from; p <= end; p++)
             {
                 if (data[p] != 0xFF || data[p + 1] != 0xFF || data[p + 2] != 0xFF || data[p + 3] != 0xFF)
                     continue;
-                if (!FitsMenuDefStruct(data, p, isBigEndian, out _))
+                if (!FitsMenuDefStruct(data, p, isBigEndian, isPC, out _))
                     continue;
                 return p;
             }
@@ -319,33 +417,29 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         /// <summary>
         /// Validates that the bytes at <paramref name="off"/> structurally fit a WaW
         /// menuDef_t. This is the single source of truth for "is this a menu" — every
-        /// field that has a constrained representation (pointer must be 0/FFFFFFFF, bool
-        /// must be 0/1, count must be within a sane range, rect floats must be in pixel
-        /// range, color components must be normalized) is checked. If anything looks
-        /// impossible, the candidate is not a menuDef_t. Period.
+        /// field that has a constrained representation (pointer must be 0/FFFFFFFF/resolved,
+        /// bool must be 0/1, count must be within a sane range, rect floats must be in pixel
+        /// range, color components must be in normalized-or-pre-scaled range) is checked.
+        /// If anything looks impossible, the candidate is not a menuDef_t.
         ///
-        /// This is what implements the user's principle: "if it doesn't fit the struct
-        /// then it's not a menu asset."
+        /// Implements the principle: "if it doesn't fit the struct then it's not a menu asset."
         /// </summary>
-        public static bool FitsMenuDefStruct(byte[] data, int off, bool isBigEndian, out string reason)
+        public static bool FitsMenuDefStruct(byte[] data, int off, bool isBigEndian, bool isPC, out string reason)
         {
             reason = null;
-            if (off < 0 || off + MenuDefSize > data.Length) { reason = "out of bounds"; return false; }
+            int size = MenuDefSizeFor(isPC);
+            if (off < 0 || off + size > data.Length) { reason = "out of bounds"; return false; }
+
+            var o = GetOffsets(isPC);
 
             // --- All pointer-typed fields ---
             // Each must be:
             //   - 0 (null)
             //   - 0xFFFFFFFF (inline placeholder, data follows after binary)
-            //   - or a post-link "resolved" pointer (high bit set per PS3 zone convention,
-            //     with the low 31 bits as an in-bounds zone offset)
-            //
-            // The third case is real: e.g. main_text's soundName is 0x8094D084 — high bit
-            // set, low bits 0x94D084 ≈ 9.7 MB which lands inside the zone. The compiler
-            // pre-resolved that pointer to the loaded sound asset's zone address. Treating
-            // such pointers as "not a menu" loses ~60 real menus per UI zone.
-            int[] ptrOffsets = { 0x00, 0x34, 0xA4, 0xA8, 0xDC, 0xE0, 0xE4, 0xE8, 0xEC,
-                                 0xF4, 0xF8, 0xFC, 0x128, 0x130, 0x134 };
-            foreach (int po in ptrOffsets)
+            //   - or a post-link "resolved" pointer (high bit set, low 31 bits are an
+            //     in-bounds zone offset). E.g. main_text's soundName is 0x8094D084 — high
+            //     bit set, low bits 0x94D084 (9.7 MB) lands inside the zone.
+            foreach (int po in o.PointerFields)
             {
                 uint v = ReadU32At(data, off + po, isBigEndian);
                 if (!IsValidZonePointer(v, data.Length))
@@ -360,40 +454,38 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             if (!IsPlausibleRect(data, off + 0x1C, isBigEndian)) { reason = "rectClient implausible"; return false; }
 
             // --- Bool / enum / count fields ---
-            uint fullScreen = ReadU32At(data, off + 0xAC, isBigEndian);
+            uint fullScreen = ReadU32At(data, off + o.FullScreen, isBigEndian);
             if (fullScreen > 1) { reason = $"fullScreen={fullScreen} not bool"; return false; }
 
-            int itemCount = (int)ReadU32At(data, off + 0xB0, isBigEndian);
+            int itemCount = (int)ReadU32At(data, off + o.ItemCount, isBigEndian);
             if (itemCount < 0 || itemCount > 200) { reason = $"itemCount={itemCount} out of [0..200]"; return false; }
 
-            int fontIndex = (int)ReadU32At(data, off + 0xB4, isBigEndian);
+            int fontIndex = (int)ReadU32At(data, off + o.FontIndex, isBigEndian);
             if (fontIndex < -1 || fontIndex > 100) { reason = $"fontIndex={fontIndex} out of [-1..100]"; return false; }
 
             // --- statement_s.numEntries fields: each must be 0..10000 ---
-            int visibleEntries = (int)ReadU32At(data, off + 0xF0, isBigEndian);
-            int rectXEntries   = (int)ReadU32At(data, off + 0x124, isBigEndian);
-            int rectYEntries   = (int)ReadU32At(data, off + 0x12C, isBigEndian);
+            int visibleEntries = (int)ReadU32At(data, off + o.VisibleExpCount, isBigEndian);
+            int rectXEntries   = (int)ReadU32At(data, off + o.RectXExpCount,   isBigEndian);
+            int rectYEntries   = (int)ReadU32At(data, off + o.RectYExpCount,   isBigEndian);
             if (visibleEntries < 0 || visibleEntries > 10000) { reason = $"visibleExp.numEntries={visibleEntries}"; return false; }
             if (rectXEntries   < 0 || rectXEntries   > 10000) { reason = $"rectXExp.numEntries={rectXEntries}"; return false; }
             if (rectYEntries   < 0 || rectYEntries   > 10000) { reason = $"rectYExp.numEntries={rectYEntries}"; return false; }
 
-            // --- statement_s.entries ptrs: 0 iff numEntries==0, else FFFFFFFF ---
-            uint visibleEntriesPtr = ReadU32At(data, off + 0xF4, isBigEndian);
-            uint rectXEntriesPtr   = ReadU32At(data, off + 0x128, isBigEndian);
-            uint rectYEntriesPtr   = ReadU32At(data, off + 0x130, isBigEndian);
+            // --- statement_s.entries ptrs: 0 iff numEntries==0, else FFFFFFFF/resolved ---
+            uint visibleEntriesPtr = ReadU32At(data, off + o.VisibleExpEntries, isBigEndian);
+            uint rectXEntriesPtr   = ReadU32At(data, off + o.RectXExpEntries,   isBigEndian);
+            uint rectYEntriesPtr   = ReadU32At(data, off + o.RectYExpEntries,   isBigEndian);
             if (!StatementPtrConsistent(visibleEntries, visibleEntriesPtr, data.Length)) { reason = "visibleExp ptr/count mismatch"; return false; }
             if (!StatementPtrConsistent(rectXEntries,   rectXEntriesPtr,   data.Length)) { reason = "rectXExp ptr/count mismatch"; return false; }
             if (!StatementPtrConsistent(rectYEntries,   rectYEntriesPtr,   data.Length)) { reason = "rectYExp ptr/count mismatch"; return false; }
 
-            // --- focusColor / disableColor: each component in [0..1] (allow small slop) ---
-            if (!IsPlausibleColor(data, off + 0x104, isBigEndian)) { reason = "focusColor implausible"; return false; }
-            if (!IsPlausibleColor(data, off + 0x114, isBigEndian)) { reason = "disableColor implausible"; return false; }
-
-            // --- windowDef colors (forecolor, backcolor, borderColor, outlineColor) ---
-            if (!IsPlausibleColor(data, off + 0x64, isBigEndian)) { reason = "foreColor implausible"; return false; }
-            if (!IsPlausibleColor(data, off + 0x74, isBigEndian)) { reason = "backColor implausible"; return false; }
-            if (!IsPlausibleColor(data, off + 0x84, isBigEndian)) { reason = "borderColor implausible"; return false; }
-            if (!IsPlausibleColor(data, off + 0x94, isBigEndian)) { reason = "outlineColor implausible"; return false; }
+            // --- colors (each component in [-1, 1000] — wide enough to allow pre-scaled colors) ---
+            if (!IsPlausibleColor(data, off + o.FocusColor,    isBigEndian)) { reason = "focusColor implausible"; return false; }
+            if (!IsPlausibleColor(data, off + o.DisableColor,  isBigEndian)) { reason = "disableColor implausible"; return false; }
+            if (!IsPlausibleColor(data, off + o.ForeColor,     isBigEndian)) { reason = "foreColor implausible"; return false; }
+            if (!IsPlausibleColor(data, off + o.BackColor,     isBigEndian)) { reason = "backColor implausible"; return false; }
+            if (!IsPlausibleColor(data, off + o.BorderColor,   isBigEndian)) { reason = "borderColor implausible"; return false; }
+            if (!IsPlausibleColor(data, off + o.OutlineColor,  isBigEndian)) { reason = "outlineColor implausible"; return false; }
 
             // --- borderSize: small non-negative float ---
             float borderSize = ReadF32At(data, off + 0x48, isBigEndian);

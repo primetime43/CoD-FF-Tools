@@ -494,19 +494,25 @@ class Program
                 Console.WriteLine($"  Range:    0x{poolStart:X} .. 0x{poolEnd:X}");
                 Console.WriteLine($"  Entries:  {assetCount}");
 
-                // Detect entry layout
-                int typeOff = 3;
+                // Detect entry layout. Each entry is 8 bytes: a 4-byte type and a 4-byte
+                // pointer. Order is [type][ptr] (rect-first) on PS3/Xbox 360/PC; if the
+                // FFs are on the LEFT instead we flip to [ptr][type]. For PC the type
+                // bytes are little-endian (low byte at offset 0), for console big-endian
+                // (low byte at offset 3) — so we read the full 4-byte int and cast down.
                 bool leftIsPtr = zone[poolStart] == 0xFF && zone[poolStart + 1] == 0xFF
                               && zone[poolStart + 2] == 0xFF && zone[poolStart + 3] == 0xFF;
                 bool rightIsPtr = zone[poolStart + 4] == 0xFF && zone[poolStart + 5] == 0xFF
                                && zone[poolStart + 6] == 0xFF && zone[poolStart + 7] == 0xFF;
-                if (leftIsPtr && !rightIsPtr) typeOff = 7;
-                Console.WriteLine($"  Layout:   {(typeOff == 3 ? "[type][ptr]" : "[ptr][type]")}");
+                int typeFieldOff = (leftIsPtr && !rightIsPtr) ? 4 : 0;
+                Console.WriteLine($"  Layout:   {(typeFieldOff == 0 ? "[type][ptr]" : "[ptr][type]")}");
 
                 var counts = new Dictionary<byte, int>();
                 for (int i = 0; i + 8 <= poolEnd - poolStart; i += 8)
                 {
-                    byte t = zone[poolStart + i + typeOff];
+                    uint typeWord = isPC
+                        ? ReadU32LE(zone, poolStart + i + typeFieldOff)
+                        : ReadU32BE(zone, poolStart + i + typeFieldOff);
+                    byte t = (byte)(typeWord & 0xFF);
                     counts[t] = counts.GetValueOrDefault(t) + 1;
                 }
                 Console.WriteLine($"  Type counts:");

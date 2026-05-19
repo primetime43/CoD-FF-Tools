@@ -1,4 +1,5 @@
 using Call_of_Duty_FastFile_Editor.Models;
+using Call_of_Duty_FastFile_Editor.ZoneParsers;
 using FastFileLib.GameDefinitions;
 using System.Diagnostics;
 
@@ -53,11 +54,13 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override bool IsSupportedAssetType(int assetType)
         {
             // PC support is incremental. Currently supported:
-            //   - rawfile (text scripts/CSVs - the primary need for issue #21 model swap workflow)
+            //   - rawfile  (text scripts/CSVs - the primary need for issue #21 model swap workflow)
             //   - localize (string entries - byte-order-independent, same parser as console)
+            //   - menufile (PC menuDef_t = 288 bytes vs console's 312 — see Cod5MenuDeserializer)
             // Other types fall through to false and will be skipped with a warning.
             if (assetType == RawFileAssetType) return true;
             if (assetType == LocalizeAssetType) return true;
+            if (assetType == MenuFileAssetType) return true;
             return false;
         }
 
@@ -180,10 +183,14 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             return null;
         }
 
+        /// <summary>
+        /// WaW PC menulist parsing — routes to the CoD5 deserializer in PC layout mode
+        /// (288-byte menuDef_t, little-endian). Same scan strategy as the console path.
+        /// </summary>
         public override MenuList? ParseMenuFile(byte[] zoneData, int offset)
         {
-            Debug.WriteLine($"[{ShortName}] ParseMenuFile called but PC parsing not supported");
-            return null;
+            Debug.WriteLine($"[{ShortName}] ParseMenuFile at 0x{offset:X} (CoD5 PC layout)");
+            return MenuListParser.ParseMenuList(zoneData, offset, isBigEndian: false, layout: MenuBinaryLayout.Cod5PC);
         }
 
         public override MaterialAsset? ParseMaterial(byte[] zoneData, int offset)

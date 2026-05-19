@@ -38,8 +38,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     {
         /// <summary>IW4 (MW2) layout — 752 bytes console / 400 PC, full OAT-spec walker.</summary>
         Iw4,
-        /// <summary>CoD5 (WaW) layout — 312 bytes console, simpler walker that doesn't recurse into items[].</summary>
+        /// <summary>CoD5 (WaW) console layout — 312 bytes (PS3 / Xbox 360), big-endian.</summary>
         Cod5,
+        /// <summary>CoD5 (WaW) PC layout — 288 bytes (dynamicFlags[1] + cursorItem[1] vs console's [4]/[4]), little-endian.</summary>
+        Cod5PC,
     }
 
     public static class MenuListParser
@@ -149,40 +151,34 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             int currentOffset = afterPointersOffset;
             int lastSuccessfulEnd = afterPointersOffset;
 
-            if (layout == MenuBinaryLayout.Cod5)
+            if (layout == MenuBinaryLayout.Cod5 || layout == MenuBinaryLayout.Cod5PC)
             {
                 // Strict CoD5 scan: scan forward byte-by-byte from the pointer array end
-                // and accept every position whose 312-byte window FitsMenuDefStruct (every
-                // pointer is 0/FFFFFFFF, every count/bool/color is in range, etc.). This
-                // finds all menuCount inline menus without needing to walk each menu's
+                // and accept every position whose menuDef_t binary FitsMenuDefStruct (every
+                // pointer is 0/FFFFFFFF/resolved, every count/bool/color is in range, etc.).
+                // This finds all menuCount inline menus without needing to walk each menu's
                 // variable-size inline payload — the struct check itself is what tells
                 // itemDef_s candidates apart from menuDef_t candidates.
                 //
-                // Why scan-then-advance-by-1 vs walk-inline-data-precisely: the inline
-                // ordering of WaW event handlers / items isn't fully nailed down (we have
-                // the struct sizes but not the OAT-generated load order), and any over- or
-                // under-read mis-aligns the cursor and makes us skip real menus. Trusting
-                // the strict struct check at every byte gives us all menus reliably.
-                var cod5Reader = new Cod5MenuDeserializer(zoneData, afterPointersOffset, isBigEndian);
+                // PC vs console differs only in struct sizes (288 vs 312 bytes) and byte
+                // order (LE vs BE) — both handled by the same deserializer via flags.
+                bool isPCLayout = layout == MenuBinaryLayout.Cod5PC;
+                var cod5Reader = new Cod5MenuDeserializer(zoneData, afterPointersOffset, isBigEndian, isPCLayout);
                 int searchFrom = afterPointersOffset;
 
                 for (int i = 0; i < menuCount; i++)
                 {
-                    int menuStart = Cod5MenuDeserializer.FindNextCod5MenuStart(zoneData, searchFrom, isBigEndian);
+                    int menuStart = Cod5MenuDeserializer.FindNextCod5MenuStart(zoneData, searchFrom, isBigEndian, isPCLayout);
                     if (menuStart < 0)
                     {
-                        Debug.WriteLine($"[MenuListParser] CoD5: no more menuDef_t-shaped data after 0x{searchFrom:X} (found {menuList.Menus.Count} of {menuCount})");
+                        Debug.WriteLine($"[MenuListParser] CoD5{(isPCLayout?"-PC":"")}: no more menuDef_t-shaped data after 0x{searchFrom:X} (found {menuList.Menus.Count} of {menuCount})");
                         break;
                     }
 
                     cod5Reader.Position = menuStart;
-                    // No upper bound passed — ReadMenuDef just reads the binary fields and
-                    // the inline window.name if any; it doesn't try to walk items[].
                     var menu = cod5Reader.ReadMenuDef(i, -1);
                     if (menu == null)
                     {
-                        // FitsMenuDefStruct passed but ReadMenuDef still bailed (e.g. garbage
-                        // inline name string). Advance by 1 and keep scanning.
                         searchFrom = menuStart + 1;
                         i--;
                         continue;
@@ -191,10 +187,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                     lastSuccessfulEnd = menu.EndOffset;
                     // Advance by ONE byte, not by sizeof(menuDef_t) — we don't actually know
                     // exactly where the next menu starts (would need a full items[] walker),
-                    // and the menus aren't always 0x138 apart. The strict FitsMenuDefStruct
-                    // check is what guarantees the next match is also a menu, so it's safe
-                    // to look at the very next byte. This is how we recover all 95 menus
-                    // instead of the 34 a coarse 0x138 stride misses past clusters.
+                    // and the menus aren't always sizeof(menuDef_t) apart. The strict
+                    // FitsMenuDefStruct check guarantees the next match is also a menu.
                     searchFrom = menuStart + 1;
                 }
             }
