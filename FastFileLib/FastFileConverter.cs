@@ -783,16 +783,13 @@ public static class FastFileConverter
 
     private static bool LooksLikeAssetEntry(byte[] zoneData, int offset, bool isLE)
     {
-        if (offset + 8 > zoneData.Length) return false;
-        byte typeId = isLE ? zoneData[offset] : zoneData[offset + 3];
-        byte hi0 = isLE ? zoneData[offset + 1] : zoneData[offset];
-        byte hi1 = isLE ? zoneData[offset + 2] : zoneData[offset + 1];
-        byte hi2 = isLE ? zoneData[offset + 3] : zoneData[offset + 2];
-        if (hi0 != 0 || hi1 != 0 || hi2 != 0) return false;
-        if (typeId < 0x01 || typeId > 0x2A) return false;  // valid asset-type-id range
-        // ptr placeholder must be FFFFFFFF
-        return zoneData[offset + 4] == 0xFF && zoneData[offset + 5] == 0xFF
-            && zoneData[offset + 6] == 0xFF && zoneData[offset + 7] == 0xFF;
+        // This walker assumes the [type word][FFFFFFFF] (TypeFirst) layout, since the type-id
+        // read and write-back below index that way. Accept only TypeFirst records whose id is
+        // in the real asset-type-id range; the shared primitive enforces the FFFFFFFF pointer
+        // half and the high-bytes-zero rule.
+        return ZoneAssetPool.TryReadRecord(zoneData, offset, isLE, out uint typeId, out var order)
+            && order == AssetRecordOrder.TypeFirst
+            && typeId >= 0x01 && typeId <= 0x2A;
     }
 
     /// <summary>
