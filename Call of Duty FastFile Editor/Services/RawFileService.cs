@@ -2,7 +2,6 @@
 using System.Text;
 using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.UI;
-using Call_of_Duty_FastFile_Editor.Services.IO;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using FastFileLib;
 using static Call_of_Duty_FastFile_Editor.Models.FastFile;
@@ -291,9 +290,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         // Update the zone file size header if the filename length changed.
                         if (byteDifference != 0)
                         {
-                            uint currentZoneSize = ZoneFileIO.ReadZoneFileSize(zoneFilePath);
+                            uint currentZoneSize = ZoneHeaderIO.ReadZoneSize(zoneFilePath);
                             uint newZoneSize = (uint)((int)currentZoneSize + byteDifference);
-                            ZoneFileIO.WriteZoneFileSize(zoneFilePath, newZoneSize);
+                            ZoneHeaderIO.WriteZoneSize(zoneFilePath, newZoneSize);
 
                             // Refresh zone data and header fields.
                             RawFileNode.CurrentZone.LoadData();
