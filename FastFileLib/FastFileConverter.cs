@@ -917,41 +917,13 @@ public static class FastFileConverter
         };
     }
 
-    /// <summary>
-    /// Writes a 32-bit unsigned integer in big-endian format.
-    /// </summary>
-    private static void WriteUInt32BE(byte[] data, int offset, uint value)
-    {
-        data[offset] = (byte)(value >> 24);
-        data[offset + 1] = (byte)(value >> 16);
-        data[offset + 2] = (byte)(value >> 8);
-        data[offset + 3] = (byte)(value & 0xFF);
-    }
-
-    private static void WriteUInt32LE(byte[] data, int offset, uint value)
-    {
-        data[offset] = (byte)(value & 0xFF);
-        data[offset + 1] = (byte)((value >> 8) & 0xFF);
-        data[offset + 2] = (byte)((value >> 16) & 0xFF);
-        data[offset + 3] = (byte)((value >> 24) & 0xFF);
-    }
-
-    /// <summary>
-    /// Reads a 32-bit unsigned integer at the given offset using the given byte order.
-    /// </summary>
+    // Endian read/write primitives live in FastFileConstants (shared with the editor,
+    // CLI, and CompilerGUI). These thin aliases keep the call sites in this file terse.
     private static uint ReadUInt32(byte[] data, int offset, bool isLE)
-        => isLE
-            ? (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24))
-            : (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
+        => FastFileConstants.ReadUInt32(data, offset, isLE);
 
-    /// <summary>
-    /// Writes a 32-bit unsigned integer using the given byte order.
-    /// </summary>
     private static void WriteUInt32(byte[] data, int offset, uint value, bool isLE)
-    {
-        if (isLE) WriteUInt32LE(data, offset, value);
-        else      WriteUInt32BE(data, offset, value);
-    }
+        => FastFileConstants.WriteUInt32(data, offset, value, isLE);
 
     /// <summary>
     /// Compresses zone data for a specific platform. Routes through the canonical

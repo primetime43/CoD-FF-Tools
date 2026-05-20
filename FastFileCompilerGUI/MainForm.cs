@@ -155,18 +155,14 @@ public partial class MainForm : Form
     {
         if (zoneData.Length < 0x24) return (null, null);
 
-        uint Read(int offset) => ffInfo.IsPC
-            ? (uint)(zoneData[offset] | (zoneData[offset + 1] << 8)
-                    | (zoneData[offset + 2] << 16) | (zoneData[offset + 3] << 24))
-            : (uint)((zoneData[offset] << 24) | (zoneData[offset + 1] << 16)
-                    | (zoneData[offset + 2] << 8) | zoneData[offset + 3]);
+        uint Read(int offset) => FastFileConstants.ReadUInt32(zoneData, offset, littleEndian: ffInfo.IsPC);
 
-        uint temp = Read(0x08);
+        uint temp = Read(FastFileConstants.BlockSizeTempOffset);
 
         bool isMw2Xbox360 = ffInfo.GameVersion == GameVersion.MW2 && ffInfo.Platform == "Xbox 360";
         uint? vertex = isMw2Xbox360 || zoneData.Length < 0x24
             ? null
-            : Read(0x20);
+            : Read(FastFileConstants.BlockSizeVertexOffset);
 
         return (temp, vertex);
     }

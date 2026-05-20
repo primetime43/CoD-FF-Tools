@@ -402,4 +402,61 @@ public static class FastFileConstants
     }
 
     #endregion
+
+    #region UInt32 Endian Read/Write (byte[])
+
+    /// <summary>Reads a 32-bit unsigned integer in big-endian order.</summary>
+    public static uint ReadUInt32BigEndian(byte[] data, int offset)
+        => (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
+
+    /// <summary>Reads a 32-bit unsigned integer in little-endian order.</summary>
+    public static uint ReadUInt32LittleEndian(byte[] data, int offset)
+        => (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24));
+
+    /// <summary>
+    /// Reads a 32-bit unsigned integer at the given byte order. PC zones are
+    /// little-endian; PS3 / Xbox 360 / Wii are big-endian — pass the source's IsPC.
+    /// </summary>
+    public static uint ReadUInt32(byte[] data, int offset, bool littleEndian)
+        => littleEndian ? ReadUInt32LittleEndian(data, offset) : ReadUInt32BigEndian(data, offset);
+
+    /// <summary>Writes a 32-bit unsigned integer in big-endian order.</summary>
+    public static void WriteUInt32BigEndian(byte[] data, int offset, uint value)
+    {
+        data[offset]     = (byte)(value >> 24);
+        data[offset + 1] = (byte)(value >> 16);
+        data[offset + 2] = (byte)(value >> 8);
+        data[offset + 3] = (byte)value;
+    }
+
+    /// <summary>Writes a 32-bit unsigned integer in little-endian order.</summary>
+    public static void WriteUInt32LittleEndian(byte[] data, int offset, uint value)
+    {
+        data[offset]     = (byte)value;
+        data[offset + 1] = (byte)(value >> 8);
+        data[offset + 2] = (byte)(value >> 16);
+        data[offset + 3] = (byte)(value >> 24);
+    }
+
+    /// <summary>Writes a 32-bit unsigned integer at the given byte order.</summary>
+    public static void WriteUInt32(byte[] data, int offset, uint value, bool littleEndian)
+    {
+        if (littleEndian) WriteUInt32LittleEndian(data, offset, value);
+        else WriteUInt32BigEndian(data, offset, value);
+    }
+
+    /// <summary>
+    /// Reads a null-terminated string starting at <paramref name="offset"/>.
+    /// Defaults to Latin1 (ISO-8859-1) so single-byte extended-ASCII names/values
+    /// (the encoding CoD zones use) round-trip byte-exactly; pass an explicit
+    /// encoding for ASCII-only fields if preferred.
+    /// </summary>
+    public static string ReadNullTerminatedString(byte[] data, int offset, System.Text.Encoding? encoding = null)
+    {
+        int end = offset;
+        while (end < data.Length && data[end] != 0) end++;
+        return (encoding ?? System.Text.Encoding.Latin1).GetString(data, offset, end - offset);
+    }
+
+    #endregion
 }

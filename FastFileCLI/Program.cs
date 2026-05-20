@@ -868,29 +868,10 @@ class Program
     /// sizes with the same rule — keeps reads and writes in sync.
     /// </summary>
     static void WriteSizeField(byte[] data, int offset, uint value, bool isPC)
-    {
-        if (isPC)
-        {
-            data[offset]     = (byte)(value & 0xFF);
-            data[offset + 1] = (byte)((value >> 8) & 0xFF);
-            data[offset + 2] = (byte)((value >> 16) & 0xFF);
-            data[offset + 3] = (byte)((value >> 24) & 0xFF);
-        }
-        else
-        {
-            data[offset]     = (byte)((value >> 24) & 0xFF);
-            data[offset + 1] = (byte)((value >> 16) & 0xFF);
-            data[offset + 2] = (byte)((value >> 8) & 0xFF);
-            data[offset + 3] = (byte)(value & 0xFF);
-        }
-    }
+        => FastFileConstants.WriteUInt32(data, offset, value, littleEndian: isPC);
 
     static uint ReadSizeField(byte[] data, int offset, bool isPC)
-    {
-        return isPC
-            ? (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24))
-            : (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
-    }
+        => FastFileConstants.ReadUInt32(data, offset, littleEndian: isPC);
 
     // -----------------------------------------------------------------
     //  Helpers
@@ -1000,11 +981,9 @@ class Program
         }
     }
 
-    static uint ReadU32BE(byte[] data, int offset) =>
-        (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
+    static uint ReadU32BE(byte[] data, int offset) => FastFileConstants.ReadUInt32BigEndian(data, offset);
 
-    static uint ReadU32LE(byte[] data, int offset) =>
-        (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24));
+    static uint ReadU32LE(byte[] data, int offset) => FastFileConstants.ReadUInt32LittleEndian(data, offset);
 
     static string HexBytes(byte[] data, int offset, int length)
     {
