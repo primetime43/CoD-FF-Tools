@@ -487,34 +487,11 @@ public static class FastFileConverter
     }
 
     /// <summary>
-    /// Detects the source platform from FastFile info.
+    /// Detects the source platform from FastFile info. Thin alias over
+    /// <see cref="FastFileInfo.Platform"/> kept for callers that pass a
+    /// <see cref="FastFileInfo"/> rather than the raw fields.
     /// </summary>
-    private static string DetectPlatform(FastFileInfo info)
-    {
-        // PC has different version numbers
-        if (info.Version == FastFileInfo.CoD4_PC_Version ||
-            info.Version == FastFileInfo.MW2_PC_Version)
-        {
-            return "PC";
-        }
-
-        // Wii has different version numbers
-        if (info.Version == FastFileInfo.CoD4_Wii_Version ||
-            info.Version == FastFileInfo.WaW_Wii_Version)
-        {
-            return "Wii";
-        }
-
-        // Signed files are Xbox 360 MP
-        if (info.IsSigned)
-        {
-            return "Xbox 360";
-        }
-
-        // PS3 and Xbox 360 share the same version bytes for unsigned files
-        // We can't definitively tell them apart, so return "Console (PS3/Xbox 360)"
-        return "Console (PS3/Xbox 360)";
-    }
+    private static string DetectPlatform(FastFileInfo info) => info.Platform;
 
     /// <summary>
     /// Decompresses a FastFile, handling signed file signatures.

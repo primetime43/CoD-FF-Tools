@@ -103,15 +103,16 @@ public class ReportTests
     }
 
     [Fact]
-    public void Report_WaWXbox360Zone_FlagsMemAllocMismatch()
+    public void Report_WaWZoneWithCorruptMemAlloc_FlagsMismatch()
     {
-        // Build a WaW PS3 FF but the underlying zone uses Xbox 360 MemAlloc values.
-        // The report should warn that BlockSizeTemp doesn't match expected for the
-        // detected game/platform. The FF says "PS3" but the zone has Xbox 360 values.
+        // Build a WaW PS3 FF with a junk MemAlloc1 value that matches neither PS3 (0x10B0)
+        // nor Xbox 360 (0x0A90). The zone-peek detection falls back to "PS3/Xbox 360"
+        // (defaults to PS3 expected values), and the validator should flag that
+        // BlockSizeTemp doesn't match the expected magic.
         using var dir = new TempDir();
         byte[] zone = FfBuilder.BuildMinimalWaWZone();
-        // Overwrite BlockSizeTemp with the WaW Xbox 360 value instead of PS3 value
-        zone[0x08] = 0x00; zone[0x09] = 0x00; zone[0x0A] = 0x0A; zone[0x0B] = 0x90;
+        // Overwrite BlockSizeTemp with a junk value (not a known PS3/Xbox 360 magic)
+        zone[0x08] = 0x00; zone[0x09] = 0x00; zone[0x0A] = 0xDE; zone[0x0B] = 0xAD;
         string ff = dir.Write("test.ff", FfBuilder.BuildWaWPs3(zone));
 
         var r = CliRunner.Run("report", ff);

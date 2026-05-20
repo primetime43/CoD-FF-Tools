@@ -79,6 +79,9 @@ public class InfoTests
         using var doc = JsonDocument.Parse(r.Stdout);
         Assert.Equal(JsonValueKind.Object, doc.RootElement.ValueKind);
         Assert.Equal("WaW", doc.RootElement.GetProperty("game").GetString());
+        // Unsigned WaW BE FFs are ambiguous from header alone, but FastFileInfo.FromFile
+        // peeks the zone's MemAlloc1 to refine: the synthetic builder uses PS3 MemAlloc
+        // (0x10B0) so detection resolves to "PS3".
         Assert.Equal("PS3", doc.RootElement.GetProperty("platform").GetString());
         Assert.Equal("IWffu100", doc.RootElement.GetProperty("magic").GetString());
         Assert.False(doc.RootElement.GetProperty("signed").GetBoolean());

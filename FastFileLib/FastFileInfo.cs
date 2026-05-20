@@ -46,13 +46,148 @@ public class FastFileInfo
     public const uint MW2_DevBuild_Version = (uint)MW2Definition.DevBuildVersionValue;
 
     /// <summary>
-    /// Reads FastFile header information from a file.
+    /// Reads FastFile header information from a file. For unsigned BE console FFs
+    /// — where the FF header alone can't tell PS3 from Xbox 360 — this also peeks
+    /// into the decompressed zone to refine the <see cref="Platform"/> string when
+    /// the underlying zone bytes are unambiguous (WaW: distinct MemAlloc1 magic;
+    /// MW2: distinct header layout). CoD4 zone bytes are identical between PS3 and
+    /// Xbox 360, so CoD4 stays "PS3/Xbox 360".
     /// </summary>
     public static FastFileInfo FromFile(string filePath)
     {
-        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read);
+        FastFileInfo info;
+        using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read))
+        using (var br = new BinaryReader(fs))
+        {
+            info = FromReader(br);
+        }
+
+        // Refine ambiguous unsigned BE console label by peeking into the zone.
+        if (info.Platform == "PS3/Xbox 360")
+        {
+            string? refined = TryRefinePlatformByZonePeek(filePath, info);
+            if (refined != null) info.Platform = refined;
+        }
+        return info;
+    }
+
+    /// <summary>
+    /// Peeks the first decompressed block of an unsigned BE console FF to read
+    /// the zone header and resolve PS3 vs Xbox 360. Returns null when the zone
+    /// bytes can't disambiguate (CoD4: identical MemAlloc) or when peeking fails
+    /// (e.g. MW2 Xbox 360 single-zlib-stream format — block peek won't decode).
+    /// Failure mode is "leave the ambiguous label alone", never throw.
+    /// </summary>
+    private static string? TryRefinePlatformByZonePeek(string ffPath, FastFileInfo info)
+    {
+        try
+        {
+            byte[]? zoneHead = PeekZoneHeader(ffPath, info, headerBytes: 64);
+            if (zoneHead == null || zoneHead.Length < 12) return null;
+
+            // WaW: MemAlloc1 magic is the strongest disambiguator. Real PS3 retail zones
+            // can use per-zone MemAlloc (e.g. ui.ff has 0x258 instead of the documented
+            // 0x10B0 magic), so we accept a magic match as definitive but also fall through
+            // to "PS3" for unsigned non-magic cases — retail Xbox 360 WaW is signed (caught
+            // by IsSigned), and converter output from Xbox 360 preserves the 0x0A90 magic.
+            if (info.GameVersion == GameVersion.WaW)
+            {
+                uint memAlloc1BE = (uint)((zoneHead[8] << 24) | (zoneHead[9] << 16)
+                                        | (zoneHead[10] << 8) | zoneHead[11]);
+                if (memAlloc1BE == CoD5Definition.MemAlloc1Value) return "PS3";
+                if (memAlloc1BE == CoD5Definition.Xbox360MemAlloc1Value) return "Xbox 360";
+                return "PS3";  // unsigned WaW + non-magic MemAlloc → PS3 retail
+            }
+
+            // MW2: header layout differs (PS3 = 52-byte, Xbox 360 = 48-byte). The 48-byte
+            // layout has FFFFFFFF at 0x24 + 0x2C but NOT at 0x28; 52-byte has it at 0x28 + 0x30.
+            if (info.GameVersion == GameVersion.MW2)
+            {
+                bool has24 = Has(zoneHead, 0x24);
+                bool has28 = Has(zoneHead, 0x28);
+                bool has2C = Has(zoneHead, 0x2C);
+                bool has30 = Has(zoneHead, 0x30);
+                if (has24 && has2C && !has28) return "Xbox 360";
+                if (has28 && has30) return "PS3";
+            }
+
+            // CoD4: zone MemAlloc and layout are identical between PS3 and Xbox 360. The
+            // peek can't tell them apart from zone bytes, but unsigned CoD4 BE is realistically
+            // always PS3 (Xbox 360 retail CoD4 is signed → caught by IsSigned).
+            if (info.GameVersion == GameVersion.CoD4)
+                return "PS3";
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+
+        static bool Has(byte[] data, int offset) =>
+            offset + 4 <= data.Length &&
+            data[offset] == 0xFF && data[offset + 1] == 0xFF &&
+            data[offset + 2] == 0xFF && data[offset + 3] == 0xFF;
+    }
+
+    /// <summary>
+    /// Decompresses just the first block of a block-format FF and returns the
+    /// first <paramref name="headerBytes"/> bytes of the zone. Used by
+    /// <see cref="TryRefinePlatformByZonePeek"/> to inspect the zone header
+    /// without writing a full decompression to disk.
+    /// </summary>
+    private static byte[]? PeekZoneHeader(string ffPath, FastFileInfo info, int headerBytes)
+    {
+        using var fs = new FileStream(ffPath, FileMode.Open, FileAccess.Read);
         using var br = new BinaryReader(fs);
-        return FromReader(br);
+
+        // FF header is 12 bytes. MW2 console (PS3/Xbox 360) adds a 25-byte DB_Header
+        // (allowOnlineUpdate + fileCreationTime + region + entryCount + fileSizes)
+        // before the compressed stream starts.
+        long startPos = 12;
+        if (info.GameVersion == GameVersion.MW2 && !info.IsPC && !info.IsWii)
+            startPos += 25;
+
+        if (startPos + 2 > fs.Length) return null;
+        fs.Position = startPos;
+
+        // Read blocks until we have enough zone bytes for the header peek. Most FFs
+        // give us 64 KB on the first block; the loop is here for WaW PS3 UI zones
+        // where the first blocks can be Treyarch's 0x0000 raw-uncompressed extension
+        // (used for already-compressed payloads like Bink video).
+        //   length = 1     → end marker, give up
+        //   length = 0     → next 64 KB are stored raw (or EOF if file is shorter)
+        //   length = N     → next N bytes are raw deflate, decompress them
+        const int BlockSize = 0x10000;
+        using var collected = new MemoryStream();
+        for (int i = 0; i < 8 && collected.Length < headerBytes; i++)
+        {
+            byte[] lenBytes = br.ReadBytes(2);
+            if (lenBytes.Length < 2) return null;
+            int chunkLen = (lenBytes[0] << 8) | lenBytes[1];
+            if (chunkLen == 1) break;
+            if (chunkLen == 0)
+            {
+                long remaining = fs.Length - fs.Position;
+                if (remaining < BlockSize) break;
+                byte[] rawBlock = br.ReadBytes(BlockSize);
+                collected.Write(rawBlock, 0, rawBlock.Length);
+                continue;
+            }
+            if (chunkLen > 131072) return null;
+            if (fs.Position + chunkLen > fs.Length) return null;
+            byte[] compressed = br.ReadBytes(chunkLen);
+            if (compressed.Length < chunkLen) return null;
+            byte[] decompressed = FastFileProcessor.DecompressBlock(compressed);
+            collected.Write(decompressed, 0, decompressed.Length);
+        }
+
+        byte[] all = collected.ToArray();
+        if (all.Length < 12) return null;
+        if (all.Length < headerBytes) return all;
+        byte[] head = new byte[headerBytes];
+        Array.Copy(all, 0, head, 0, headerBytes);
+        return head;
     }
 
     /// <summary>
@@ -236,11 +371,17 @@ public class FastFileInfo
 
     /// <summary>
     /// Gets the specific platform name based on the magic string and version.
-    /// Uses magic to distinguish PS3 (unsigned) from Xbox 360 (signed).
+    /// Header-only detection: signed magic uniquely identifies Xbox 360; unsigned BE
+    /// console FFs are genuinely ambiguous from the header bytes alone (PS3 retail and
+    /// signed-converted-to-unsigned Xbox 360 produce identical FF headers), so those
+    /// return "PS3/Xbox 360" and <see cref="FromFile"/> tries to refine that label by
+    /// peeking into the decompressed zone (different MemAlloc1 magic for WaW; different
+    /// header layout for MW2). CoD4 can't be refined — its zone bytes are identical
+    /// between PS3 and Xbox 360.
     /// </summary>
     /// <param name="version">The version number from the header</param>
     /// <param name="magic">The magic string from the header</param>
-    /// <returns>Platform name: PS3, Xbox 360, PC, or Wii</returns>
+    /// <returns>Platform name: "PS3/Xbox 360", "Xbox 360", "PC", "Wii", or "Console"</returns>
     public static string GetPlatform(uint version, string magic)
     {
         // PC versions have specific version numbers
@@ -251,14 +392,17 @@ public class FastFileInfo
         if (version == CoD4_Wii_Version || version == WaW_Wii_Version)
             return "Wii";
 
-        // For console versions, use magic to distinguish PS3 vs Xbox 360
-        // IWffu100 = unsigned (PS3)
-        // IWffs100 = signed (Xbox 360)
-        // IWff0100 = signed (Xbox 360)
-        if (magic == UnsignedMagic)
-            return "PS3";
-        else if (magic == SignedMagic || magic == "IWffs100")
+        // Signed magic is exclusively Xbox 360 for console games (CoD4/WaW/MW2 console).
+        // MW2 PC signed (IWff0100 + LE version) is caught above by the PC version check.
+        if (magic == SignedMagic || magic == TreyarchMagic || magic == "IWffs100")
             return "Xbox 360";
+
+        // Unsigned BE console magic is genuinely ambiguous: both PS3 retail and unsigned
+        // Xbox 360 (converted from signed, or rare unsigned MW2 SP) produce identical bytes.
+        // Report both rather than picking one — callers that need to distinguish should
+        // look at the decompressed zone's MemAlloc1 (PS3 / Xbox 360 use different magics).
+        if (magic == UnsignedMagic)
+            return "PS3/Xbox 360";
 
         return "Console";
     }
