@@ -132,13 +132,13 @@ public class FastFileConverterTests
     }
 
     [Fact]
-    public void Convert_WaWPsThreeToPc_ProducesPcFormat()
+    public void Convert_WaWPsThreeToPc_RefusesCrossEndiannessWithClearError()
     {
-        // WaW PS3 and WaW PC both use the 52-byte zone header layout — just different
-        // endianness (PS3 BE, PC LE). My ConvertAssetTypeIDs fix should swap the asset
-        // type IDs from PS3 enum to PC enum (-2 shift since PC drops both pixelshader
-        // and vertexshader), and PatchZoneHeaderForPlatform should write the header
-        // fields LE for PC target. This test verifies the FF-level output is PC-shaped.
+        // WaW PS3 and WaW PC share the 52-byte header layout, so the cross-LAYOUT guard
+        // doesn't fire — but PS3 is big-endian and PC is little-endian. The in-place patch
+        // only byte-swaps the header, not the body (asset pointers, rawfile size headers,
+        // string counts), so it would emit a corrupt FF. Convert() refuses cross-endianness
+        // and points the user at ConvertUsingBaseZone, which rebuilds in the target byte order.
         byte[] wawZone = FfBuilder.BuildMinimalWaWZone();
         string sourceFf = Path.GetTempFileName();
         string outputFf = Path.GetTempFileName();
@@ -148,16 +148,9 @@ public class FastFileConverterTests
 
             var result = FastFileConverter.Convert(sourceFf, outputFf, Platform.PC);
 
-            Assert.True(result.Success, $"Conversion failed: {result.Message}");
-
-            byte[] ff = File.ReadAllBytes(outputFf);
-            // PC WaW FF: IWffu100 + version 0x183 LE (`83 01 00 00`) + single zlib at 0x0C
-            Assert.Equal("IWffu100", Encoding.ASCII.GetString(ff, 0, 8));
-            Assert.Equal(0x83, ff[8]);
-            Assert.Equal(0x01, ff[9]);
-            Assert.Equal(0x00, ff[10]);
-            Assert.Equal(0x00, ff[11]);
-            Assert.Equal(0x78, ff[12]);  // zlib magic
+            Assert.False(result.Success);
+            Assert.Contains("Cross-endianness", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("ConvertUsingBaseZone", result.Message);
         }
         finally
         {

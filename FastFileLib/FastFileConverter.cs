@@ -81,17 +81,9 @@ public static class FastFileConverter
                 result.Warnings.Add("Source file is signed (Xbox 360 MP). Converting to unsigned format.");
             }
 
-            // Check for PC source (little-endian zone data)
-            if (result.SourcePlatform == "PC")
-            {
-                result.Warnings.Add("PC FastFiles use little-endian zone data. Conversion may not work correctly for all asset types.");
-            }
-
-            // Check for PC target
-            if (targetPlatform == Platform.PC)
-            {
-                result.Warnings.Add("Converting to PC requires little-endian zone data. Only rawfiles/localization will work correctly.");
-            }
+            // Cross-endianness (BE console/Wii ↔ LE PC) is refused inside PatchZoneHeaderForPlatform
+            // with a precise, actionable error pointing at ConvertUsingBaseZone — no pre-emptive
+            // warning needed here, and the in-place same-endianness paths don't need one either.
 
             // Create temp file for zone data
             string tempZonePath = Path.GetTempFileName();
@@ -537,6 +529,23 @@ public static class FastFileConverter
                 "or the FF Editor's in-place edit flow.");
         }
 
+        // Cross-endianness conversion (BE console/Wii ↔ LE PC) can't be done in-place: the patch
+        // only byte-swaps the zone HEADER, but the entire zone BODY (asset pointers, rawfile size
+        // headers, string counts, etc.) is also in the source's byte order. Swapping every field
+        // in the body requires fully parsing the zone, which is what ZoneBuilder does on rebuild.
+        // Refuse rather than emit a header-correct-but-body-wrong-endianness file.
+        bool sourceIsLE = sourceIsPC;
+        bool targetIsLE = targetIsPC;
+        if (sourceIsLE != targetIsLE)
+        {
+            string srcOrder = sourceIsLE ? "little-endian (PC)" : "big-endian (PS3/Xbox 360/Wii)";
+            string tgtOrder = targetIsLE ? "little-endian (PC)" : "big-endian (PS3/Xbox 360/Wii)";
+            throw new InvalidOperationException(
+                $"Cross-endianness conversion not supported by Convert(): source is {srcOrder}, target is " +
+                $"{tgtOrder}. The in-place patcher only byte-swaps the zone header, not the body, so the output " +
+                "would be corrupt. Use ConvertUsingBaseZone (rebuilds the zone in the target byte order).");
+        }
+
         if (zoneData.Length < sourceHeaderSize) return 0;  // zone too small to have header
 
         // Read existing block-size fields in SOURCE endianness so we can preserve them (or use
@@ -555,7 +564,6 @@ public static class FastFileConverter
             : GetMemoryAllocationValues(gameVersion, targetPlatform);
 
         // Write block-size fields in TARGET endianness.
-        bool targetIsLE = targetIsPC;
         WriteUInt32(zoneData, FastFileConstants.BlockSizeTempOffset, blockSizeTemp, targetIsLE);
 
         // BlockSizeVertex exists in every layout EXCEPT MW2 Xbox 360's 48-byte header (where 0x20

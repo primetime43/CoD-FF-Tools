@@ -462,22 +462,35 @@ public partial class Form1 : Form
         {
             ConversionResult result;
 
-            // Two conversion modes:
-            //   PS3 target: build a fresh zone from extracted raw files (drops non-rawfile
-            //     assets — fine for script-only mod patches, breaks content zones).
-            //   Other targets: in-place patch (preserves all assets but requires source+target
-            //     to use the same header layout; cross-layout throws a clear error).
-            // ConvertUsingBaseZone now accepts any target platform, so it's available for any
-            // rebuild-style conversion; the existing PS3 branch is kept for backwards UX compat.
-            if (targetPlatform == Platform.PS3)
+            // Pick the conversion mode by what the target needs:
+            //   In-place patch (Convert): preserves ALL assets, but only works when source and
+            //     target share byte order AND header layout. In practice that's the PS3↔Xbox 360
+            //     case (both big-endian, same 52-byte WaW/CoD4 layout). Convert() throws a clear
+            //     error for cross-endianness (→ PC) or cross-layout (→ Wii / MW2 PC) so we don't
+            //     route those here.
+            //   Rebuild (ConvertUsingBaseZone): builds a fresh zone in the target's byte order +
+            //     layout from the extracted raw files. Required for PC and Wii targets (and PS3,
+            //     historically). Drops non-rawfile/localize assets — fine for script mod patches.
+            var srcInfo = FastFileInfo.FromFile(_inputPathTextBox.Text);
+            bool sourceIsLE = srcInfo.IsPC;
+            bool targetIsLE = targetPlatform == Platform.PC;
+            bool needsRebuild =
+                targetPlatform == Platform.PS3 ||
+                targetPlatform == Platform.PC ||
+                targetPlatform == Platform.Wii ||
+                sourceIsLE != targetIsLE;   // any cross-endianness case
+
+            if (needsRebuild)
             {
                 string zoneName = _zoneNameTextBox.Text.Trim();
                 Log($"  Zone name: {zoneName}");
+                Log("  Mode: rebuild (ConvertUsingBaseZone) — preserves rawfiles/localization");
                 result = await Task.Run(() =>
-                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text, zoneName, Platform.PS3));
+                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text, zoneName, targetPlatform));
             }
             else
             {
+                Log("  Mode: in-place patch (Convert) — preserves all assets");
                 result = await Task.Run(() =>
                     FastFileConverter.Convert(_inputPathTextBox.Text, _outputPathTextBox.Text, targetPlatform));
             }
