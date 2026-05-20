@@ -73,7 +73,8 @@ public partial class MainForm : Form
 
                 var zoneData = File.ReadAllBytes(zonePath);
                 var parsedFiles = ParseZoneRawFiles(zoneData, ffInfo);
-                var (memTemp, memVertex) = ReadZoneMemAlloc(zoneData, ffInfo);
+                var (memTemp, memVertex) = FastFileConstants.ReadZoneMemAlloc(
+                    zoneData, ffInfo.GameVersion, ffInfo.Platform == "Xbox 360", ffInfo.IsPC, ffInfo.IsWii);
 
                 try { File.Delete(zonePath); } catch { /* temp cleanup is best-effort */ }
 
@@ -141,30 +142,6 @@ public partial class MainForm : Form
         checkBoxIncludeExisting.Checked = false;
         labelLoadedFF.Text = "(No FF loaded)";
         labelLoadedFF.ForeColor = System.Drawing.Color.Gray;
-    }
-
-    /// <summary>
-    /// Reads BlockSizeTemp (MemAlloc1 @ 0x08) and BlockSizeVertex (MemAlloc2 @ 0x20)
-    /// from the decompressed zone header using the right endianness, so the rebuild
-    /// path can preserve them verbatim. MW2 Xbox 360's 48-byte header omits the
-    /// vertex slot — return null for that field there. Returns null on either field
-    /// if the zone is too short.
-    /// </summary>
-    private static (uint? blockSizeTemp, uint? blockSizeVertex) ReadZoneMemAlloc(
-        byte[] zoneData, FastFileInfo ffInfo)
-    {
-        if (zoneData.Length < 0x24) return (null, null);
-
-        uint Read(int offset) => FastFileConstants.ReadUInt32(zoneData, offset, littleEndian: ffInfo.IsPC);
-
-        uint temp = Read(FastFileConstants.BlockSizeTempOffset);
-
-        bool isMw2Xbox360 = ffInfo.GameVersion == GameVersion.MW2 && ffInfo.Platform == "Xbox 360";
-        uint? vertex = isMw2Xbox360 || zoneData.Length < 0x24
-            ? null
-            : Read(FastFileConstants.BlockSizeVertexOffset);
-
-        return (temp, vertex);
     }
 
     /// <summary>

@@ -429,14 +429,18 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 // PC and Wii use per-zone MemAlloc values (not the console magic constants), so
                 // preserve them from the original loaded zone to keep the engine-correct sizes.
+                // Same platform here (you load a PC file and rebuild it as PC), so the shared
+                // reader handles byte order + the missing-vertex-slot rule.
                 if (fastFile.IsPC || fastFile.IsWii)
                 {
                     byte[]? srcZone = fastFile.OpenedFastFileZone?.Data;
-                    if (srcZone != null && srcZone.Length >= 0x24)
+                    if (srcZone != null)
                     {
-                        bool le = fastFile.IsPC;  // PC = little-endian, Wii = big-endian
-                        builder.WithBlockSizeTemp(ReadZoneUInt32(srcZone, 0x08, le));
-                        builder.WithBlockSizeVertex(ReadZoneUInt32(srcZone, 0x20, le));
+                        var (memTemp, memVertex) = FastFileLib.FastFileConstants.ReadZoneMemAlloc(
+                            srcZone, fastFile.GameVersionEnum,
+                            isXbox360: false, isPC: fastFile.IsPC, isWii: fastFile.IsWii);
+                        if (memTemp.HasValue) builder.WithBlockSizeTemp(memTemp);
+                        if (memVertex.HasValue) builder.WithBlockSizeVertex(memVertex);
                     }
                 }
 
@@ -450,13 +454,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 Debug.WriteLine($"[ZoneFileBuilder] Build failed: {ex.Message}");
                 return null;
             }
-        }
-
-        private static uint ReadZoneUInt32(byte[] data, int offset, bool littleEndian)
-        {
-            if (littleEndian)
-                return (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24));
-            return (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
         }
 
         /// <summary>

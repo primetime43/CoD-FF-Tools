@@ -219,11 +219,15 @@ public static class FastFileConverter
                 bool samePlatformPcWii =
                     (targetPlatform == Platform.PC && sourceInfo.IsPC) ||
                     (targetPlatform == Platform.Wii && sourceInfo.IsWii);
-                if (samePlatformPcWii && sourceZoneData.Length >= 0x24)
+                if (samePlatformPcWii)
                 {
-                    bool srcLE = sourceInfo.IsPC;  // PC = little-endian; Wii = big-endian
-                    zoneBuilder.WithBlockSizeTemp(ReadUInt32(sourceZoneData, FastFileConstants.BlockSizeTempOffset, srcLE));
-                    zoneBuilder.WithBlockSizeVertex(ReadUInt32(sourceZoneData, FastFileConstants.BlockSizeVertexOffset, srcLE));
+                    // Same platform here means PC->PC or Wii->Wii (never MW2 Xbox 360), so the
+                    // vertex slot is always present; the shared reader handles byte order + bounds.
+                    var (memTemp, memVertex) = FastFileConstants.ReadZoneMemAlloc(
+                        sourceZoneData, result.GameVersion, isXbox360: false,
+                        isPC: sourceInfo.IsPC, isWii: sourceInfo.IsWii);
+                    if (memTemp.HasValue) zoneBuilder.WithBlockSizeTemp(memTemp);
+                    if (memVertex.HasValue) zoneBuilder.WithBlockSizeVertex(memVertex);
                 }
 
                 byte[] newZone = zoneBuilder.Build();
@@ -498,10 +502,11 @@ public static class FastFileConverter
 
         // Read existing block-size fields in SOURCE endianness so we can preserve them (or use
         // them in subsequent decisions). Endianness is the source's byte order, not the target's.
-        uint existingTemp     = ReadUInt32(zoneData, FastFileConstants.BlockSizeTempOffset, sourceIsPC);
-        uint existingVertex   = sourceHeaderSize >= 0x24
-            ? ReadUInt32(zoneData, FastFileConstants.BlockSizeVertexOffset, sourceIsPC)
-            : 0u;
+        bool sourceIsXbox360 = !sourceIsPC && !sourceIsWii && sourceInfo.Platform == "Xbox 360";
+        var (srcTemp, srcVertex) = FastFileConstants.ReadZoneMemAlloc(
+            zoneData, gameVersion, sourceIsXbox360, sourceIsPC, sourceIsWii);
+        uint existingTemp     = srcTemp ?? 0u;
+        uint existingVertex   = srcVertex ?? 0u;
         uint existingVirtual  = ReadUInt32(zoneData, 0x14, sourceIsPC);
         uint existingCallback = ReadUInt32(zoneData, 0x1C, sourceIsPC);
 

@@ -459,4 +459,35 @@ public static class FastFileConstants
     }
 
     #endregion
+
+    #region Zone Header Accessors
+
+    /// <summary>
+    /// Reads the per-zone memory-allocation values from a decompressed zone header:
+    /// BlockSizeTemp (MemAlloc1) at <see cref="BlockSizeTempOffset"/> and BlockSizeVertex
+    /// (MemAlloc2) at <see cref="BlockSizeVertexOffset"/>, in the platform's byte order
+    /// (PC = little-endian, PS3/Xbox 360/Wii = big-endian).
+    ///
+    /// Returns nulls when the zone is too short to hold the field. BlockSizeVertex is also
+    /// null on MW2 Xbox 360, whose 48-byte header omits the slot (0x20 is ScriptStringCount
+    /// there). Callers preserving per-zone MemAlloc for PC/Wii rebuilds feed the non-null
+    /// results into <see cref="ZoneBuilder.WithBlockSizeTemp"/> / <c>WithBlockSizeVertex</c>.
+    /// </summary>
+    public static (uint? blockSizeTemp, uint? blockSizeVertex) ReadZoneMemAlloc(
+        byte[] zoneData, GameVersion gameVersion, bool isXbox360, bool isPC, bool isWii)
+    {
+        if (zoneData == null || zoneData.Length < BlockSizeTempOffset + 4)
+            return (null, null);
+
+        uint? temp = ReadUInt32(zoneData, BlockSizeTempOffset, littleEndian: isPC);
+
+        bool hasVertexSlot = !(gameVersion == GameVersion.MW2 && isXbox360);
+        uint? vertex = (hasVertexSlot && zoneData.Length >= BlockSizeVertexOffset + 4)
+            ? ReadUInt32(zoneData, BlockSizeVertexOffset, littleEndian: isPC)
+            : (uint?)null;
+
+        return (temp, vertex);
+    }
+
+    #endregion
 }
