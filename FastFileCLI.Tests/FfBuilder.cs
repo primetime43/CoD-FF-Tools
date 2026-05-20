@@ -31,6 +31,20 @@ public static class FfBuilder
         => BuildBlockFormat("IWffu100", new byte[] { 0x05, 0x00, 0x00, 0x00 }, zoneBytes);
 
     /// <summary>
+    /// Builds a WaW PC FastFile: IWffu100 + LE version (0x183) + a single zlib stream
+    /// at offset 0x0C. This is the real CoD4/WaW PC on-disk format (no block structure).
+    /// </summary>
+    public static byte[] BuildWaWPc(byte[] zoneBytes)
+    {
+        var ms = new MemoryStream();
+        ms.Write(Encoding.ASCII.GetBytes("IWffu100"));
+        ms.Write(new byte[] { 0x83, 0x01, 0x00, 0x00 });   // WaW version, little-endian
+        using (var zlib = new ZLibStream(ms, CompressionLevel.SmallestSize, leaveOpen: true))
+            zlib.Write(zoneBytes, 0, zoneBytes.Length);
+        return ms.ToArray();
+    }
+
+    /// <summary>
     /// Builds a synthetic MW2 PS3 FastFile with a minimal 25-byte extended header.
     /// </summary>
     public static byte[] BuildMW2Ps3(byte[] zoneBytes)

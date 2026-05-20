@@ -68,6 +68,56 @@ public class FastFileConverterTests
     }
 
     [Fact]
+    public void ConvertUsingBaseZone_PcSourceToPs3_ExtractsRawFiles()
+    {
+        // Regression: ExtractRawFilesFromZone used to read rawfile size fields big-endian
+        // only, so a PC (little-endian) source produced garbage sizes and 0 extracted
+        // rawfiles — silently breaking PC→PS3 conversion. It now delegates to the
+        // endianness-aware RawFileScanner. Build a real LE WaW PC zone with rawfiles,
+        // wrap it as a PC FF, convert to PS3, and verify the rawfiles survive.
+        var raw1 = new RawFile("maps/mp/_test.gsc", Encoding.ASCII.GetBytes("// gsc body for pc->ps3"));
+        var raw2 = new RawFile("aliases/pc_only.csv", Encoding.ASCII.GetBytes("a,b,c\n1,2,3\n"));
+
+        byte[] pcZone = new ZoneBuilder(GameVersion.WaW, "patch_mp", "PC")
+            .AddRawFile(raw1)
+            .AddRawFile(raw2)
+            .Build();
+
+        string sourceFf = Path.GetTempFileName();
+        string outputFf = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(sourceFf, FfBuilder.BuildWaWPc(pcZone));
+
+            // Sanity: the synthetic source really is detected as PC (little-endian).
+            Assert.Equal("PC", FastFileInfo.FromFile(sourceFf).Platform);
+
+            var result = FastFileConverter.ConvertUsingBaseZone(sourceFf, "", outputFf, "patch_mp", Platform.PS3);
+            Assert.True(result.Success, $"Conversion failed: {result.Message}");
+
+            Assert.Contains("maps/mp/_test.gsc", result.ReplacedFiles);
+            Assert.Contains("aliases/pc_only.csv", result.ReplacedFiles);
+
+            // Output decompresses as a PS3 (big-endian) zone with the rawfiles intact.
+            string outputZone = Path.GetTempFileName();
+            try
+            {
+                FastFileProcessor.Decompress(outputFf, outputZone);
+                string zoneAscii = Encoding.ASCII.GetString(File.ReadAllBytes(outputZone));
+                Assert.Contains("maps/mp/_test.gsc", zoneAscii);
+                Assert.Contains("aliases/pc_only.csv", zoneAscii);
+                Assert.Contains("// gsc body for pc->ps3", zoneAscii);
+            }
+            finally { File.Delete(outputZone); }
+        }
+        finally
+        {
+            File.Delete(sourceFf);
+            File.Delete(outputFf);
+        }
+    }
+
+    [Fact]
     public void ConvertUsingBaseZone_ExtractsCanonicalRawFileExtensions()
     {
         // Verify the extractor now picks up extensions beyond the old hardcoded list:

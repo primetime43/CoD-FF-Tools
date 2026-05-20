@@ -186,7 +186,7 @@ public static class FastFileConverter
                 // Step 2: Extract raw files and localized strings from source mod zone
                 result.Warnings.Add("Extracting raw files from source mod...");
                 byte[] sourceZoneData = File.ReadAllBytes(tempSourceZonePath);
-                var rawFiles = ExtractRawFilesFromZone(sourceZoneData);
+                var rawFiles = ExtractRawFilesFromZone(sourceZoneData, sourceInfo);
                 result.Warnings.Add($"Found {rawFiles.Count} raw files in source mod.");
 
                 var localizedEntries = ExtractLocalizedEntriesFromZone(sourceZoneData);
@@ -246,93 +246,19 @@ public static class FastFileConverter
     }
 
     /// <summary>
-    /// Extracts all raw files from a zone file.
-    /// Uses the canonical extension list from FastFileConstants so any extension
-    /// understood by the rest of the library (.lua, .csv, .graph, .ai_bt, .def, etc.)
-    /// is picked up — not just the small original allowlist.
+    /// Extracts all raw files from a zone file by delegating to the canonical
+    /// <see cref="RawFileScanner.FindRawFiles"/>. That locator is game- and
+    /// endianness-aware (CoD4/WaW 12-byte BE on console / LE on PC, MW2 16/20-byte
+    /// with inline zlib), so this works for PC (little-endian) sources too — a
+    /// bespoke big-endian-only scanner here previously found 0 rawfiles in PC zones,
+    /// which broke PC→PS3 conversion.
     /// </summary>
-    private static List<RawFile> ExtractRawFilesFromZone(byte[] zoneData)
+    private static List<RawFile> ExtractRawFilesFromZone(byte[] zoneData, FastFileInfo sourceInfo)
     {
-        var rawFiles = new List<RawFile>();
-        var validExtensions = FastFileConstants.ValidRawFileExtensions;
-        var foundOffsets = new HashSet<int>();
-
-        foreach (var ext in validExtensions)
-        {
-            byte[] pattern = Encoding.ASCII.GetBytes(ext + "\0");
-
-            for (int i = 0; i <= zoneData.Length - pattern.Length; i++)
-            {
-                bool match = true;
-                for (int j = 0; j < pattern.Length; j++)
-                {
-                    if (zoneData[i + j] != pattern[j])
-                    {
-                        match = false;
-                        break;
-                    }
-                }
-                if (!match) continue;
-
-                // Find the FF FF FF FF marker before the filename
-                int markerEnd = i - 1;
-                while (markerEnd >= 4)
-                {
-                    if (zoneData[markerEnd] == 0xFF &&
-                        zoneData[markerEnd - 1] == 0xFF &&
-                        zoneData[markerEnd - 2] == 0xFF &&
-                        zoneData[markerEnd - 3] == 0xFF)
-                        break;
-                    markerEnd--;
-                    if (i - markerEnd > 300)
-                    {
-                        markerEnd = -1;
-                        break;
-                    }
-                }
-
-                if (markerEnd < 4) continue;
-                if (zoneData[markerEnd + 1] == 0x00) continue;
-
-                int sizeOffset = markerEnd - 7;
-                if (sizeOffset < 0) continue;
-
-                int headerOffset = sizeOffset - 4;
-                if (headerOffset < 0) continue;
-                if (foundOffsets.Contains(headerOffset)) continue;
-
-                // Read size (big-endian)
-                int size = (zoneData[sizeOffset] << 24) |
-                          (zoneData[sizeOffset + 1] << 16) |
-                          (zoneData[sizeOffset + 2] << 8) |
-                          zoneData[sizeOffset + 3];
-
-                if (size <= 0 || size > 10_000_000) continue;
-
-                // Read filename
-                int nameStart = markerEnd + 1;
-                int nameEnd = nameStart;
-                while (nameEnd < zoneData.Length && zoneData[nameEnd] != 0)
-                    nameEnd++;
-
-                if (nameEnd <= nameStart) continue;
-
-                string name = Encoding.ASCII.GetString(zoneData, nameStart, nameEnd - nameStart);
-                if (!name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) continue;
-
-                // Read data
-                int dataOffset = nameEnd + 1;
-                if (dataOffset + size > zoneData.Length) continue;
-
-                byte[] data = new byte[size];
-                Array.Copy(zoneData, dataOffset, data, 0, size);
-
-                rawFiles.Add(new RawFile(name, data));
-                foundOffsets.Add(headerOffset);
-            }
-        }
-
-        return rawFiles;
+        var locations = RawFileScanner.FindRawFiles(zoneData, sourceInfo.GameVersion, sourceInfo.IsPC);
+        return locations
+            .Select(loc => new RawFile(loc.Name, loc.Data))
+            .ToList();
     }
 
     /// <summary>
