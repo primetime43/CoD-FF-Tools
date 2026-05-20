@@ -950,8 +950,9 @@ public static class FastFileConverter
     }
 
     /// <summary>
-    /// Compresses zone data for a specific platform. Routes through FastFileProcessor.Recompress
-    /// so each (game, platform) combo lands on the right compressor:
+    /// Compresses zone data for a specific platform. Routes through the canonical
+    /// FastFileSaveService.Save (which dispatches to the right compressor internally)
+    /// so each (game, platform) combo lands on the right format:
     ///   - CoD4/WaW PS3 + Xbox 360 (unsigned) -> block format
     ///   - CoD4/WaW PC                         -> single zlib stream (Compiler.CompilePc)
     ///   - MW2 PS3                             -> block format + 25-byte extended header
