@@ -64,6 +64,37 @@ public static class FfBuilder
     }
 
     /// <summary>
+    /// Builds a signed MW2 Xbox 360 FastFile in the IW4 "authed chunks" format:
+    /// 12-byte ZoneHeader (IWff0100 + 0x10D) + 25-byte DB_Header + IWffs100 at 0x25 +
+    /// a one-AUTHED_CHUNK_SIZE auth region + a hash chunk + data chunk(s) holding the
+    /// zlib stream. Data begins at 0x25 + 0x2000 (auth) + 0x2000 (hash chunk) = 0x4025.
+    /// </summary>
+    public static byte[] BuildMW2Xbox360Signed(byte[] zoneBytes)
+    {
+        const int ChunkSize = 0x2000;
+        var ms = new MemoryStream();
+        ms.Write(Encoding.ASCII.GetBytes("IWff0100"));          // 0x00 signed magic
+        ms.Write(new byte[] { 0x00, 0x00, 0x01, 0x0D });        // 0x08 MW2 version (BE)
+        // 25-byte DB_Header (0x0C..0x24): allowOnlineUpdate + fileCreationTime + region +
+        // entryCount + fileSize + maxFileSize. Only the length matters for decompression.
+        ms.WriteByte(0x01);                                      // allowOnlineUpdate
+        ms.Write(new byte[24]);                                  // rest of DB_Header (to 0x25)
+
+        // DB_AuthHeader region begins with IWffs100 and occupies one AUTHED_CHUNK_SIZE.
+        ms.Write(Encoding.ASCII.GetBytes("IWffs100"));           // 0x25
+        ms.Write(new byte[ChunkSize - 8]);                       // pad auth region to 0x2025
+
+        // Hash chunk for the first group (skipped on read).
+        ms.Write(new byte[ChunkSize]);                           // 0x2025..0x4025
+
+        // Data chunk(s): the zlib stream. A small zone fits in one chunk.
+        using (var zlib = new ZLibStream(ms, CompressionLevel.SmallestSize, leaveOpen: true))
+            zlib.Write(zoneBytes, 0, zoneBytes.Length);
+
+        return ms.ToArray();
+    }
+
+    /// <summary>
     /// Builds an Xbox 360 signed streaming FastFile: IWff0100 + version +
     /// IWffs100 at 0x0C + 16KB hash/auth blob + single zlib stream at 0x400C.
     /// </summary>

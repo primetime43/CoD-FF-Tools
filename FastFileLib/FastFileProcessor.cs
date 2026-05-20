@@ -56,6 +56,21 @@ public static class FastFileProcessor
             br.BaseStream.Position = 12;
         }
 
+        // MW2 Xbox 360 signed: same authed-chunks family as MW2 PC, but the full 25-byte
+        // DB_Header pushes IWffs100 to 0x25 (vs PC's 0x15). The generic Xbox 360 streaming
+        // path below only checks 0x0C, and the block decoder chokes on the auth data, so
+        // handle it here. (MW2 PS3 is block format and is correctly left to the block decoder;
+        // we gate on the IWffs100@0x25 marker so PS3 files don't enter this path.)
+        if (info.GameVersion == GameVersion.MW2 && !info.IsPC && !info.IsWii
+            && HasMW2Xbox360StreamingMagic(br))
+        {
+            int blocks = TryDecompressMW2Authed(br, bw, isSigned: true, mw2StreamStart: 0x25);
+            if (blocks > 0)
+                return blocks;
+
+            br.BaseStream.Position = 12;
+        }
+
         // Fast path: Xbox 360 signed streaming format (retail CoD4/WaW Xbox 360).
         // Layout: IWff0100 magic + 4B version + IWffs100 streaming magic at 0x0C +
         //         ~16KB hash table/auth from 0x14..0x400C + single deflate stream at 0x400C.
@@ -140,6 +155,37 @@ public static class FastFileProcessor
                 return false;
 
             br.BaseStream.Position = 0x0C;
+            byte[] bytes = br.ReadBytes(8);
+            return bytes.Length == 8 &&
+                   Encoding.ASCII.GetString(bytes) == FastFileConstants.StreamingHeader;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            br.BaseStream.Position = savedPos;
+        }
+    }
+
+    /// <summary>
+    /// Detects signed MW2 Xbox 360 by checking for the IWffs100 streaming magic at offset
+    /// 0x25 — right after the 12-byte ZoneHeader + 25-byte DB_Header. (MW2 PC puts it at
+    /// 0x15 because it truncates the DB_Header to a 9-byte preamble; CoD4/WaW Xbox 360 put
+    /// it at 0x0C.) This marker is what distinguishes a signed MW2 Xbox 360 stream from a
+    /// block-format MW2 PS3 file, which has the same magic+version.
+    /// </summary>
+    private static bool HasMW2Xbox360StreamingMagic(BinaryReader br)
+    {
+        const int mw2Xbox360StreamingOffset = 0x25;
+        long savedPos = br.BaseStream.Position;
+        try
+        {
+            if (br.BaseStream.Length < mw2Xbox360StreamingOffset + 8)
+                return false;
+
+            br.BaseStream.Position = mw2Xbox360StreamingOffset;
             byte[] bytes = br.ReadBytes(8);
             return bytes.Length == 8 &&
                    Encoding.ASCII.GetString(bytes) == FastFileConstants.StreamingHeader;
@@ -654,6 +700,18 @@ public static class FastFileProcessor
     ///   ProcessorAuthedBlocks.cpp + src/Common/Game/IW4/IW4.h DB_AuthHeader/DB_AuthSubHeader.
     /// </summary>
     private static int TryDecompressMW2PC(BinaryReader br, BinaryWriter bw, bool isSigned)
+        => TryDecompressMW2Authed(br, bw, isSigned, mw2StreamStart: 0x15);
+
+    /// <summary>
+    /// Decompresses the MW2 authed-chunks / single-zlib family shared by PC and Xbox 360.
+    /// The two differ only in where the stream begins: PC truncates the DB_Header to a
+    /// 9-byte preamble so IWffs100/zlib starts at 0x15; Xbox 360 keeps the full 25-byte
+    /// DB_Header so it starts at 0x25. Everything after that point (DB_AuthHeader, padding,
+    /// 8 KB authed chunks in groups of 257) is identical.
+    /// </summary>
+    /// <param name="mw2StreamStart">Offset of IWffs100 (signed) or the zlib stream (unsigned):
+    /// 0x15 for MW2 PC, 0x25 for MW2 Xbox 360.</param>
+    private static int TryDecompressMW2Authed(BinaryReader br, BinaryWriter bw, bool isSigned, int mw2StreamStart)
     {
         long outputStartPos = bw.BaseStream.Position;
 
@@ -663,8 +721,8 @@ public static class FastFileProcessor
             byte[] fileData = br.ReadBytes((int)br.BaseStream.Length);
 
             byte[] zlibInput = isSigned
-                ? ExtractMW2PCAuthedPayload(fileData)
-                : SliceMW2PCUnsignedZlibStream(fileData);
+                ? ExtractMW2AuthedPayload(fileData, mw2StreamStart)
+                : SliceMW2UnsignedZlibStream(fileData, mw2StreamStart);
 
             if (zlibInput == null || zlibInput.Length < 2 || !FastFileConstants.HasZlibHeader(zlibInput, 0))
                 return 0;
@@ -676,52 +734,54 @@ public static class FastFileProcessor
             }
 
             System.Diagnostics.Debug.WriteLine(
-                $"[FastFileProcessor] MW2 PC ({(isSigned ? "signed" : "unsigned")}) decompressed, " +
+                $"[FastFileProcessor] MW2 ({(isSigned ? "signed" : "unsigned")}, start 0x{mw2StreamStart:X}) decompressed, " +
                 $"zlib input: {zlibInput.Length} bytes, output: {bw.BaseStream.Position - outputStartPos}");
             return 1;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine(
-                $"[FastFileProcessor] MW2 PC decompression failed: {ex.Message}");
+                $"[FastFileProcessor] MW2 authed/zlib decompression failed: {ex.Message}");
             bw.BaseStream.Position = outputStartPos;
             bw.BaseStream.SetLength(outputStartPos);
             return 0;
         }
     }
 
-    // Unsigned MW2 PC: zlib begins at offset 0x15 (right after the 9-byte preamble).
-    private static byte[] SliceMW2PCUnsignedZlibStream(byte[] fileData)
+    // Unsigned MW2: zlib begins right at the stream start (0x15 PC / 0x25 Xbox 360).
+    private static byte[] SliceMW2UnsignedZlibStream(byte[] fileData, int zlibStart)
     {
-        const int zlibStart = 0x15;
         if (fileData.Length <= zlibStart + 2) return Array.Empty<byte>();
         byte[] result = new byte[fileData.Length - zlibStart];
         Buffer.BlockCopy(fileData, zlibStart, result, 0, result.Length);
         return result;
     }
 
-    private const int Mw2PcAuthedDataStart = 0x2015;        // after ZoneHeader + preamble + DB_AuthHeader + padding
-    private const int Mw2PcAuthedChunkSize = 0x2000;        // AUTHED_CHUNK_SIZE
-    private const int Mw2PcAuthedChunksPerGroup = 256;      // AUTHED_CHUNK_COUNT_PER_GROUP
+    private const int Mw2AuthedChunkSize = 0x2000;        // AUTHED_CHUNK_SIZE
+    private const int Mw2AuthedChunksPerGroup = 256;      // AUTHED_CHUNK_COUNT_PER_GROUP
 
     /// <summary>
-    /// Walks the authed-chunk stream of a signed MW2 PC FastFile and returns the
-    /// concatenated payload (with the per-group hash chunks stripped) ready for zlib.
+    /// Walks the authed-chunk stream of a signed MW2 FastFile (PC or Xbox 360) and returns
+    /// the concatenated payload (per-group hash chunks stripped) ready for zlib. The
+    /// DB_AuthHeader + padding occupy exactly one AUTHED_CHUNK_SIZE, so the chunk stream
+    /// begins at <paramref name="authStart"/> + AUTHED_CHUNK_SIZE.
     /// </summary>
-    private static byte[] ExtractMW2PCAuthedPayload(byte[] fileData)
+    /// <param name="authStart">Offset of IWffs100 / DB_AuthHeader (0x15 PC, 0x25 Xbox 360).</param>
+    private static byte[] ExtractMW2AuthedPayload(byte[] fileData, int authStart)
     {
-        if (fileData.Length <= Mw2PcAuthedDataStart + Mw2PcAuthedChunkSize)
+        int dataStart = authStart + Mw2AuthedChunkSize;
+        if (fileData.Length <= dataStart + Mw2AuthedChunkSize)
             return Array.Empty<byte>();
 
         // Upper-bound the output: every 257 file chunks yields 256 payload chunks.
-        int availableChunks = (fileData.Length - Mw2PcAuthedDataStart) / Mw2PcAuthedChunkSize;
-        int maxPayloadBytes = availableChunks * Mw2PcAuthedChunkSize;
+        int availableChunks = (fileData.Length - dataStart) / Mw2AuthedChunkSize;
+        int maxPayloadBytes = availableChunks * Mw2AuthedChunkSize;
         var payload = new byte[maxPayloadBytes];
         int payloadLen = 0;
 
-        int pos = Mw2PcAuthedDataStart;
+        int pos = dataStart;
         int chunkInGroup = 0; // 0 = hash chunk (skip); 1..256 = data chunks (keep)
-        while (pos + Mw2PcAuthedChunkSize <= fileData.Length)
+        while (pos + Mw2AuthedChunkSize <= fileData.Length)
         {
             if (chunkInGroup == 0)
             {
@@ -730,13 +790,13 @@ public static class FastFileProcessor
             }
             else
             {
-                Buffer.BlockCopy(fileData, pos, payload, payloadLen, Mw2PcAuthedChunkSize);
-                payloadLen += Mw2PcAuthedChunkSize;
+                Buffer.BlockCopy(fileData, pos, payload, payloadLen, Mw2AuthedChunkSize);
+                payloadLen += Mw2AuthedChunkSize;
                 chunkInGroup++;
-                if (chunkInGroup > Mw2PcAuthedChunksPerGroup)
+                if (chunkInGroup > Mw2AuthedChunksPerGroup)
                     chunkInGroup = 0; // next group begins with a hash chunk
             }
-            pos += Mw2PcAuthedChunkSize;
+            pos += Mw2AuthedChunkSize;
         }
 
         // Trailing partial chunk: only include if it's a data chunk (not a hash chunk).

@@ -69,4 +69,32 @@ public class DecompressAndListTests
         var r = CliRunner.Run("list", "missing.zone");
         Assert.Equal(1, r.ExitCode);
     }
+
+    [Fact]
+    public void Decompress_Mw2Xbox360Signed_RoundTripsZoneBytes()
+    {
+        // Regression: signed MW2 Xbox 360 uses the IW4 "authed chunks" format with the full
+        // 25-byte DB_Header, so IWffs100 sits at 0x25 (vs MW2 PC's 0x15). The decompressor
+        // previously had no path for this — it fell through to the block decoder and failed
+        // ("unsupported compression method"). Verify a synthetic signed MW2 Xbox 360 FF now
+        // decompresses back to the exact zone bytes.
+        byte[] zone = new byte[1500];
+        for (int i = 0; i < zone.Length; i++) zone[i] = (byte)((i * 7 + 3) & 0xFF);
+
+        using var dir = new TempDir();
+        string ff = dir.Write("mw2xbox.ff", FfBuilder.BuildMW2Xbox360Signed(zone));
+
+        // Sanity: detected as signed MW2 console.
+        var info = FastFileLib.FastFileInfo.FromFile(ff);
+        Assert.Equal("MW2", info.GameName);
+        Assert.True(info.IsSigned);
+
+        string outZone = Path.Combine(dir.Path, "out.zone");
+        int blocks = FastFileLib.FastFileProcessor.Decompress(ff, outZone);
+        Assert.True(blocks > 0);
+
+        byte[] rt = File.ReadAllBytes(outZone);
+        Assert.Equal(zone.Length, rt.Length);
+        Assert.Equal(zone, rt);
+    }
 }
