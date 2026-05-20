@@ -118,6 +118,60 @@ public class FastFileConverterTests
     }
 
     [Fact]
+    public void ConvertUsingBaseZone_PreservesAccentedLocalizedText()
+    {
+        // Regression: localize values were decoded (converter) and encoded (ZoneBuilder) with
+        // Encoding.Default, which is UTF-8 on .NET 8. A single-byte accented char like 0xE9
+        // ('é') decoded as UTF-8 becomes U+FFFD and re-encodes to EF BF BD — corrupting any
+        // localized_*.ff with French/German/Spanish text. Both sides now use Latin1, which
+        // round-trips bytes 0x00..0xFF exactly.
+        var raw = new RawFile("maps/mp/_x.gsc", Encoding.ASCII.GetBytes("// x"));
+        var loc = new LocalizedEntry("MENU_CAFE", "Café Ü");  // 'é' (0xE9), 'Ü' (0xDC)
+
+        byte[] zone = new ZoneBuilder(GameVersion.WaW, "patch_mp")
+            .AddRawFile(raw)
+            .AddLocalizedEntry(loc)
+            .Build();
+
+        // The source zone must store the accented chars as single Latin1 bytes.
+        Assert.Contains((byte)0xE9, zone);
+        Assert.Contains((byte)0xDC, zone);
+        Assert.DoesNotContain("�", Encoding.Latin1.GetString(zone));
+
+        string sourceFf = Path.GetTempFileName();
+        string outputFf = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(sourceFf, FfBuilder.BuildWaWPs3(zone));
+
+            var result = FastFileConverter.ConvertUsingBaseZone(sourceFf, "", outputFf, "patch_mp", Platform.PS3);
+            Assert.True(result.Success, result.Message);
+
+            string outputZone = Path.GetTempFileName();
+            try
+            {
+                FastFileProcessor.Decompress(outputFf, outputZone);
+                byte[] zb = File.ReadAllBytes(outputZone);
+
+                // Accented bytes survived the extract -> rebuild round trip.
+                Assert.Contains((byte)0xE9, zb);
+                Assert.Contains((byte)0xDC, zb);
+                Assert.Contains("Café Ü", Encoding.Latin1.GetString(zb));
+                // The 3-byte UTF-8 replacement sequence (EF BF BD) must NOT appear.
+                for (int i = 0; i + 2 < zb.Length; i++)
+                    Assert.False(zb[i] == 0xEF && zb[i + 1] == 0xBF && zb[i + 2] == 0xBD,
+                        $"found UTF-8 replacement sequence at {i} — localized text was corrupted");
+            }
+            finally { File.Delete(outputZone); }
+        }
+        finally
+        {
+            File.Delete(sourceFf);
+            if (File.Exists(outputFf)) File.Delete(outputFf);
+        }
+    }
+
+    [Fact]
     public void ConvertUsingBaseZone_SamePlatformPc_PreservesPerZoneMemAlloc()
     {
         // Regression: ConvertUsingBaseZone never called WithBlockSizeTemp/Vertex, so PC/Wii

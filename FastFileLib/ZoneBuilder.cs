@@ -419,10 +419,15 @@ public class ZoneBuilder
         foreach (var entry in _localizedEntries)
         {
             ms.Write(marker8, 0, 8);
-            var valueBytes = Encoding.Default.GetBytes(entry.Value);
+            // Latin1 (ISO-8859-1), NOT Encoding.Default (which is UTF-8 on .NET 8). CoD
+            // localized strings are single-byte (Windows-1252-ish); UTF-8 would expand an
+            // accented byte like 0xE9 ('é') into a 2-3 byte sequence, corrupting the text.
+            // Latin1 maps chars U+0000..U+00FF to bytes 0x00..0xFF 1:1, so it round-trips
+            // every single-byte value the engine expects.
+            var valueBytes = Encoding.Latin1.GetBytes(entry.Value);
             ms.Write(valueBytes, 0, valueBytes.Length);
             ms.WriteByte(0x00);
-            var refBytes = Encoding.Default.GetBytes(entry.Reference);
+            var refBytes = Encoding.Latin1.GetBytes(entry.Reference);
             ms.Write(refBytes, 0, refBytes.Length);
             ms.WriteByte(0x00);
         }

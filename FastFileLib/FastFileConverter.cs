@@ -312,7 +312,11 @@ public static class FastFileConverter
                 valueEnd++;
             if (valueEnd == valueStart || valueEnd >= zoneData.Length)
                 continue;
-            string value = Encoding.Default.GetString(zoneData, valueStart, valueEnd - valueStart);
+            // Latin1, NOT Encoding.Default (UTF-8 on .NET 8). CoD localized values are
+            // single-byte; decoding accented bytes (e.g. 0xE9 'é') as UTF-8 yields U+FFFD,
+            // which then re-encodes to different bytes and corrupts the string on rebuild.
+            // Latin1 round-trips bytes 0x00..0xFF exactly. See ZoneBuilder.BuildLocalizedSection.
+            string value = Encoding.Latin1.GetString(zoneData, valueStart, valueEnd - valueStart);
 
             // Read reference key (null-terminated)
             int keyStart = valueEnd + 1;
