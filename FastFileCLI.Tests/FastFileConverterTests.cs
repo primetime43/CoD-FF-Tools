@@ -118,6 +118,49 @@ public class FastFileConverterTests
     }
 
     [Fact]
+    public void ConvertUsingBaseZone_SamePlatformPc_PreservesPerZoneMemAlloc()
+    {
+        // Regression: ConvertUsingBaseZone never called WithBlockSizeTemp/Vertex, so PC/Wii
+        // targets fell back to ZoneBuilder's PS3-magic default (WaW = 0x10B0). Real WaW PC
+        // zones use per-zone values (e.g. 0x01E0). For a same-platform PC rebuild the source's
+        // value must be preserved verbatim. Build a PC zone with a distinctive BlockSizeTemp,
+        // convert PC->PC, and verify the rebuilt zone kept it instead of the magic default.
+        byte[] pcZone = new ZoneBuilder(GameVersion.WaW, "patch_mp", "PC")
+            .WithBlockSizeTemp(0x01E0u)
+            .WithBlockSizeVertex(0u)
+            .AddRawFile(new RawFile("maps/mp/_test.gsc", Encoding.ASCII.GetBytes("// pc source zone")))
+            .Build();
+
+        string sourceFf = Path.GetTempFileName();
+        string outputFf = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(sourceFf, FfBuilder.BuildWaWPc(pcZone));
+            Assert.Equal("PC", FastFileInfo.FromFile(sourceFf).Platform);
+
+            var result = FastFileConverter.ConvertUsingBaseZone(sourceFf, "", outputFf, "patch_mp", Platform.PC);
+            Assert.True(result.Success, result.Message);
+
+            string outputZone = Path.GetTempFileName();
+            try
+            {
+                FastFileProcessor.Decompress(outputFf, outputZone);
+                byte[] zb = File.ReadAllBytes(outputZone);
+                // BlockSizeTemp at 0x08, little-endian (PC). Must be the preserved 0x01E0,
+                // NOT the PS3-magic 0x10B0 that the old default would have written.
+                uint temp = (uint)(zb[0x08] | (zb[0x09] << 8) | (zb[0x0A] << 16) | (zb[0x0B] << 24));
+                Assert.Equal(0x01E0u, temp);
+            }
+            finally { File.Delete(outputZone); }
+        }
+        finally
+        {
+            File.Delete(sourceFf);
+            if (File.Exists(outputFf)) File.Delete(outputFf);
+        }
+    }
+
+    [Fact]
     public void ConvertUsingBaseZone_ExtractsCanonicalRawFileExtensions()
     {
         // Verify the extractor now picks up extensions beyond the old hardcoded list:

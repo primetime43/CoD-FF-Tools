@@ -208,6 +208,24 @@ public static class FastFileConverter
                 var zoneBuilder = new ZoneBuilder(result.GameVersion, effectiveZoneName, targetPlatformStr);
                 zoneBuilder.AddRawFiles(rawFiles);
                 zoneBuilder.AddLocalizedEntries(localizedEntries);
+
+                // PC and Wii use per-zone MemAlloc values, not the console magic constants. When the
+                // rebuild is SAME-platform (e.g. re-packing a PC zone as PC), the source zone's values
+                // are valid target values, so preserve them verbatim — same as the editor's IncreaseSize
+                // path and the in-place Convert() path. We deliberately do NOT preserve cross-platform
+                // (e.g. PS3 -> PC): the source carries console magic (0x10B0 etc.) which isn't a valid
+                // PC/Wii per-zone value, and MW2 PC additionally requires vertex=0 — so cross-platform
+                // falls back to ZoneBuilder's platform defaults, which already special-case those.
+                bool samePlatformPcWii =
+                    (targetPlatform == Platform.PC && sourceInfo.IsPC) ||
+                    (targetPlatform == Platform.Wii && sourceInfo.IsWii);
+                if (samePlatformPcWii && sourceZoneData.Length >= 0x24)
+                {
+                    bool srcLE = sourceInfo.IsPC;  // PC = little-endian; Wii = big-endian
+                    zoneBuilder.WithBlockSizeTemp(ReadUInt32(sourceZoneData, FastFileConstants.BlockSizeTempOffset, srcLE));
+                    zoneBuilder.WithBlockSizeVertex(ReadUInt32(sourceZoneData, FastFileConstants.BlockSizeVertexOffset, srcLE));
+                }
+
                 byte[] newZone = zoneBuilder.Build();
 
                 result.Warnings.Add($"Built new zone with {rawFiles.Count} raw files + {localizedEntries.Count} localized strings ({newZone.Length} bytes).");
