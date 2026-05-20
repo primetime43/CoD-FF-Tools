@@ -175,7 +175,7 @@ public partial class Form1 : Form
             DropDownStyle = ComboBoxStyle.DropDownList,
             Width = 100
         };
-        _targetPlatformCombo.Items.AddRange(new object[] { "PS3", "Xbox 360", "PC" });
+        _targetPlatformCombo.Items.AddRange(new object[] { "PS3", "Xbox 360", "PC", "Wii" });
         _targetPlatformCombo.SelectedIndex = 0;
         _targetPlatformCombo.SelectedIndexChanged += TargetPlatformCombo_SelectedIndexChanged;
 
@@ -447,6 +447,7 @@ public partial class Form1 : Form
         {
             "Xbox 360" => Platform.Xbox360,
             "PC" => Platform.PC,
+            "Wii" => Platform.Wii,
             _ => Platform.PS3
         };
 
@@ -461,17 +462,22 @@ public partial class Form1 : Form
         {
             ConversionResult result;
 
-            // Use the ZoneBuilder approach for PS3 conversions (builds fresh zone from raw files)
+            // Two conversion modes:
+            //   PS3 target: build a fresh zone from extracted raw files (drops non-rawfile
+            //     assets — fine for script-only mod patches, breaks content zones).
+            //   Other targets: in-place patch (preserves all assets but requires source+target
+            //     to use the same header layout; cross-layout throws a clear error).
+            // ConvertUsingBaseZone now accepts any target platform, so it's available for any
+            // rebuild-style conversion; the existing PS3 branch is kept for backwards UX compat.
             if (targetPlatform == Platform.PS3)
             {
                 string zoneName = _zoneNameTextBox.Text.Trim();
                 Log($"  Zone name: {zoneName}");
                 result = await Task.Run(() =>
-                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text, zoneName));
+                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text, zoneName, Platform.PS3));
             }
             else
             {
-                // Direct conversion mode for other platforms
                 result = await Task.Run(() =>
                     FastFileConverter.Convert(_inputPathTextBox.Text, _outputPathTextBox.Text, targetPlatform));
             }

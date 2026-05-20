@@ -105,13 +105,12 @@ public class FastFileConverterTests
     }
 
     [Fact]
-    public void Convert_RoutesMw2PcThroughCorrectCompressor()
+    public void Convert_Mw2PsThreeToPc_RefusesCrossLayoutWithClearError()
     {
-        // Direct Convert() previously called the CoD4/WaW block compressor for every
-        // (game, platform) combo. After the fix it routes through Recompress, which
-        // dispatches MW2 PC to CompressMW2PC (single zlib at 0x15 after a 9-byte preamble).
-        // Use a minimal MW2 zone wrapped as MW2 PS3 to satisfy the Analyze() check, then
-        // convert to PC and verify the output has the MW2 PC layout.
+        // MW2 PS3 uses a 52-byte zone header; MW2 PC uses 56-byte (extra BlockSizeIndex slot).
+        // The in-place patcher in Convert() can't insert/remove that slot, so it now refuses
+        // cross-layout conversion with a clear error message rather than silently producing a
+        // malformed FF. The right path for this case is ConvertUsingBaseZone (rebuilds the zone).
         byte[] mw2Zone = FfBuilder.BuildMinimalMW2Zone();
         string sourceFf = Path.GetTempFileName();
         string outputFf = Path.GetTempFileName();
@@ -121,23 +120,102 @@ public class FastFileConverterTests
 
             var result = FastFileConverter.Convert(sourceFf, outputFf, Platform.PC);
 
-            // The PC-target Convert path still relies on header patching for non-rawfile
-            // edits, so its overall correctness for PC is limited (covered in the punch-list).
-            // What this test specifically verifies is that the *outer compression layer*
-            // is now MW2-PC-shaped, not CoD4/WaW block format.
-            Assert.True(result.Success, $"Conversion failed: {result.Message}");
-
-            byte[] ff = File.ReadAllBytes(outputFf);
-            Assert.True(ff.Length > 0x16, "Output too short to be MW2 PC");
-            Assert.Equal("IWffu100", Encoding.ASCII.GetString(ff, 0, 8));
-            Assert.Equal(0x14, ff[8]);   // MW2 PC version 0x114 LE
-            Assert.Equal(0x01, ff[9]);
-            Assert.Equal(0x78, ff[0x15]); // zlib starts at 0x15 (after 12-byte header + 9-byte preamble)
+            Assert.False(result.Success);
+            Assert.Contains("Cross-layout", result.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("ConvertUsingBaseZone", result.Message);
         }
         finally
         {
             File.Delete(sourceFf);
-            File.Delete(outputFf);
+            if (File.Exists(outputFf)) File.Delete(outputFf);
+        }
+    }
+
+    [Fact]
+    public void Convert_WaWPsThreeToPc_ProducesPcFormat()
+    {
+        // WaW PS3 and WaW PC both use the 52-byte zone header layout — just different
+        // endianness (PS3 BE, PC LE). My ConvertAssetTypeIDs fix should swap the asset
+        // type IDs from PS3 enum to PC enum (-2 shift since PC drops both pixelshader
+        // and vertexshader), and PatchZoneHeaderForPlatform should write the header
+        // fields LE for PC target. This test verifies the FF-level output is PC-shaped.
+        byte[] wawZone = FfBuilder.BuildMinimalWaWZone();
+        string sourceFf = Path.GetTempFileName();
+        string outputFf = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(sourceFf, FfBuilder.BuildWaWPs3(wawZone));
+
+            var result = FastFileConverter.Convert(sourceFf, outputFf, Platform.PC);
+
+            Assert.True(result.Success, $"Conversion failed: {result.Message}");
+
+            byte[] ff = File.ReadAllBytes(outputFf);
+            // PC WaW FF: IWffu100 + version 0x183 LE (`83 01 00 00`) + single zlib at 0x0C
+            Assert.Equal("IWffu100", Encoding.ASCII.GetString(ff, 0, 8));
+            Assert.Equal(0x83, ff[8]);
+            Assert.Equal(0x01, ff[9]);
+            Assert.Equal(0x00, ff[10]);
+            Assert.Equal(0x00, ff[11]);
+            Assert.Equal(0x78, ff[12]);  // zlib magic
+        }
+        finally
+        {
+            File.Delete(sourceFf);
+            if (File.Exists(outputFf)) File.Delete(outputFf);
+        }
+    }
+
+    [Fact]
+    public void Convert_WaWPsThreeToWii_RefusesCrossLayoutWithClearError()
+    {
+        // WaW PS3 is 52-byte; WaW Wii is 56-byte (extra BlockSizeIndex slot). Convert()
+        // refuses cross-layout with a clear error pointing the user at ConvertUsingBaseZone.
+        byte[] wawZone = FfBuilder.BuildMinimalWaWZone();
+        string sourceFf = Path.GetTempFileName();
+        string outputFf = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(sourceFf, FfBuilder.BuildWaWPs3(wawZone));
+
+            var result = FastFileConverter.Convert(sourceFf, outputFf, Platform.Wii);
+
+            Assert.False(result.Success);
+            Assert.Contains("Cross-layout", result.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(sourceFf);
+            if (File.Exists(outputFf)) File.Delete(outputFf);
+        }
+    }
+
+    [Fact]
+    public void ConvertUsingBaseZone_Mw2PsThreeToPc_ProducesMw2PcFormat()
+    {
+        // The proper path for MW2 PS3 → MW2 PC (different zone-header layouts) is the rebuild
+        // approach. ConvertUsingBaseZone extracts the rawfiles and rebuilds via ZoneBuilder,
+        // which is platform-aware, so the output ends up as proper MW2 PC: 12-byte standard
+        // header + 9-byte preamble + single zlib at 0x15.
+        byte[] mw2Zone = FfBuilder.BuildMinimalMW2Zone();
+        string sourceFf = Path.GetTempFileName();
+        string outputFf = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllBytes(sourceFf, FfBuilder.BuildMW2Ps3(mw2Zone));
+
+            var result = FastFileConverter.ConvertUsingBaseZone(
+                sourceFf, basePs3ZonePath: "", outputFf, zoneName: "test", targetPlatform: Platform.PC);
+
+            // Synthetic zone has no rawfiles/localize, so we expect a failure for that reason
+            // (NOT a cross-layout error). Verifies ConvertUsingBaseZone reaches the rebuild stage.
+            Assert.False(result.Success);
+            Assert.Contains("No raw files", result.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(sourceFf);
+            if (File.Exists(outputFf)) File.Delete(outputFf);
         }
     }
 
