@@ -7,18 +7,26 @@ Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives
 | Game | PS3 | Xbox 360 | PC | Wii |
 |------|-----|----------|-----|-----|
 | CoD4: Modern Warfare | Full | Full | Partial | Extract |
-| WaW: World at War | Full | Full | Partial | **Partial** |
-| MW2: Modern Warfare 2 | Full | Needs Tested | Partial | - |
+| WaW: World at War | Full | Full | **Partial+menus** | **Partial** |
+| MW2: Modern Warfare 2 | Full | **Full (unverified)** ¹ | **Partial** | - |
 
 **Full** = decompress, edit all asset types, recompress
+**Full (unverified)** = code path complete, hardware load test pending
 **Partial** = decompress, edit rawfile + localize, recompress (other asset types listed but skipped)
+**Partial+menus** = Partial, plus read-only menulist parsing (per-menu rect / colors / itemCount / window name)
 **Extract** = decompress to zone only (no asset editing)
+
+¹ MW2 Xbox 360 shares the same `MW2GameDefinition` as PS3 (rawfile / localize / weapon / partial menu support), with the library handling the platform differences (48-byte zone header, MW2 Xbox 360 asset enum, single-zlib-stream save, IW4 authed-chunks decode at `0x25` for signed retail files). Round-trip has not yet been verified on real Xbox 360 hardware.
+
+> Xbox 360 needs a patched XEX to load modified FastFiles. Signed files are saved as unsigned (RSA cannot be regenerated).
+> MW2 PC retail files use IW4's signed "authed chunks" format on read; saves emit the unsigned variant.
 
 ## Asset Support
 
 | Support Level | Asset Types | What You Can Do |
 |---------------|-------------|-----------------|
-| **Full** | `rawfile`, `localize`, `weapon`, `menufile` | Parse, view, edit, and save changes |
+| **Full** | `rawfile`, `localize`, `weapon` | Parse, view, edit, and save changes |
+| **Partial** | `menufile` (MenuList) | Parse menus and surface per-menu rect, 5 colors, itemCount, and window name as editable values. Full menu reconstruction (adding items, retargeting handlers) is not implemented. |
 | **View Only** | `stringtable`, `xanim`, `material`, `techset`, `image`, `col_map_sp`, `col_map_mp` | Parse and view content, but cannot edit |
 | **Detected** | All others (xmodel, sound, fx, etc.) | Shows in asset pool list, no parsing/editing |
 
@@ -27,17 +35,21 @@ Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives
 ### What Each Level Means
 
 - **Full**: These assets can be fully modified. RawFiles include GSC scripts, vision files, configs, etc. Localize entries are the in-game text strings.
+- **Partial**: The editor parses and displays the asset, exposing select fields for editing, but the asset cannot be reconstructed from scratch on save.
 - **View Only**: The editor can parse and display these, but saving changes isn't supported yet.
 - **Detected**: The editor recognizes these asset types and shows them in the asset pool, but cannot parse their internal structure.
+
+> When a zone is rebuilt (e.g. after a raw file size change), only `rawfile` and `localize` assets are preserved — all other types are lost. The editor warns before rebuild if unsupported types are present.
 
 ## Tools
 
 | Tool | Description |
 |------|-------------|
-| FastFile Editor | Edit raw files, localized strings, weapons, and menus inside existing FastFiles |
-| FastFile Compiler | Build new FastFiles from scratch using raw files and localized strings |
-| FastFile Converter | Convert FastFiles between platforms (PS3, Xbox 360) |
+| FastFile Editor | Edit raw files, localized strings, weapons, and menus inside existing FastFiles. Async loader with drag/drop, File Report viewer, and a logging tab. |
+| FastFile Compiler | Build new FastFiles from scratch using raw files and localized strings. Platform dropdown for PS3 / Xbox 360 (signed or unsigned) / PC / Wii. |
+| FastFile Converter | Convert FastFiles between platforms (PS3 ↔ Xbox 360 in-place; rebuild path for anything → PC, anything → Wii, and MW2 PS3 ↔ MW2 PC) |
 | FastFile Extractor | Simple extract/repack utility for zone files |
+| FastFile CLI (`ffcli`) | Command-line tool for FastFile/zone operations |
 
 ## Screenshots
 
@@ -81,11 +93,14 @@ Grab the latest build from [Releases](https://github.com/primetime43/CoD-FF-Tool
 
 | Project | What it does |
 |---------|--------------|
-| FastFileLib | Core library - handles compression, decompression, zone parsing, and patching |
+| FastFileLib | Core library - compression, decompression, zone build/patch/save, format detection |
+| FastFileLib.WinForms | Shared WinForms helpers used by every GUI |
 | Call of Duty FastFile Editor | Main editor GUI |
 | FastFileCompilerGUI | FastFile creation GUI |
 | FastFileConverterGUI | Platform conversion GUI |
 | FastFileExtractor | Extract/repack GUI (FF ⇄ zone) |
+| FastFileCLI | Command-line tool (`ffcli`) for FastFile/zone operations |
+| FastFileCLI.Tests | xUnit test suite for the CLI |
 
 ## Contributing
 
