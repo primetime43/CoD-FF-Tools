@@ -11,6 +11,31 @@ public static class FastFileProcessor
     private const int BlockSize = 0x10000; // 64KB blocks
 
     /// <summary>
+    /// Non-throwing wrapper around <see cref="Decompress"/>. Returns false and writes a
+    /// human-readable explanation to <paramref name="errorMessage"/> on any decompression
+    /// failure (corrupt file, unsupported format, hybrid wrapper, etc). Use this from
+    /// interactive GUIs so a known-bad file doesn't trigger a debugger break under
+    /// "Just My Code" — the throw inside the library shows up as an unhandled exception
+    /// in VS even when a user-code catch is waiting for it one frame up.
+    /// </summary>
+    public static bool TryDecompress(string inputPath, string outputPath, out int blockCount, out string? errorMessage)
+    {
+        try
+        {
+            blockCount = Decompress(inputPath, outputPath);
+            errorMessage = null;
+            return true;
+        }
+        catch (InvalidDataException ex)
+        {
+            blockCount = 0;
+            errorMessage = ex.Message;
+            System.Diagnostics.Debug.WriteLine($"[FastFileProcessor] TryDecompress: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Decompresses a FastFile to a zone file.
     /// </summary>
     /// <param name="inputPath">Path to the .ff file</param>

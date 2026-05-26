@@ -332,8 +332,15 @@ namespace Call_of_Duty_FastFile_Editor
                 // Show the opened FF path in the program's title text
                 this.SetProgramTitle(_openedFastFile.FfFilePath);
 
-                // Decompress the Fast File to get the zone file
-                FastFileProcessor.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
+                // Decompress the Fast File to get the zone file. Using the non-throwing
+                // variant so an unsupported/hybrid file produces a clean dialog instead of
+                // a VS debugger break under "Just My Code".
+                if (!FastFileProcessor.TryDecompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, out _, out string? decompressError))
+                {
+                    MessageBox.Show($"Cannot open this FastFile:\n\n{decompressError}", "Unsupported FastFile", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SaveCloseFastFileAndCleanUp();
+                    return;
+                }
 
                 // Load & parse that zone in one go
                 _openedFastFile.LoadZone();
@@ -443,11 +450,19 @@ namespace Call_of_Duty_FastFile_Editor
                 // Show loading indicator while decompressing
                 ShowLoading($"Decompressing {gameName} FastFile...");
 
-                // Decompress the Fast File on a background thread
-                await Task.Run(() =>
+                // Decompress the Fast File on a background thread. Using the non-throwing
+                // variant so an unsupported/hybrid file produces a clean dialog instead of
+                // a VS debugger break under "Just My Code".
+                string? decompressError = null;
+                bool decompressOk = await Task.Run(() =>
+                    FastFileProcessor.TryDecompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, out _, out decompressError));
+                if (!decompressOk)
                 {
-                    FastFileProcessor.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
-                });
+                    RunOnUIThread(() => HideLoading());
+                    MessageBox.Show($"Cannot open this FastFile:\n\n{decompressError}", "Unsupported FastFile", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SaveCloseFastFileAndCleanUp();
+                    return;
+                }
 
                 // Update loading message (ensure UI thread)
                 RunOnUIThread(() => ShowLoading($"Loading {gameName} zone file..."));
