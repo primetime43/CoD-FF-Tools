@@ -8,7 +8,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 |------|-----|----------|-----|-----|
 | CoD4: Modern Warfare | ✅ Full | ✅ Full | 🟡 Partial | ⚠️ Extract |
 | WaW: World at War | ✅ Full | ✅ Full | 🟡 Partial | 🟡 Partial |
-| MW2: Modern Warfare 2 | ✅ Full | 🔬 Untested | 🟡 Partial | ➖ |
+| MW2: Modern Warfare 2 | ✅ Full | 🔬 Full (unverified) | 🟡 Partial | ➖ |
 
 ### Version IDs
 
@@ -22,7 +22,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 - ✅ **Full** - Decompress, parse assets, edit, and recompress
 - 🟡 **Partial** - Decompress, parse + edit rawfile/localize, recompress (round-trip verified, in-game test pending). Other asset types currently skipped.
 - 📖 **Read-only** - Decompress, parse rawfile/localize, but **no recompress yet**. Opens both unsigned and signed retail files.
-- 🔬 **Untested** - Implementation complete but not verified on hardware
+- 🔬 **Full (unverified)** - Implementation feature-parity with the verified platform; no hardware load test yet
 - ⚠️ **Extract** - Decompress to zone file only (no asset editing/recompress)
 - ➖ **Not Available** - Game not released on this platform
 
@@ -55,6 +55,13 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 - Xbox 360 requires a **patched XEX** to load modified FastFiles
 - Original signed FastFiles are converted to unsigned format when saving
 - The editor preserves hash tables from original files but cannot regenerate RSA signatures
+
+### MW2 Xbox 360 Notes
+- Shares the same `MW2GameDefinition` as MW2 PS3 — rawfile / localize / weapon / partial menu support all wired up.
+- **Decompress**: handles both formats — unsigned (single zlib stream after 25-byte `DB_Header`) and signed (IW4 authed-chunks at `0x25`, same format as MW2 PC signed but with the full 25-byte `DB_Header` instead of the 9-byte PC preamble).
+- **Save**: writes the unsigned single-zlib variant. Signed input → unsigned output (no IW RSA-2048 private key).
+- **Zone layout**: 48-byte zone header (drops `BlockSizeVertex`), `MW2AssetTypeXbox360` enum (no `vertexshader`, IDs ≥ `0x07` shift −1 from PS3).
+- **Status**: code path complete; round-trip not yet verified on real Xbox 360 hardware. The implementation parallels MW2 PS3 — the same parsing/editing pipeline runs above the platform-specific FF I/O layer in `FastFileLib`.
 
 ---
 
