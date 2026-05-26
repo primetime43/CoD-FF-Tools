@@ -12,12 +12,13 @@ namespace Call_of_Duty_FastFile_Editor.UI
     public partial class ZoneHexViewForm : Form
     {
         private readonly List<ZoneAssetRecord> _assetRecords;
-        private readonly ZoneFile _zoneFile;
+        private readonly ZoneFile? _zoneFile;
         private readonly bool _isCod4;
         private readonly bool _isCod5;
         private readonly bool _isMW2;
         private readonly bool _isXbox360;
         private readonly bool _isPC;
+        private readonly bool _isWii;
 
         // Parsed asset collections for name lookups
         private readonly List<RawFileNode> _rawFiles;
@@ -67,11 +68,11 @@ namespace Call_of_Duty_FastFile_Editor.UI
         /// <summary>
         /// Creates a new ZoneHexViewForm with zone data, asset records, and zone file reference.
         /// </summary>
-        public ZoneHexViewForm(byte[] data, List<ZoneAssetRecord> assetRecords, ZoneFile zoneFile,
-            List<RawFileNode> rawFiles = null, List<LocalizedEntry> localizedEntries = null,
-            List<StringTable> stringTables = null, List<WeaponAsset> weapons = null,
-            List<XAnimParts> xanims = null, List<ImageAsset> images = null,
-            List<TechSetAsset> techSets = null, List<MenuList> menuLists = null)
+        public ZoneHexViewForm(byte[] data, List<ZoneAssetRecord>? assetRecords, ZoneFile? zoneFile,
+            List<RawFileNode>? rawFiles = null, List<LocalizedEntry>? localizedEntries = null,
+            List<StringTable>? stringTables = null, List<WeaponAsset>? weapons = null,
+            List<XAnimParts>? xanims = null, List<ImageAsset>? images = null,
+            List<TechSetAsset>? techSets = null, List<MenuList>? menuLists = null)
         {
             InitializeComponent();
 
@@ -96,6 +97,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 _isMW2 = _zoneFile.ParentFastFile.IsMW2File;
                 _isXbox360 = _zoneFile.ParentFastFile.IsXbox360;
                 _isPC = _zoneFile.ParentFastFile.IsPC;
+                _isWii = _zoneFile.ParentFastFile.IsWii;
             }
 
             // Default to big-endian
@@ -413,7 +415,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 return (int)record.AssetType_COD4_Xbox360;
             if (_isCod4)
                 return (int)record.AssetType_COD4;
-            if (_isCod5 && _isPC)
+            // Wii uses PC enum even though it's big-endian
+            if (_isCod5 && (_isPC || _isWii))
                 return (int)record.AssetType_COD5_PC;
             if (_isCod5 && _isXbox360)
                 return (int)record.AssetType_COD5_Xbox360;
@@ -441,7 +444,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 return record.AssetType_COD4_Xbox360.ToString();
             else if (_isCod4)
                 return record.AssetType_COD4.ToString();
-            else if (_isCod5 && _isPC)
+            else if (_isCod5 && (_isPC || _isWii))
                 return record.AssetType_COD5_PC.ToString();
             else if (_isCod5 && _isXbox360)
                 return record.AssetType_COD5_Xbox360.ToString();

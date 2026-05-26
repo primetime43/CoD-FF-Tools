@@ -20,12 +20,25 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
+
+    - name: Get version from tag
+      id: get_version
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${GITHUB_REF#refs/tags/}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        # Suffix for built executable filenames. VERSION is already "v"-prefixed (tag form).
+        echo "suffix=$VERSION" >> $GITHUB_OUTPUT
 
     - name: Restore dependencies
       run: dotnet restore "Call of Duty FastFile Editor.sln"
@@ -50,15 +63,15 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-compiler
 
-    - name: Build and Publish FastFile Tool GUI
+    - name: Build and Publish FastFile Extractor
       run: |
-        dotnet publish "FastFileToolGUI/FastFileToolGUI.csproj" `
+        dotnet publish "FastFileExtractor/FastFileExtractor.csproj" `
           -c Release `
           -r win-x64 `
           --self-contained false `
           -p:PublishSingleFile=true `
           -p:IncludeNativeLibrariesForSelfExtract=true `
-          -o ./publish-tool
+          -o ./publish-extractor
 
     - name: Build and Publish FastFile Converter GUI
       run: |
@@ -70,26 +83,38 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-converter
 
+    - name: Build and Publish FastFile CLI
+      run: |
+        dotnet publish "FastFileCLI/FastFileCLI.csproj" `
+          -c Release `
+          -r win-x64 `
+          --self-contained false `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o ./publish-cli
+
+    - name: Rename executables with version suffix
+      shell: pwsh
+      run: |
+        $s = "${{ steps.get_version.outputs.suffix }}"
+        Move-Item "./publish/Call of Duty FastFile Editor.exe" "./publish/Call of Duty FastFile Editor-$s.exe"
+        Move-Item "./publish-compiler/FastFileCompilerGUI.exe" "./publish-compiler/FastFileCompilerGUI-$s.exe"
+        Move-Item "./publish-extractor/FastFileExtractor.exe" "./publish-extractor/FastFileExtractor-$s.exe"
+        Move-Item "./publish-converter/FastFileConverter.exe" "./publish-converter/FastFileConverter-$s.exe"
+        Move-Item "./publish-cli/ffcli.exe" "./publish-cli/ffcli-$s.exe"
+
     - name: List published files
       run: |
         Write-Host "Main Editor:"
         Get-ChildItem -Path ./publish -Recurse
         Write-Host "Compiler GUI:"
         Get-ChildItem -Path ./publish-compiler -Recurse
-        Write-Host "Tool GUI:"
-        Get-ChildItem -Path ./publish-tool -Recurse
+        Write-Host "Extractor:"
+        Get-ChildItem -Path ./publish-extractor -Recurse
         Write-Host "Converter GUI:"
         Get-ChildItem -Path ./publish-converter -Recurse
-
-    - name: Get version from tag
-      id: get_version
-      shell: bash
-      run: |
-        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-          echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-        else
-          echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        fi
+        Write-Host "CLI:"
+        Get-ChildItem -Path ./publish-cli -Recurse
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -100,9 +125,10 @@ jobs:
         prerelease: false
         generate_release_notes: true
         files: |
-          ./publish/Call of Duty FastFile Editor.exe
-          ./publish-compiler/FastFileCompilerGUI.exe
-          ./publish-tool/FastFileToolGUI.exe
-          ./publish-converter/FastFileConverter.exe
+          ./publish/Call of Duty FastFile Editor-${{ steps.get_version.outputs.suffix }}.exe
+          ./publish-compiler/FastFileCompilerGUI-${{ steps.get_version.outputs.suffix }}.exe
+          ./publish-extractor/FastFileExtractor-${{ steps.get_version.outputs.suffix }}.exe
+          ./publish-converter/FastFileConverter-${{ steps.get_version.outputs.suffix }}.exe
+          ./publish-cli/ffcli-${{ steps.get_version.outputs.suffix }}.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

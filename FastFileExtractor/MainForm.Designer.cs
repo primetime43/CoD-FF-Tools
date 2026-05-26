@@ -1,4 +1,4 @@
-namespace FastFileToolGUI;
+namespace FastFileExtractor;
 
 partial class MainForm
 {
@@ -42,6 +42,7 @@ partial class MainForm
         packInputLabel = new Label();
         statusStrip = new StatusStrip();
         statusLabel = new ToolStripStatusLabel();
+        viewLogsLabel = new ToolStripStatusLabel();
         titleLabel = new Label();
         subtitleLabel = new Label();
         tabControl.SuspendLayout();
@@ -305,7 +306,7 @@ partial class MainForm
         //
         // statusStrip
         //
-        statusStrip.Items.AddRange(new ToolStripItem[] { statusLabel });
+        statusStrip.Items.AddRange(new ToolStripItem[] { statusLabel, viewLogsLabel });
         statusStrip.Location = new Point(0, 418);
         statusStrip.Name = "statusStrip";
         statusStrip.Size = new Size(634, 22);
@@ -316,6 +317,16 @@ partial class MainForm
         statusLabel.Name = "statusLabel";
         statusLabel.Size = new Size(39, 17);
         statusLabel.Text = "Ready";
+        statusLabel.Spring = true;
+        statusLabel.TextAlign = ContentAlignment.MiddleLeft;
+        //
+        // viewLogsLabel - right-aligned clickable link to open the log viewer
+        //
+        viewLogsLabel.Name = "viewLogsLabel";
+        viewLogsLabel.Text = "View Logs";
+        viewLogsLabel.IsLink = true;
+        viewLogsLabel.LinkBehavior = LinkBehavior.HoverUnderline;
+        viewLogsLabel.Click += new EventHandler(viewLogsLabel_Click);
         //
         // titleLabel
         //
@@ -325,7 +336,7 @@ partial class MainForm
         titleLabel.Name = "titleLabel";
         titleLabel.Size = new Size(295, 25);
         titleLabel.TabIndex = 2;
-        titleLabel.Text = "FastFile Tool - Extract && Pack";
+        titleLabel.Text = "FastFile Extractor - Extract && Pack";
         //
         // subtitleLabel
         //
@@ -350,7 +361,7 @@ partial class MainForm
         MinimumSize = new Size(550, 400);
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "FastFile Tool v3.1.0";
+        Text = "FastFile Extractor v3.1.0";
         DragDrop += MainForm_DragDrop;
         DragEnter += MainForm_DragEnter;
         tabControl.ResumeLayout(false);
@@ -392,6 +403,7 @@ partial class MainForm
     private Label gameVersionLabel;
     private StatusStrip statusStrip;
     private ToolStripStatusLabel statusLabel;
+    private ToolStripStatusLabel viewLogsLabel;
     private Label titleLabel;
     private Label subtitleLabel;
     private TextBox detailsTextBox;

@@ -14,7 +14,7 @@ publish/
 
 # Specific build targets
 FastFileCompilerGUI/bin/Release/net8.0-windows/
-FastFileTool/bin/Release/net8.0/win-x64
+FastFileExtractor/bin/Release/net8.0/win-x64
 
 # Test project
 TestProject/

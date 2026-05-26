@@ -5,6 +5,7 @@ using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.Services;
 using Call_of_Duty_FastFile_Editor.UI;
 using Call_of_Duty_FastFile_Editor.ZoneParsers;
+using FastFileLib;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -105,7 +106,6 @@ namespace Call_of_Duty_FastFile_Editor
         private List<ZoneAssetRecord> _zoneAssetRecords;
 
         private AssetRecordCollection _processResult;
-        private IFastFileHandler _fastFileHandler;
 
         /// <summary>
         /// Currently selected MenuList in the menu files tree.
@@ -329,14 +329,18 @@ namespace Call_of_Duty_FastFile_Editor
 
             try
             {
-                // Assign the correct handler for the opened file
-                _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
                 // Show the opened FF path in the program's title text
                 this.SetProgramTitle(_openedFastFile.FfFilePath);
 
-                // Decompress the Fast File to get the zone file
-                _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
+                // Decompress the Fast File to get the zone file. Using the non-throwing
+                // variant so an unsupported/hybrid file produces a clean dialog instead of
+                // a VS debugger break under "Just My Code".
+                if (!FastFileProcessor.TryDecompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, out _, out string? decompressError))
+                {
+                    MessageBox.Show($"Cannot open this FastFile:\n\n{decompressError}", "Unsupported FastFile", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SaveCloseFastFileAndCleanUp();
+                    return;
+                }
 
                 // Load & parse that zone in one go
                 _openedFastFile.LoadZone();
@@ -446,14 +450,19 @@ namespace Call_of_Duty_FastFile_Editor
                 // Show loading indicator while decompressing
                 ShowLoading($"Decompressing {gameName} FastFile...");
 
-                // Assign the correct handler for the opened file
-                _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
-                // Decompress the Fast File on a background thread
-                await Task.Run(() =>
+                // Decompress the Fast File on a background thread. Using the non-throwing
+                // variant so an unsupported/hybrid file produces a clean dialog instead of
+                // a VS debugger break under "Just My Code".
+                string? decompressError = null;
+                bool decompressOk = await Task.Run(() =>
+                    FastFileProcessor.TryDecompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, out _, out decompressError));
+                if (!decompressOk)
                 {
-                    _fastFileHandler.Decompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath);
-                });
+                    RunOnUIThread(() => HideLoading());
+                    MessageBox.Show($"Cannot open this FastFile:\n\n{decompressError}", "Unsupported FastFile", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SaveCloseFastFileAndCleanUp();
+                    return;
+                }
 
                 // Update loading message (ensure UI thread)
                 RunOnUIThread(() => ShowLoading($"Loading {gameName} zone file..."));
@@ -685,6 +694,7 @@ namespace Call_of_Duty_FastFile_Editor
             saveFastFileAsToolStripMenuItem.Enabled = true;
             localizeToolsMenuItem.Enabled = _localizedEntries != null && _localizedEntries.Count > 0;
             fileInfoToolStripMenuItem.Enabled = true;
+            fileReportToolStripMenuItem.Enabled = true;
         }
 
         /// <summary>
@@ -693,17 +703,40 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private void LoadRawFilesTreeView()
         {
-            // Clear existing nodes to avoid duplication
+            // Apply current filter (empty filter shows everything)
+            LoadRawFilesTreeView(rawFilesSearchTextBox?.Text);
+        }
+
+        /// <summary>
+        /// Populates the file tree, optionally filtered to only show files whose name
+        /// contains <paramref name="filter"/> (case-insensitive). Pass null/empty to show all.
+        /// </summary>
+        private void LoadRawFilesTreeView(string? filter)
+        {
             filesTreeView.Nodes.Clear();
             filesTreeView.BeginUpdate();
 
             try
             {
-                // Dictionary to hold folder nodes for quick lookup
                 var folderNodes = new Dictionary<string, TreeNode>(StringComparer.OrdinalIgnoreCase);
 
-                // Sort raw file nodes alphabetically by filename for display
-                var sortedNodes = _rawFileNodes.OrderBy(n => n.FileName, StringComparer.OrdinalIgnoreCase).ToList();
+                var sourceNodes = _rawFileNodes.OrderBy(n => n.FileName, StringComparer.OrdinalIgnoreCase);
+                bool isFiltering = !string.IsNullOrEmpty(filter);
+                if (isFiltering)
+                {
+                    sourceNodes = sourceNodes
+                        .Where(n => n.FileName?.IndexOf(filter!, StringComparison.OrdinalIgnoreCase) >= 0)
+                        .OrderBy(n => n.FileName, StringComparer.OrdinalIgnoreCase);
+                }
+                var sortedNodes = sourceNodes.ToList();
+
+                // Update the count label
+                if (rawFilesSearchCountLabel != null)
+                {
+                    rawFilesSearchCountLabel.Text = isFiltering
+                        ? $"{sortedNodes.Count} of {_rawFileNodes.Count}"
+                        : $"{_rawFileNodes.Count} files";
+                }
 
                 foreach (var rawFileNode in sortedNodes)
                 {
@@ -739,6 +772,10 @@ namespace Call_of_Duty_FastFile_Editor
 
                 // Sort root-level nodes (folders first, then files, all alphabetically)
                 SortTreeNodes(filesTreeView.Nodes);
+
+                // When filtering, expand all folder nodes so matches aren't hidden
+                if (isFiltering)
+                    filesTreeView.ExpandAll();
             }
             finally
             {
@@ -746,6 +783,24 @@ namespace Call_of_Duty_FastFile_Editor
             }
 
             UIManager.SetRawFileTreeNodeColors(filesTreeView);
+        }
+
+        // -----------------------------------------------------------------
+        //  Raw files inline search/filter
+        // -----------------------------------------------------------------
+
+        private void rawFilesSearchTextBox_TextChanged(object sender, EventArgs e)
+        {
+            // Re-render the tree with the current filter text. Empty text shows everything.
+            if (_rawFileNodes == null) return;
+            LoadRawFilesTreeView(rawFilesSearchTextBox.Text);
+        }
+
+        private void rawFilesSearchClearButton_Click(object sender, EventArgs e)
+        {
+            if (rawFilesSearchTextBox.Text.Length > 0)
+                rawFilesSearchTextBox.Clear();  // triggers TextChanged → re-renders tree
+            rawFilesSearchTextBox.Focus();
         }
 
         /// <summary>
@@ -807,6 +862,25 @@ namespace Call_of_Duty_FastFile_Editor
         }
 
         /// <summary>
+        /// Recursively searches tree nodes to find one with a matching Tag.
+        /// </summary>
+        private TreeNode FindTreeNodeByTag(TreeNodeCollection nodes, object tag)
+        {
+            foreach (TreeNode node in nodes)
+            {
+                if (ReferenceEquals(node.Tag, tag))
+                    return node;
+                if (node.Nodes.Count > 0)
+                {
+                    var found = FindTreeNodeByTag(node.Nodes, tag);
+                    if (found != null)
+                        return found;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Handles actions before selecting a new TreeView node, prompting to save unsaved changes.
         /// </summary>
         private void filesTreeView_BeforeSelect(object sender, TreeViewCancelEventArgs e)
@@ -821,7 +895,7 @@ namespace Call_of_Duty_FastFile_Editor
 
                 if (result == DialogResult.Yes)
                 {
-                    // Save the previous node
+                    // Save the previous node into the zone bytes...
                     _rawFileService.SaveZoneRawFileChanges(
                         filesTreeView,
                         _openedFastFile.FfFilePath,
@@ -831,6 +905,24 @@ namespace Call_of_Duty_FastFile_Editor
                         _openedFastFile
                     );
                     prevNode.HasUnsavedChanges = false;
+
+                    // ...then push that into the .ff. Without this, the subsequent File > Save
+                    // sees HasUnsavedChanges = false for every node (we just cleared the only
+                    // dirty one), bails with "No changes to save", and the edit silently
+                    // vanishes the next time the FF is reopened (issue #14).
+                    try
+                    {
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath,
+                                          _openedFastFile.FfFilePath,
+                                          _openedFastFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        FastFileLib.Logging.LogService.Error("Switch",
+                            $"Recompress to FF failed during save-on-switch: {ex.Message}", ex);
+                        MessageBox.Show($"Saved zone changes but recompressing to .ff failed:\n\n{ex.Message}",
+                            "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
                 else if (result == DialogResult.Cancel)
                 {
@@ -840,7 +932,7 @@ namespace Call_of_Duty_FastFile_Editor
                 }
                 else // DialogResult.No → discard changes
                 {
-                    // Revert the node’s content back to the last‐loaded bytes
+                    // Revert the node's content back to the last‐loaded bytes
                     var originalText = Encoding.UTF8.GetString(prevNode.RawFileBytes);
                     prevNode.RawFileContent = originalText;
                     prevNode.HasUnsavedChanges = false;
@@ -919,7 +1011,7 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private void saveFastFileToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (_openedFastFile == null || _fastFileHandler == null)
+            if (_openedFastFile == null)
             {
                 MessageBox.Show("No Fast File is currently opened.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -927,139 +1019,13 @@ namespace Call_of_Duty_FastFile_Editor
 
             try
             {
-                // Sync current raw file editor text to the selected node (if any)
-                if (filesTreeView.SelectedNode?.Tag is RawFileNode selectedNode)
-                {
-                    selectedNode.RawFileContent = textEditorControlEx1.Text;
-                }
-
-                // Sync current menu file editor text to the selected menu (if any)
-                if (_selectedMenuDef != null)
-                {
-                    _selectedMenuDef.StringContent = menuFilesTextEditor.Text;
-                }
-
-                // Count changes
-                int rawFileChangeCount = 0;
-                int menuChangeCount = 0;
-                int localizeChangeCount = 0;
-
-                // Debug: trace through save conditions
-                System.Diagnostics.Debug.WriteLine($"[SAVE] _hasUnsavedChanges={_hasUnsavedChanges}, _localizedEntries={_localizedEntries?.Count ?? -1}, _originalLocalizeCount={_originalLocalizeCount}");
-
-                // Apply raw file changes in place (patch directly into zone data)
-                if (_rawFileNodes != null)
-                {
-                    byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
-
-                    foreach (var node in _rawFileNodes)
-                    {
-                        if (node.HasUnsavedChanges && !string.IsNullOrEmpty(node.RawFileContent))
-                        {
-                            // Check if content fits within the allocated size
-                            byte[] newContent = Encoding.ASCII.GetBytes(node.RawFileContent);
-                            if (newContent.Length > node.MaxSize)
-                            {
-                                MessageBox.Show($"Raw file '{node.FileName}' content ({newContent.Length} bytes) exceeds max size ({node.MaxSize} bytes).\n\n" +
-                                                "Use 'Increase File Size' option first, or reduce content size.",
-                                                "Content Too Large",
-                                                MessageBoxButtons.OK,
-                                                MessageBoxIcon.Warning);
-                                return;
-                            }
-
-                            // Patch the content directly into the zone data at the file's offset
-                            // Clear the area first, then write new content
-                            for (int i = 0; i < node.MaxSize && node.CodeStartPosition + i < zoneData.Length; i++)
-                            {
-                                zoneData[node.CodeStartPosition + i] = i < newContent.Length ? newContent[i] : (byte)0;
-                            }
-
-                            node.RawFileBytes = newContent;
-                            node.HasUnsavedChanges = false;
-                            rawFileChangeCount++;
-                        }
-                    }
-                }
-
-                // Apply menu file changes in place
-                if (_menuLists != null)
-                {
-                    foreach (var menuList in _menuLists)
-                    {
-                        menuChangeCount += menuList.Menus.Count(m => m.HasUnsavedChanges);
-                    }
-                }
-
-                if (menuChangeCount > 0)
-                {
-                    ApplyMenuFileChangesToZone();
-
-                    // Reset menu dirty flags
-                    foreach (var menuList in _menuLists)
-                    {
-                        foreach (var menu in menuList.Menus)
-                        {
-                            menu.HasUnsavedChanges = false;
-                        }
-                    }
-                }
-
-                // Apply localize changes in place (if the form-level dirty flag indicates changes)
-                System.Diagnostics.Debug.WriteLine($"[SAVE] Checking localize save: _hasUnsavedChanges={_hasUnsavedChanges}, _localizeNeedsRebuild={_localizeNeedsRebuild}, entries={_localizedEntries?.Count ?? -1}");
-                if (_hasUnsavedChanges && _localizedEntries != null && _localizedEntries.Count > 0)
-                {
-                    // If import was done, force rebuild; otherwise check if we can patch in place
-                    bool canPatch = !_localizeNeedsRebuild && CanPatchLocalizeInPlace();
-                    System.Diagnostics.Debug.WriteLine($"[SAVE] CanPatchLocalizeInPlace={canPatch}");
-                    // Try to patch localize entries in place
-                    if (canPatch)
-                    {
-                        if (PatchLocalizeEntriesInPlace())
-                        {
-                            localizeChangeCount = _localizedEntries.Count; // Count all as changed (we don't track individual entries)
-                        }
-                    }
-                    else
-                    {
-                        // Can't patch in place - need to rebuild zone
-                        if (_hasUnsupportedAssets)
-                        {
-                            // Warn about unsupported assets that will be lost
-                            var unsupportedTypes = ZoneFileBuilder.GetUnsupportedAssetInfo(
-                                _openedFastFile.OpenedFastFileZone, _openedFastFile);
-                            var typeList = string.Join(", ", unsupportedTypes.Distinct().Take(5));
-
-                            var result = MessageBox.Show(
-                                $"Localize text size increased - zone must be rebuilt.\n\n" +
-                                $"This zone contains unsupported asset types ({typeList}).\n" +
-                                $"These assets will be LOST if you continue.\n\n" +
-                                $"Do you want to rebuild the zone anyway?",
-                                "Rebuild Zone",
-                                MessageBoxButtons.YesNo,
-                                MessageBoxIcon.Warning);
-
-                            if (result != DialogResult.Yes)
-                                return;
-                        }
-
-                        // Rebuild the zone with updated localize entries
-                        if (RebuildZoneWithCurrentData())
-                        {
-                            localizeChangeCount = _localizedEntries.Count;
-                            System.Diagnostics.Debug.WriteLine($"[SAVE] Zone rebuilt successfully with localize changes");
-                        }
-                        else
-                        {
-                            MessageBox.Show("Failed to rebuild zone with localize changes.",
-                                "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                            return;
-                        }
-                    }
-                }
+                // Apply all changes using shared helper
+                var result = ApplyAllChangesToZone();
+                if (!result.Success)
+                    return; // Error was already shown by helper
 
                 // Check if there were any changes
-                if (rawFileChangeCount == 0 && menuChangeCount == 0 && localizeChangeCount == 0)
+                if (result.RawFileChangeCount == 0 && result.MenuChangeCount == 0 && result.LocalizeChangeCount == 0)
                 {
                     MessageBox.Show("No changes to save.", "Save", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
@@ -1069,13 +1035,13 @@ namespace Call_of_Duty_FastFile_Editor
                 File.WriteAllBytes(_openedFastFile.ZoneFilePath, _openedFastFile.OpenedFastFileZone.Data);
 
                 // Recompress to FF
-                _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+                FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                 // Build save message
                 var changes = new List<string>();
-                if (rawFileChangeCount > 0) changes.Add($"{rawFileChangeCount} raw file(s)");
-                if (menuChangeCount > 0) changes.Add($"{menuChangeCount} menu(s)");
-                if (localizeChangeCount > 0) changes.Add("localize entries");
+                if (result.RawFileChangeCount > 0) changes.Add($"{result.RawFileChangeCount} raw file(s)");
+                if (result.MenuChangeCount > 0) changes.Add($"{result.MenuChangeCount} menu(s)");
+                if (result.LocalizeChangeCount > 0) changes.Add("localize entries");
 
                 MessageBox.Show($"Fast File saved to:\n\n{_openedFastFile.FfFilePath}\n\n" +
                                 $"Patched {string.Join(" and ", changes)} in place. All assets preserved.",
@@ -1104,11 +1070,11 @@ namespace Call_of_Duty_FastFile_Editor
 
         /// <summary>
         /// Saves the Fast File as a new file.
-        /// Patches changes in place to preserve all assets.
+        /// Performs a normal Save first, then copies the FF to the new location.
         /// </summary>
         private void saveFastFileAsToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (_openedFastFile == null || _fastFileHandler == null)
+            if (_openedFastFile == null)
             {
                 MessageBox.Show("No Fast File is currently opened.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -1118,113 +1084,51 @@ namespace Call_of_Duty_FastFile_Editor
             {
                 saveFileDialog.Filter = "Fast Files (*.ff;*.ffm)|*.ff;*.ffm|All Files (*.*)|*.*";
                 saveFileDialog.Title = "Save Fast File As";
+                saveFileDialog.FileName = Path.GetFileName(_openedFastFile.FfFilePath);
 
                 if (saveFileDialog.ShowDialog() == DialogResult.OK)
                 {
                     try
                     {
-                        // Sync current raw file editor text to the selected node (if any)
-                        if (filesTreeView.SelectedNode?.Tag is RawFileNode selectedNode)
-                        {
-                            selectedNode.RawFileContent = textEditorControlEx1.Text;
-                        }
-
-                        // Sync current menu file editor text to the selected menu (if any)
-                        if (_selectedMenuDef != null)
-                        {
-                            _selectedMenuDef.StringContent = menuFilesTextEditor.Text;
-                        }
-
                         string newFilePath = saveFileDialog.FileName;
-                        string zoneName = Path.GetFileNameWithoutExtension(newFilePath);
-                        string tempZonePath = Path.Combine(Path.GetTempPath(), zoneName + ".zone");
 
-                        // Count changes
-                        int rawFileChangeCount = 0;
-                        int menuChangeCount = 0;
+                        // Apply all changes using shared helper (same as Save)
+                        var result = ApplyAllChangesToZone();
+                        if (!result.Success)
+                            return; // Error was already shown by helper
 
-                        // Apply raw file changes in place (patch directly into zone data)
-                        if (_rawFileNodes != null)
-                        {
-                            byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
+                        // Write the modified zone data to the existing zone file
+                        File.WriteAllBytes(_openedFastFile.ZoneFilePath, _openedFastFile.OpenedFastFileZone.Data);
 
-                            foreach (var node in _rawFileNodes)
-                            {
-                                if (node.HasUnsavedChanges && !string.IsNullOrEmpty(node.RawFileContent))
-                                {
-                                    // Check if content fits within the allocated size
-                                    byte[] newContent = Encoding.ASCII.GetBytes(node.RawFileContent);
-                                    if (newContent.Length > node.MaxSize)
-                                    {
-                                        MessageBox.Show($"Raw file '{node.FileName}' content ({newContent.Length} bytes) exceeds max size ({node.MaxSize} bytes).\n\n" +
-                                                        "Use 'Increase File Size' option first, or reduce content size.",
-                                                        "Content Too Large",
-                                                        MessageBoxButtons.OK,
-                                                        MessageBoxIcon.Warning);
-                                        return;
-                                    }
+                        // Recompress to the original FF path first
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
-                                    // Patch the content directly into the zone data at the file's offset
-                                    for (int i = 0; i < node.MaxSize && node.CodeStartPosition + i < zoneData.Length; i++)
-                                    {
-                                        zoneData[node.CodeStartPosition + i] = i < newContent.Length ? newContent[i] : (byte)0;
-                                    }
-
-                                    node.RawFileBytes = newContent;
-                                    node.HasUnsavedChanges = false;
-                                    rawFileChangeCount++;
-                                }
-                            }
-                        }
-
-                        // Apply menu file changes in place
-                        if (_menuLists != null)
-                        {
-                            foreach (var menuList in _menuLists)
-                            {
-                                menuChangeCount += menuList.Menus.Count(m => m.HasUnsavedChanges);
-                            }
-
-                            if (menuChangeCount > 0)
-                            {
-                                ApplyMenuFileChangesToZone();
-
-                                // Reset menu dirty flags
-                                foreach (var menuList in _menuLists)
-                                {
-                                    foreach (var menu in menuList.Menus)
-                                    {
-                                        menu.HasUnsavedChanges = false;
-                                    }
-                                }
-                            }
-                        }
+                        // Now copy the saved FF to the new location
+                        File.Copy(_openedFastFile.FfFilePath, newFilePath, overwrite: true);
 
                         // Build save message
                         var changes = new List<string>();
-                        if (rawFileChangeCount > 0) changes.Add($"{rawFileChangeCount} raw file(s)");
-                        if (menuChangeCount > 0) changes.Add($"{menuChangeCount} menu(s)");
+                        if (result.RawFileChangeCount > 0) changes.Add($"{result.RawFileChangeCount} raw file(s)");
+                        if (result.MenuChangeCount > 0) changes.Add($"{result.MenuChangeCount} menu(s)");
+                        if (result.LocalizeChangeCount > 0) changes.Add("localize entries");
                         string saveMessage = changes.Count > 0
-                            ? $"Patched {string.Join(" and ", changes)} in place. All assets preserved."
-                            : "Zone saved with all assets preserved.";
-
-                        // Write the modified zone data to temp file
-                        File.WriteAllBytes(tempZonePath, _openedFastFile.OpenedFastFileZone.Data);
-
-                        // Recompress to new FF path
-                        _fastFileHandler?.Recompress(newFilePath, tempZonePath, _openedFastFile);
-
-                        // Clean up temp file
-                        if (File.Exists(tempZonePath))
-                            File.Delete(tempZonePath);
+                            ? $"Patched {string.Join(" and ", changes)}."
+                            : "No changes to save.";
 
                         MessageBox.Show($"Fast File saved to:\n\n{newFilePath}\n\n{saveMessage}",
                                         "Saved",
                                         MessageBoxButtons.OK,
                                         MessageBoxIcon.Asterisk);
 
-                        // Then close out
-                        SaveCloseFastFileAndCleanUp();
+                        // Reset dirty flags after successful save
+                        _hasUnsavedChanges = false;
+                        _localizeNeedsRebuild = false;
+
+                        // Remove asterisk from title
+                        if (this.Text.EndsWith("*"))
+                        {
+                            this.Text = this.Text.TrimEnd('*');
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -1235,6 +1139,225 @@ namespace Call_of_Duty_FastFile_Editor
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Result of applying changes to zone data.
+        /// </summary>
+        private class ApplyChangesResult
+        {
+            public bool Success { get; set; } = true;
+            public int RawFileChangeCount { get; set; }
+            public int MenuChangeCount { get; set; }
+            public int LocalizeChangeCount { get; set; }
+        }
+
+        /// <summary>
+        /// Applies all pending changes (raw files, menus, localize) to the zone data.
+        /// This is the shared logic used by both Save and Save As.
+        /// </summary>
+        /// <returns>Result indicating success and change counts.</returns>
+        private ApplyChangesResult ApplyAllChangesToZone()
+        {
+            var result = new ApplyChangesResult();
+
+            // Sync current raw file editor text to the selected node (if any)
+            if (filesTreeView.SelectedNode?.Tag is RawFileNode selectedNode)
+            {
+                selectedNode.RawFileContent = textEditorControlEx1.Text;
+            }
+
+            // Sync current menu file editor text to the selected menu (if any)
+            if (_selectedMenuDef != null)
+            {
+                _selectedMenuDef.StringContent = menuFilesTextEditor.Text;
+            }
+
+            // Apply raw file changes in place (patch directly into zone data)
+            if (_rawFileNodes != null && _openedFastFile != null)
+            {
+                byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
+
+                foreach (var node in _rawFileNodes)
+                {
+                    if (node.HasUnsavedChanges && !string.IsNullOrEmpty(node.RawFileContent))
+                    {
+                        byte[] newContent = Encoding.UTF8.GetBytes(node.RawFileContent);
+
+                        // Handle internally compressed raw files (MW2 16-byte header format)
+                        if (node.IsCompressed && node.CompressedSize > 0)
+                        {
+                            // Re-compress the content via the shared lib helper so the
+                            // editor and lib produce byte-identical zlib output.
+                            byte[] compressedContent = FastFileLib.CompressionHelper.CompressZlib(newContent);
+
+                            if (compressedContent.Length > node.CompressedSize)
+                            {
+                                var rebuildResult = MessageBox.Show(
+                                    $"Compressed content ({compressedContent.Length} bytes) exceeds original slot ({node.CompressedSize} bytes).\n\n" +
+                                    $"Do you want to rebuild the zone to accommodate the new content?\n\n" +
+                                    "(Note: This will convert the file to uncompressed format)",
+                                    "Rebuild Zone",
+                                    MessageBoxButtons.YesNo,
+                                    MessageBoxIcon.Question);
+
+                                if (rebuildResult == DialogResult.Yes)
+                                {
+                                    // Update the node with uncompressed content before rebuild
+                                    node.RawFileBytes = newContent;
+                                    node.IsCompressed = false;
+                                    node.HasUnsavedChanges = false;
+
+                                    if (RebuildZoneWithCurrentData())
+                                    {
+                                        // Zone was rebuilt - all raw file content is now in the new zone
+                                        // Mark all nodes as saved and return (old offsets are now invalid)
+                                        foreach (var n in _rawFileNodes!)
+                                        {
+                                            n.HasUnsavedChanges = false;
+                                        }
+                                        result.RawFileChangeCount = _rawFileNodes.Count(n => !string.IsNullOrEmpty(n.RawFileContent));
+                                        return result;
+                                    }
+                                    else
+                                    {
+                                        MessageBox.Show("Failed to rebuild zone.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                        result.Success = false;
+                                        return result;
+                                    }
+                                }
+                                result.Success = false;
+                                return result;
+                            }
+
+                            // Update header fields (16-byte format: [FFFF][compLen][len][FFFF])
+                            int hdrOff = node.StartOfFileHeader;
+                            // compressedLen at offset +4
+                            zoneData[hdrOff + 4] = (byte)(compressedContent.Length >> 24);
+                            zoneData[hdrOff + 5] = (byte)(compressedContent.Length >> 16);
+                            zoneData[hdrOff + 6] = (byte)(compressedContent.Length >> 8);
+                            zoneData[hdrOff + 7] = (byte)(compressedContent.Length);
+                            // len at offset +8
+                            zoneData[hdrOff + 8] = (byte)(newContent.Length >> 24);
+                            zoneData[hdrOff + 9] = (byte)(newContent.Length >> 16);
+                            zoneData[hdrOff + 10] = (byte)(newContent.Length >> 8);
+                            zoneData[hdrOff + 11] = (byte)(newContent.Length);
+
+                            // Write compressed data (pad with zeros if smaller)
+                            for (int i = 0; i < node.CompressedSize && node.CodeStartPosition + i < zoneData.Length; i++)
+                            {
+                                zoneData[node.CodeStartPosition + i] = i < compressedContent.Length ? compressedContent[i] : (byte)0;
+                            }
+
+                            node.RawFileBytes = newContent;
+                            node.CompressedSize = compressedContent.Length;
+                        }
+                        else
+                        {
+                            // Standard uncompressed raw file
+                            if (newContent.Length > node.MaxSize)
+                            {
+                                MessageBox.Show($"Raw file '{node.FileName}' content ({newContent.Length} bytes) exceeds max size ({node.MaxSize} bytes).\n\n" +
+                                                "Use 'Increase File Size' option first, or reduce content size.",
+                                                "Content Too Large",
+                                                MessageBoxButtons.OK,
+                                                MessageBoxIcon.Warning);
+                                result.Success = false;
+                                return result;
+                            }
+
+                            // Patch the content directly into the zone data
+                            for (int i = 0; i < node.MaxSize && node.CodeStartPosition + i < zoneData.Length; i++)
+                            {
+                                zoneData[node.CodeStartPosition + i] = i < newContent.Length ? newContent[i] : (byte)0;
+                            }
+
+                            node.RawFileBytes = newContent;
+                        }
+
+                        node.HasUnsavedChanges = false;
+                        result.RawFileChangeCount++;
+                    }
+                }
+            }
+
+            // Apply menu file changes in place
+            if (_menuLists != null)
+            {
+                foreach (var menuList in _menuLists)
+                {
+                    result.MenuChangeCount += menuList.Menus.Count(m => m.HasUnsavedChanges);
+                }
+
+                if (result.MenuChangeCount > 0)
+                {
+                    ApplyMenuFileChangesToZone();
+
+                    // Reset menu dirty flags
+                    foreach (var menuList in _menuLists)
+                    {
+                        foreach (var menu in menuList.Menus)
+                        {
+                            menu.HasUnsavedChanges = false;
+                        }
+                    }
+                }
+            }
+
+            // Apply localize changes in place (if the form-level dirty flag indicates changes)
+            if (_hasUnsavedChanges && _localizedEntries != null && _localizedEntries.Count > 0)
+            {
+                // If import was done, force rebuild; otherwise check if we can patch in place
+                bool canPatch = !_localizeNeedsRebuild && CanPatchLocalizeInPlace();
+
+                if (canPatch)
+                {
+                    if (PatchLocalizeEntriesInPlace())
+                    {
+                        result.LocalizeChangeCount = _localizedEntries.Count;
+                    }
+                }
+                else
+                {
+                    // Can't patch in place - need to rebuild zone
+                    if (_hasUnsupportedAssets)
+                    {
+                        var unsupportedTypes = ZoneFileBuilder.GetUnsupportedAssetInfo(
+                            _openedFastFile!.OpenedFastFileZone, _openedFastFile);
+                        var typeList = string.Join(", ", unsupportedTypes.Distinct().Take(5));
+
+                        var dialogResult = MessageBox.Show(
+                            $"Localize text size increased - zone must be rebuilt.\n\n" +
+                            $"This zone contains unsupported asset types ({typeList}).\n" +
+                            $"These assets will be LOST if you continue.\n\n" +
+                            $"Do you want to rebuild the zone anyway?",
+                            "Rebuild Zone",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Warning);
+
+                        if (dialogResult != DialogResult.Yes)
+                        {
+                            result.Success = false;
+                            return result;
+                        }
+                    }
+
+                    // Rebuild the zone with updated localize entries
+                    if (RebuildZoneWithCurrentData())
+                    {
+                        result.LocalizeChangeCount = _localizedEntries.Count;
+                    }
+                    else
+                    {
+                        MessageBox.Show("Failed to rebuild zone with localize changes.",
+                            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        result.Success = false;
+                        return result;
+                    }
+                }
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -1450,10 +1573,30 @@ namespace Call_of_Duty_FastFile_Editor
                         return;
                     }
 
+                    // Recompress the modified zone back to the FF on disk. Without this step
+                    // the user's inject lives only in the .zone file - File > Save then sees
+                    // no "dirty" raw file nodes (inject bypasses HasUnsavedChanges) and bails
+                    // with "No changes to save", so the .ff on disk keeps its original 2020
+                    // mtime and the edit never reaches the game. (Root cause of issue #14.)
+                    try
+                    {
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath,
+                                          _openedFastFile.FfFilePath,
+                                          _openedFastFile);
+                    }
+                    catch (Exception ex)
+                    {
+                        FastFileLib.Logging.LogService.Error("Inject",
+                            $"Recompress to FF failed after inject of '{rawFileName}': {ex.Message}", ex);
+                        MessageBox.Show($"Inject updated the zone, but recompressing to .ff failed:\n\n{ex.Message}",
+                            "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
                     RefreshZoneData();
                     ReloadAllRawFileNodesAndUI();
-                    MessageBox.Show($"File '{rawFileName}' was successfully updated in the zone file.",
-                        "Update Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    MessageBox.Show($"File '{rawFileName}' was successfully injected and saved to the FastFile.",
+                        "Inject Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
         }
@@ -1601,6 +1744,22 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
 
             _rawFileService.RenameRawFile(filesTreeView, _openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _rawFileNodes, _openedFastFile);
+
+            // Recompress to .ff so the rename actually reaches the game (issue #14 family).
+            // The rename modifies the zone bytes directly without setting any HasUnsavedChanges,
+            // so File > Save would otherwise see no work to do.
+            try
+            {
+                FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
+            }
+            catch (Exception ex)
+            {
+                FastFileLib.Logging.LogService.Error("Rename",
+                    $"Recompress to FF failed after rename: {ex.Message}", ex);
+                MessageBox.Show($"Renamed in the zone, but recompressing to .ff failed:\n\n{ex.Message}",
+                    "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+
             ReloadAllRawFileNodesAndUI();
         }
 
@@ -1719,6 +1878,19 @@ namespace Call_of_Duty_FastFile_Editor
             localizeListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
         }
 
+        /// <summary>
+        /// True if the parsed menu has a synthetic name like "(menu_0)" or "(external_30008C06)",
+        /// indicating the parser couldn't recover the real window name from inline data.
+        /// </summary>
+        private static bool MenuHasParserPlaceholderName(Models.MenuDef menu)
+        {
+            string n = menu?.Name;
+            return string.IsNullOrEmpty(n)
+                || n.StartsWith("(menu_", StringComparison.Ordinal)
+                || n.StartsWith("(external_", StringComparison.Ordinal)
+                || n.StartsWith("(unnamed", StringComparison.Ordinal);
+        }
+
         private void PopulateMenuFiles()
         {
             // Check if we have any parsed MenuList assets
@@ -1749,34 +1921,78 @@ namespace Call_of_Duty_FastFile_Editor
             menuFilesTextEditor.TextChanged -= MenuFilesTextEditor_TextChanged;
             menuFilesTextEditor.TextChanged += MenuFilesTextEditor_TextChanged;
 
-            // Create decompiler for formatting menu data (PS3 = big endian)
+            // Endianness must match the zone's actual byte order — PC zones are little-endian,
+            // PS3/Xbox/Wii are big-endian. Hardcoding BE here used to mis-read every float/int
+            // on PC zones, so MenuValue.Offset ended up pointing at the wrong bytes and the
+            // matching write in ApplyMenuFileChangesToZone corrupted random parts of the zone
+            // (caused "unsupported compression method" errors when reopening the saved FF).
             var decompiler = new ZoneParsers.MenuDecompiler(
                 _openedFastFile.OpenedFastFileZone.Data,
-                isBigEndian: true);
+                isBigEndian: !_openedFastFile.IsPC);
 
-            // Populate the tree view with MenuLists and decompile each menu individually
+            // Tree layout:
+            //   - menufile contains exactly 1 menu, parser found it    → flat row "name [N items]"
+            //   - menufile contains exactly 1 menu, parser failed      → flat row "name [1 menu (parse failed)]"
+            //   - menufile contains N > 1 menus                        → "name (N menus)" parent +
+            //                                                            one child per parsed menu
+            //
+            // Single-menu files flatten because the wrapper file and the menu are conceptually the
+            // same thing. Multi-menu files keep a tree level so each menu is independently selectable.
             foreach (var menuList in _menuLists)
             {
-                // Create MenuList node
-                TreeNode menuListNode = new TreeNode($"{menuList.Name} ({menuList.Menus.Count} menus)");
-                menuListNode.Tag = menuList;
-
-                // Decompile each menu individually
+                // Decompile any menus we successfully parsed
                 foreach (var menu in menuList.Menus)
                 {
-                    // Decompile this specific menu
                     var (formattedText, strings) = decompiler.DecompileMenuDef(menu);
                     menu.ExtractedStrings = strings;
                     menu.StringContent = formattedText;
-
-                    string menuName = menu.Name ?? "(unnamed)";
-                    string itemInfo = menu.ItemCount > 0 ? $" [{menu.ItemCount} items]" : "";
-                    TreeNode menuNode = new TreeNode($"{menuName}{itemInfo}");
-                    menuNode.Tag = menu;
-                    menuListNode.Nodes.Add(menuNode);
                 }
 
-                menuFilesTreeView.Nodes.Add(menuListNode);
+                bool isSingleMenu = menuList.MenuCount == 1;
+                bool firstParsed = menuList.Menus.Count > 0;
+                bool firstHasParseFailureName = firstParsed && MenuHasParserPlaceholderName(menuList.Menus[0]);
+
+                if (isSingleMenu && firstParsed && !firstHasParseFailureName)
+                {
+                    // Flat row — the menufile IS effectively the menu for single-menu cases.
+                    var menu = menuList.Menus[0];
+                    string suffix = menu.ItemCount > 0 ? $" [{menu.ItemCount} items]" : "";
+                    var node = new TreeNode($"{menuList.Name}{suffix}") { Tag = menu };
+                    menuFilesTreeView.Nodes.Add(node);
+                }
+                else if (isSingleMenu)
+                {
+                    // Single-menu file but parser couldn't get useful data.
+                    var node = new TreeNode($"{menuList.Name} [1 menu (parse failed)]") { Tag = menuList };
+                    menuFilesTreeView.Nodes.Add(node);
+                }
+                else
+                {
+                    // Multi-menu file. Show parent + one child per parsed menu so each is
+                    // independently selectable and editable.
+                    var parentNode = new TreeNode($"{menuList.Name} ({menuList.MenuCount} menus)") { Tag = menuList };
+
+                    for (int i = 0; i < menuList.Menus.Count; i++)
+                    {
+                        var menu = menuList.Menus[i];
+                        string label = MenuHasParserPlaceholderName(menu)
+                            ? $"menu #{i}"
+                            : menu.Name;
+                        if (menu.ItemCount > 0)
+                            label += $" [{menu.ItemCount} items]";
+                        parentNode.Nodes.Add(new TreeNode(label) { Tag = menu });
+                    }
+
+                    // If the asset pool declared more menus than we located, surface that gap
+                    // so users know parsing dropped some entries rather than silently hiding them.
+                    int missing = menuList.MenuCount - menuList.Menus.Count;
+                    if (missing > 0)
+                    {
+                        parentNode.Nodes.Add(new TreeNode($"+{missing} menu(s) not located") { Tag = menuList });
+                    }
+
+                    menuFilesTreeView.Nodes.Add(parentNode);
+                }
             }
 
             // Expand all nodes
@@ -1879,7 +2095,11 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
 
             byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
-            bool isBigEndian = true; // PS3 is big-endian
+            // PC zones store multi-byte values little-endian; console (PS3 / Xbox 360)
+            // and Wii are big-endian. The parser reads with the right endianness via
+            // FastFile.IsPC, so writes must match — otherwise edited colors/rects/floats
+            // get stored byte-swapped and the engine sees garbage values.
+            bool isBigEndian = !_openedFastFile.IsPC;
 
             // Iterate over all menus in all menu lists
             foreach (var menuList in _menuLists)
@@ -2306,6 +2526,59 @@ namespace Call_of_Duty_FastFile_Editor
         private void editWeaponMenuItem_Click(object? sender, EventArgs e)
         {
             EditSelectedWeapon();
+        }
+
+        /// <summary>
+        /// Opens the advanced weapon editor from the context menu.
+        /// </summary>
+        private void advancedEditWeaponMenuItem_Click(object? sender, EventArgs e)
+        {
+            if (weaponsListView.SelectedItems.Count == 0)
+            {
+                MessageBox.Show("Please select a weapon to edit.", "No Selection",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var selectedItem = weaponsListView.SelectedItems[0];
+            var weapon = selectedItem.Tag as WeaponAsset;
+            if (weapon == null)
+            {
+                MessageBox.Show("Could not get weapon data.", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Open the advanced weapon editor dialog
+            byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
+            var gameDefinition = GameDefinitions.GameDefinitionFactory.GetDefinition(_openedFastFile);
+
+            using (var editorForm = new AdvancedWeaponEditorForm(weapon, zoneData, gameDefinition))
+            {
+                if (editorForm.ShowDialog(this) == DialogResult.OK && editorForm.ChangesSaved)
+                {
+                    // Update the ListView item with new values (re-read from zone data)
+                    var updatedWeapon = gameDefinition.ParseWeapon(zoneData, weapon.StartOffset);
+                    if (updatedWeapon != null)
+                    {
+                        // Update the weapon object with new values
+                        weapon.WeapClass = updatedWeapon.WeapClass;
+                        weapon.WeapType = updatedWeapon.WeapType;
+                        weapon.FireType = updatedWeapon.FireType;
+                        weapon.PenetrateType = updatedWeapon.PenetrateType;
+                        weapon.ImpactType = updatedWeapon.ImpactType;
+                        weapon.InventoryType = updatedWeapon.InventoryType;
+                        weapon.Damage = updatedWeapon.Damage;
+                        weapon.ClipSize = updatedWeapon.ClipSize;
+                        weapon.MaxAmmo = updatedWeapon.MaxAmmo;
+                    }
+
+                    UpdateWeaponListViewItem(selectedItem, weapon);
+
+                    // Mark as modified
+                    _hasUnsavedChanges = true;
+                }
+            }
         }
 
         /// <summary>
@@ -3267,7 +3540,7 @@ namespace Call_of_Duty_FastFile_Editor
                     }
 
                     // Recompress zone -> ff
-                    _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+                    FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                     // Clear the dirty flag after successful save
                     _hasUnsavedChanges = false;
@@ -4077,7 +4350,9 @@ namespace Call_of_Duty_FastFile_Editor
                 return (int)record.AssetType_COD4_Xbox360;
             if (_openedFastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
-            if (_openedFastFile.IsCod5File && _openedFastFile.IsPC)
+            // Wii uses the PC enum (no shader asset slots) - the type byte lives in
+            // AssetType_COD5_PC even though Wii is big-endian.
+            if (_openedFastFile.IsCod5File && (_openedFastFile.IsPC || _openedFastFile.IsWii))
                 return (int)record.AssetType_COD5_PC;
             if (_openedFastFile.IsCod5File && _openedFastFile.IsXbox360)
                 return (int)record.AssetType_COD5_Xbox360;
@@ -4218,6 +4493,7 @@ namespace Call_of_Duty_FastFile_Editor
             saveFastFileToolStripMenuItem.Enabled = false;
             saveFastFileAsToolStripMenuItem.Enabled = false;
             fileInfoToolStripMenuItem.Enabled = false;
+            fileReportToolStripMenuItem.Enabled = false;
             this.SetProgramTitle();
         }
 
@@ -4238,13 +4514,13 @@ namespace Call_of_Duty_FastFile_Editor
 
                     if (result == DialogResult.Yes)
                     {
-                        // Save each dirty file
+                        // Save each dirty file's content into the zone bytes.
                         foreach (var node in dirtyNodes)
                         {
                             // Select the corresponding TreeNode so SaveZoneRawFileChanges targets it
-                            var treeNode = filesTreeView.Nodes
-                                .OfType<TreeNode>()
-                                .First(t => ReferenceEquals(t.Tag, node));
+                            var treeNode = FindTreeNodeByTag(filesTreeView.Nodes, node);
+                            if (treeNode == null)
+                                continue; // Skip if node not found in tree
                             filesTreeView.SelectedNode = treeNode;
 
                             _rawFileService.SaveZoneRawFileChanges(
@@ -4256,6 +4532,24 @@ namespace Call_of_Duty_FastFile_Editor
                                 _openedFastFile
                             );
                             node.HasUnsavedChanges = false;
+                        }
+
+                        // Recompress the modified zone into the .ff on disk. Without this, the
+                        // changes only live in the .zone file and the actual .ff the game loads
+                        // keeps its original mtime + bytes (issue #14). There's no opportunity to
+                        // save again after this since the editor is closing.
+                        try
+                        {
+                            FastFileSave.Save(_openedFastFile.ZoneFilePath,
+                                              _openedFastFile.FfFilePath,
+                                              _openedFastFile);
+                        }
+                        catch (Exception ex)
+                        {
+                            FastFileLib.Logging.LogService.Error("Close",
+                                $"Recompress to FF failed during save-on-close: {ex.Message}", ex);
+                            MessageBox.Show($"Saved zone changes but recompressing to .ff failed:\n\n{ex.Message}",
+                                "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         }
                     }
                     else if (result == DialogResult.Cancel)
@@ -4359,7 +4653,7 @@ namespace Call_of_Duty_FastFile_Editor
                         File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
 
                         // Recompress zone back to FF
-                        _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                         MessageBox.Show($"File '{selectedNode.FileName}' size increased to {newSize} bytes successfully.\nZone file rebuilt and FF updated.",
                             "Size Increase Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -4462,7 +4756,7 @@ namespace Call_of_Duty_FastFile_Editor
                         File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
 
                         // Recompress zone back to FF
-                        _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+                        FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                         string modeText = useInPlace ? "All assets preserved." : "Zone rebuilt (raw files and localized entries only).";
 
@@ -4575,6 +4869,18 @@ namespace Call_of_Duty_FastFile_Editor
             hexForm.Show();
         }
 
+        private void fileReportToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (_openedFastFile == null)
+            {
+                MessageBox.Show("Open a .ff first", "No File Loaded", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var reportForm = new FileReportForm(_openedFastFile, _rawFileNodes, _localizedEntries);
+            reportForm.Show();
+        }
+
         /// <summary>
         /// Creates a backup of the FastFile if one doesn't already exist.
         /// </summary>
@@ -4613,6 +4919,7 @@ namespace Call_of_Duty_FastFile_Editor
             if (openFileDialog.ShowDialog() != DialogResult.OK)
                 return;
 
+            FastFileLib.Logging.LogService.Info("FileOpen", $"Opening FastFile: {openFileDialog.FileName}");
             await OpenFastFileAutoDetectAsync(openFileDialog.FileName);
         }
 
@@ -4688,22 +4995,18 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
             }
 
-            // Detect game version from zone header
-            // Zone header has MemAlloc1 at offset 0x08 (4 bytes, big-endian)
-            // WaW: 0x000010B0, CoD4: 0x00000F70, MW2: 0x000003B4
-            FastFileLib.GameVersion? detectedVersion = null;
-
-            if (zoneData.Length >= 12)
-            {
-                uint memAlloc1 = (uint)((zoneData[8] << 24) | (zoneData[9] << 16) | (zoneData[10] << 8) | zoneData[11]);
-
-                if (memAlloc1 == 0x000010B0)
-                    detectedVersion = FastFileLib.GameVersion.WaW;
-                else if (memAlloc1 == 0x00000F70)
-                    detectedVersion = FastFileLib.GameVersion.CoD4;
-                else if (memAlloc1 == 0x000003B4)
-                    detectedVersion = FastFileLib.GameVersion.MW2;
-            }
+            // Detect game version + platform from zone bytes. The previous code only
+            // matched BE MemAlloc1 magic constants — for PC zones (LE, often custom
+            // per-zone MemAlloc), detection silently fell through to WaW + PS3 and
+            // the compressor wrote BE 64KB-block format. The engine then read the
+            // version field LE, got 0x83010000 = -2097086464, and bailed with
+            // "newer than client executable". Use FastFileLib helpers that handle
+            // all formats including PC zones with non-magic MemAlloc.
+            var libGameVersion = FastFileLib.FastFileInfo.DetectGameFromZoneData(zoneData);
+            FastFileLib.GameVersion? detectedVersion = libGameVersion == FastFileLib.GameVersion.Unknown
+                ? null
+                : (FastFileLib.GameVersion?)libGameVersion;
+            bool detectedIsPC = FastFileLib.FastFileInfo.IsZoneDataPC(zoneData);
 
             // Ask user to confirm or select game version
             string[] versionOptions = { "Call of Duty: World at War (WaW)", "Call of Duty 4: Modern Warfare (CoD4)", "Call of Duty: Modern Warfare 2 (MW2)" };
@@ -4768,8 +5071,10 @@ namespace Call_of_Duty_FastFile_Editor
 
             try
             {
-                var compiler = new FastFileLib.Compiler(selectedVersion);
-                compiler.CompileToFile(zoneData, ffPath, saveZone: false);
+                // No FastFile context here — we're compressing an arbitrary zone the user picked.
+                // The lib's SaveDetectingFromZone sniffs platform from the zone bytes so PC/Wii
+                // zones don't fall through to the PS3 default compressor.
+                FastFileLib.FastFileSaveService.SaveDetectingFromZone(zoneData, ffPath, fallbackGame: selectedVersion);
 
                 MessageBox.Show($"Successfully compressed zone to FastFile:\n{ffPath}", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
@@ -4837,7 +5142,7 @@ namespace Call_of_Duty_FastFile_Editor
                 File.WriteAllBytes(_openedFastFile.ZoneFilePath, newZoneData);
 
                 // Recompress zone back to FF
-                _fastFileHandler?.Recompress(_openedFastFile.FfFilePath, _openedFastFile.ZoneFilePath, _openedFastFile);
+                FastFileSave.Save(_openedFastFile.ZoneFilePath, _openedFastFile.FfFilePath, _openedFastFile);
 
                 // Remove from TreeView
                 filesTreeView.Nodes.Remove(filesTreeView.SelectedNode);
@@ -4954,9 +5259,6 @@ namespace Call_of_Duty_FastFile_Editor
             {
                 try
                 {
-                    // Assign the correct handler for the opened file
-                    _fastFileHandler = FastFileHandlerFactory.GetHandler(_openedFastFile);
-
                     // Show the opened zone path in the program's title text
                     this.SetProgramTitle(_openedFastFile.ZoneFilePath + " (Zone File)");
 

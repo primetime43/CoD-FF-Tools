@@ -32,9 +32,6 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             bool isXbox360 = _zone.ParentFastFile?.IsXbox360 ?? false;
             bool isPC = _zone.ParentFastFile?.IsPC ?? false;
 
-            // PC uses little-endian, console uses big-endian
-            bool isBigEndian = !isPC;
-
             // Start after tags, or at file start
             var tags = TagOperations.FindTags(_zone);
             i = (tags != null && tags.TagSectionEndOffset > 0) ? tags.TagSectionEndOffset : 0;
@@ -45,21 +42,22 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
             while (i <= fileLen - 8)
             {
-                // End marker: 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF 0xFF (all FF)
-                if (data[i] == 0xFF && data[i + 1] == 0xFF && data[i + 2] == 0xFF && data[i + 3] == 0xFF &&
-                    data[i + 4] == 0xFF && data[i + 5] == 0xFF && data[i + 6] == 0xFF && data[i + 7] == 0xFF)
+                // End-of-pool marker: 8 x 0xFF.
+                if (FastFileLib.ZoneAssetPool.IsEndMarker(data, i))
                 {
                     Debug.WriteLine($"[DEBUG] END MARKER (all FF) at 0x{i:X}, breaking.");
                     endOfPoolOffset = i + 8; // Skip PAST the end marker
                     break;
                 }
 
-                // Format B: FF FF FF FF 00 00 00 XX (pointer first, used in PS3/PC WAW zones)
-                // For PC little-endian, the pattern would be different, but we check based on byte patterns
-                if (data[i] == 0xFF && data[i + 1] == 0xFF && data[i + 2] == 0xFF && data[i + 3] == 0xFF &&
-                    data[i + 4] == 0x00 && data[i + 5] == 0x00 && data[i + 6] == 0x00)
+                // An asset record is an 8-byte [type word][FFFFFFFF] (or [FFFFFFFF][type word])
+                // pair; the shared walker reads the type id in the platform's byte order and
+                // tells us nothing about validity. We still gate on the per-(game,platform)
+                // enum so noise between the header and the real pool is skipped — that gating
+                // is what locates the pool start, so the byte-by-byte advance below is kept.
+                if (FastFileLib.ZoneAssetPool.TryReadRecord(data, i, littleEndian: isPC, out uint typeWord, out _))
                 {
-                    int assetTypeInt = (int)Utilities.ReadUInt32AtOffset(i + 4, _zone, isBigEndian: isBigEndian);
+                    int assetTypeInt = (int)typeWord;
                     bool isDefined =
                         (isCod4 && isPC && Enum.IsDefined(typeof(CoD4AssetTypePC), assetTypeInt)) ||
                         (isCod4 && isXbox360 && Enum.IsDefined(typeof(CoD4AssetTypeXbox360), assetTypeInt)) ||
@@ -70,8 +68,6 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         (isMW2 && isPC && Enum.IsDefined(typeof(MW2AssetTypePC), assetTypeInt)) ||
                         (isMW2 && isXbox360 && Enum.IsDefined(typeof(MW2AssetTypeXbox360), assetTypeInt)) ||
                         (isMW2 && !isXbox360 && !isPC && Enum.IsDefined(typeof(MW2AssetTypePS3), assetTypeInt));
-
-                    Debug.WriteLine($"[DEBUG] Found Format B asset at 0x{i:X}: assetType=0x{assetTypeInt:X} defined={isDefined} isPC={isPC}");
 
                     if (isDefined)
                     {
@@ -87,69 +83,6 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         else if (isMW2 && isPC) record.AssetType_MW2_PC = (MW2AssetTypePC)assetTypeInt;
                         else if (isMW2 && isXbox360) record.AssetType_MW2_Xbox360 = (MW2AssetTypeXbox360)assetTypeInt;
                         else if (isMW2) record.AssetType_MW2 = (MW2AssetTypePS3)assetTypeInt;
-                        records.Add(record);
-
-                        foundAnyAsset = true;
-                        i += 8;
-                        continue;
-                    }
-                }
-
-                // Format A: 00 00 00 XX FF FF FF FF (type first) - big-endian console format
-                // For PC little-endian: XX 00 00 00 FF FF FF FF
-                if (isBigEndian && data[i] == 0x00 && data[i + 1] == 0x00 && data[i + 2] == 0x00
-                    && data[i + 4] == 0xFF && data[i + 5] == 0xFF && data[i + 6] == 0xFF && data[i + 7] == 0xFF)
-                {
-                    int assetTypeInt = (int)Utilities.ReadUInt32AtOffset(i, _zone, isBigEndian: true);
-                    bool isDefined =
-                        (isCod4 && isXbox360 && Enum.IsDefined(typeof(CoD4AssetTypeXbox360), assetTypeInt)) ||
-                        (isCod4 && !isXbox360 && Enum.IsDefined(typeof(CoD4AssetTypePS3), assetTypeInt)) ||
-                        (isCod5 && isXbox360 && Enum.IsDefined(typeof(CoD5AssetTypeXbox360), assetTypeInt)) ||
-                        (isCod5 && !isXbox360 && !isPC && Enum.IsDefined(typeof(CoD5AssetTypePS3), assetTypeInt)) ||
-                        (isMW2 && isXbox360 && Enum.IsDefined(typeof(MW2AssetTypeXbox360), assetTypeInt)) ||
-                        (isMW2 && !isXbox360 && Enum.IsDefined(typeof(MW2AssetTypePS3), assetTypeInt));
-
-                    Debug.WriteLine($"[DEBUG] Found Format A (BE) asset at 0x{i:X}: assetType=0x{assetTypeInt:X} defined={isDefined}");
-
-                    if (isDefined)
-                    {
-                        if (!foundAnyAsset) assetPoolStart = i;
-
-                        var record = new ZoneAssetRecord { AssetPoolRecordOffset = i };
-                        if (isCod4 && isXbox360) record.AssetType_COD4_Xbox360 = (CoD4AssetTypeXbox360)assetTypeInt;
-                        else if (isCod4) record.AssetType_COD4 = (CoD4AssetTypePS3)assetTypeInt;
-                        else if (isCod5 && isXbox360) record.AssetType_COD5_Xbox360 = (CoD5AssetTypeXbox360)assetTypeInt;
-                        else if (isCod5) record.AssetType_COD5 = (CoD5AssetTypePS3)assetTypeInt;
-                        else if (isMW2 && isXbox360) record.AssetType_MW2_Xbox360 = (MW2AssetTypeXbox360)assetTypeInt;
-                        else if (isMW2) record.AssetType_MW2 = (MW2AssetTypePS3)assetTypeInt;
-                        records.Add(record);
-
-                        foundAnyAsset = true;
-                        i += 8;
-                        continue;
-                    }
-                }
-
-                // Format A (PC little-endian): XX 00 00 00 FF FF FF FF (type first, little-endian)
-                if (!isBigEndian && data[i + 1] == 0x00 && data[i + 2] == 0x00 && data[i + 3] == 0x00
-                    && data[i + 4] == 0xFF && data[i + 5] == 0xFF && data[i + 6] == 0xFF && data[i + 7] == 0xFF)
-                {
-                    int assetTypeInt = (int)Utilities.ReadUInt32AtOffset(i, _zone, isBigEndian: false);
-                    bool isDefined =
-                        (isCod4 && isPC && Enum.IsDefined(typeof(CoD4AssetTypePC), assetTypeInt)) ||
-                        (isCod5 && isPC && Enum.IsDefined(typeof(CoD5AssetTypePC), assetTypeInt)) ||
-                        (isMW2 && isPC && Enum.IsDefined(typeof(MW2AssetTypePC), assetTypeInt));
-
-                    Debug.WriteLine($"[DEBUG] Found Format A (LE) asset at 0x{i:X}: assetType=0x{assetTypeInt:X} defined={isDefined}");
-
-                    if (isDefined)
-                    {
-                        if (!foundAnyAsset) assetPoolStart = i;
-
-                        var record = new ZoneAssetRecord { AssetPoolRecordOffset = i };
-                        if (isCod4 && isPC) record.AssetType_COD4_PC = (CoD4AssetTypePC)assetTypeInt;
-                        else if (isCod5 && isPC) record.AssetType_COD5_PC = (CoD5AssetTypePC)assetTypeInt;
-                        else if (isMW2 && isPC) record.AssetType_MW2_PC = (MW2AssetTypePC)assetTypeInt;
                         records.Add(record);
 
                         foundAnyAsset = true;

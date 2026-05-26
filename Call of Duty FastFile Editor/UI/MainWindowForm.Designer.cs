@@ -1,5 +1,6 @@
 using ICSharpCode.TextEditor;
 using ICSharpCode.TextEditorEx;
+using FastFileLib.WinForms;
 
 namespace Call_of_Duty_FastFile_Editor
 {
@@ -22,6 +23,10 @@ namespace Call_of_Duty_FastFile_Editor
         {
             components = new System.ComponentModel.Container();
             filesTreeView = new TreeView();
+            rawFilesSearchPanel = new Panel();
+            rawFilesSearchTextBox = new TextBox();
+            rawFilesSearchCountLabel = new Label();
+            rawFilesSearchClearButton = new Button();
             contextMenuStripRawFiles = new ContextMenuStrip(components);
             exportFileMenuItem = new ToolStripMenuItem();
             exportContentOnlyMenuItem = new ToolStripMenuItem();
@@ -52,6 +57,7 @@ namespace Call_of_Duty_FastFile_Editor
             optionsToolStripMenuItem = new ToolStripMenuItem();
             fileInfoToolStripMenuItem = new ToolStripMenuItem();
             zoneHexViewToolStripMenuItem = new ToolStripMenuItem();
+            fileReportToolStripMenuItem = new ToolStripMenuItem();
             rawFileToolsMenuItem = new ToolStripMenuItem();
             reloadRawFilesPatternMatchingToolStripMenuItem = new ToolStripMenuItem();
             increaseRawFileSizeToolStripMenuItem = new ToolStripMenuItem();
@@ -110,6 +116,7 @@ namespace Call_of_Duty_FastFile_Editor
             weaponsListView = new ListView();
             weaponsContextMenu = new ContextMenuStrip(components);
             editWeaponMenuItem = new ToolStripMenuItem();
+            advancedEditWeaponMenuItem = new ToolStripMenuItem();
             imagesTabPage = new TabPage();
             imagesInstructionLabel = new Label();
             imagesListView = new ListView();
@@ -118,6 +125,8 @@ namespace Call_of_Duty_FastFile_Editor
             stringTablesListView = new ListView();
             zoneFileTabPage = new TabPage();
             zoneInfoDataGridView = new DataGridView();
+            logsTabPage = new TabPage();
+            logsTabContent = new LogsTabPage();
             bindingSource1 = new BindingSource(components);
             reportIssuesToolStripMenuItem = new ToolStripMenuItem();
             contextMenuStripRawFiles.SuspendLayout();
@@ -147,6 +156,7 @@ namespace Call_of_Duty_FastFile_Editor
             imagesTabPage.SuspendLayout();
             stringTablesTabPage.SuspendLayout();
             zoneFileTabPage.SuspendLayout();
+            logsTabPage.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).BeginInit();
             ((System.ComponentModel.ISupportInitialize)bindingSource1).BeginInit();
             SuspendLayout();
@@ -344,7 +354,7 @@ namespace Call_of_Duty_FastFile_Editor
             //
             // viewToolStripMenuItem
             //
-            viewToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { fileInfoToolStripMenuItem, zoneHexViewToolStripMenuItem });
+            viewToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { fileInfoToolStripMenuItem, zoneHexViewToolStripMenuItem, fileReportToolStripMenuItem });
             viewToolStripMenuItem.Name = "viewToolStripMenuItem";
             viewToolStripMenuItem.Size = new Size(53, 24);
             viewToolStripMenuItem.Text = "View";
@@ -363,6 +373,14 @@ namespace Call_of_Duty_FastFile_Editor
             zoneHexViewToolStripMenuItem.Size = new Size(195, 24);
             zoneHexViewToolStripMenuItem.Text = "Zone Hex View";
             zoneHexViewToolStripMenuItem.Click += zoneHexViewToolStripMenuItem_Click;
+            //
+            // fileReportToolStripMenuItem
+            //
+            fileReportToolStripMenuItem.Name = "fileReportToolStripMenuItem";
+            fileReportToolStripMenuItem.Size = new Size(195, 24);
+            fileReportToolStripMenuItem.Text = "File Report...";
+            fileReportToolStripMenuItem.Enabled = false;
+            fileReportToolStripMenuItem.Click += new System.EventHandler(this.fileReportToolStripMenuItem_Click);
             //
             // optionsToolStripMenuItem
             //
@@ -510,7 +528,47 @@ namespace Call_of_Duty_FastFile_Editor
             // splitContainer1.Panel1
             // 
             splitContainer1.Panel1.Controls.Add(filesTreeView);
+            splitContainer1.Panel1.Controls.Add(rawFilesSearchPanel);
             splitContainer1.Panel1.Padding = new Padding(8, 0, 0, 0);
+            //
+            // rawFilesSearchPanel - inline filter bar above the file tree
+            //
+            rawFilesSearchPanel.Controls.Add(rawFilesSearchTextBox);
+            rawFilesSearchPanel.Controls.Add(rawFilesSearchClearButton);
+            rawFilesSearchPanel.Controls.Add(rawFilesSearchCountLabel);
+            rawFilesSearchPanel.Dock = DockStyle.Top;
+            rawFilesSearchPanel.Height = 30;
+            rawFilesSearchPanel.Name = "rawFilesSearchPanel";
+            rawFilesSearchPanel.Padding = new Padding(0, 4, 4, 0);
+            //
+            // rawFilesSearchTextBox
+            //
+            rawFilesSearchTextBox.Location = new Point(0, 4);
+            rawFilesSearchTextBox.Name = "rawFilesSearchTextBox";
+            rawFilesSearchTextBox.Size = new Size(220, 23);
+            rawFilesSearchTextBox.PlaceholderText = "Filter files by name...";
+            rawFilesSearchTextBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            rawFilesSearchTextBox.TextChanged += rawFilesSearchTextBox_TextChanged;
+            //
+            // rawFilesSearchClearButton - small X to clear the filter
+            //
+            rawFilesSearchClearButton.Name = "rawFilesSearchClearButton";
+            rawFilesSearchClearButton.Text = "X";
+            rawFilesSearchClearButton.Size = new Size(24, 23);
+            rawFilesSearchClearButton.Location = new Point(225, 4);
+            rawFilesSearchClearButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            rawFilesSearchClearButton.UseVisualStyleBackColor = true;
+            rawFilesSearchClearButton.FlatStyle = FlatStyle.Standard;
+            rawFilesSearchClearButton.Click += rawFilesSearchClearButton_Click;
+            //
+            // rawFilesSearchCountLabel - shows "N files" or "M of N files" when filtering
+            //
+            rawFilesSearchCountLabel.AutoSize = true;
+            rawFilesSearchCountLabel.Location = new Point(255, 8);
+            rawFilesSearchCountLabel.Name = "rawFilesSearchCountLabel";
+            rawFilesSearchCountLabel.ForeColor = SystemColors.GrayText;
+            rawFilesSearchCountLabel.Text = "";
+            rawFilesSearchCountLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             // 
             // splitContainer1.Panel2
             // 
@@ -597,6 +655,7 @@ namespace Call_of_Duty_FastFile_Editor
             mainTabControl.Controls.Add(tagsTabPage);
             mainTabControl.Controls.Add(assetPoolTabPage);
             mainTabControl.Controls.Add(zoneFileTabPage);
+            mainTabControl.Controls.Add(logsTabPage);
             mainTabControl.Dock = DockStyle.Fill;
             mainTabControl.Location = new Point(0, 28);
             mainTabControl.Name = "mainTabControl";
@@ -692,7 +751,7 @@ namespace Call_of_Duty_FastFile_Editor
             menuFilesTabPage.Padding = new Padding(3);
             menuFilesTabPage.Size = new Size(1442, 749);
             menuFilesTabPage.TabIndex = 7;
-            menuFilesTabPage.Text = "Menu Files";
+            menuFilesTabPage.Text = "Menus";
             menuFilesTabPage.UseVisualStyleBackColor = true;
             //
             // menuFilesSplitContainer
@@ -869,16 +928,23 @@ namespace Call_of_Duty_FastFile_Editor
             //
             // weaponsContextMenu
             //
-            weaponsContextMenu.Items.AddRange(new ToolStripItem[] { editWeaponMenuItem });
+            weaponsContextMenu.Items.AddRange(new ToolStripItem[] { editWeaponMenuItem, advancedEditWeaponMenuItem });
             weaponsContextMenu.Name = "weaponsContextMenu";
-            weaponsContextMenu.Size = new Size(180, 26);
+            weaponsContextMenu.Size = new Size(180, 48);
             //
             // editWeaponMenuItem
             //
             editWeaponMenuItem.Name = "editWeaponMenuItem";
             editWeaponMenuItem.Size = new Size(179, 22);
-            editWeaponMenuItem.Text = "Edit Weapon...";
+            editWeaponMenuItem.Text = "Quick Edit...";
             editWeaponMenuItem.Click += editWeaponMenuItem_Click;
+            //
+            // advancedEditWeaponMenuItem
+            //
+            advancedEditWeaponMenuItem.Name = "advancedEditWeaponMenuItem";
+            advancedEditWeaponMenuItem.Size = new Size(179, 22);
+            advancedEditWeaponMenuItem.Text = "Advanced Edit...";
+            advancedEditWeaponMenuItem.Click += advancedEditWeaponMenuItem_Click;
             //
             // weaponsTabPage
             //
@@ -903,7 +969,7 @@ namespace Call_of_Duty_FastFile_Editor
             weaponsInstructionLabel.Padding = new Padding(0, 4, 0, 4);
             weaponsInstructionLabel.Size = new Size(400, 23);
             weaponsInstructionLabel.TabIndex = 1;
-            weaponsInstructionLabel.Text = "Double-click a weapon or right-click and select 'Edit Weapon...' to modify values.";
+            weaponsInstructionLabel.Text = "Double-click a weapon for quick edit, or right-click and select 'Advanced Edit...' for full weapon customization.";
             //
             // weaponsListView
             //
@@ -1016,6 +1082,18 @@ namespace Call_of_Duty_FastFile_Editor
             zoneInfoDataGridView.Size = new Size(493, 432);
             zoneInfoDataGridView.TabIndex = 0;
             zoneInfoDataGridView.MouseDown += dataGrid_MouseDownCopy;
+            //
+            // logsTabPage
+            //
+            logsTabContent.Dock = DockStyle.Fill;
+            logsTabPage.Controls.Add(logsTabContent);
+            logsTabPage.Location = new Point(4, 24);
+            logsTabPage.Name = "logsTabPage";
+            logsTabPage.Padding = new Padding(3);
+            logsTabPage.Size = new Size(1442, 749);
+            logsTabPage.TabIndex = 12;
+            logsTabPage.Text = "Logs";
+            logsTabPage.UseVisualStyleBackColor = true;
             // 
             // reportIssuesToolStripMenuItem
             // 
@@ -1063,6 +1141,7 @@ namespace Call_of_Duty_FastFile_Editor
             imagesTabPage.ResumeLayout(false);
             stringTablesTabPage.ResumeLayout(false);
             zoneFileTabPage.ResumeLayout(false);
+            logsTabPage.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)zoneInfoDataGridView).EndInit();
             ((System.ComponentModel.ISupportInitialize)bindingSource1).EndInit();
             ResumeLayout(false);
@@ -1072,6 +1151,10 @@ namespace Call_of_Duty_FastFile_Editor
         #endregion
 
         private TreeView filesTreeView;
+        private Panel rawFilesSearchPanel;
+        private TextBox rawFilesSearchTextBox;
+        private Button rawFilesSearchClearButton;
+        private Label rawFilesSearchCountLabel;
         private MenuStrip menuStripTopToolbar;
         private ToolStripMenuItem fileToolStripMenuItem;
         private ToolStripMenuItem openFastFileToolStripMenuItem;
@@ -1092,6 +1175,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem optionsToolStripMenuItem;
         private ToolStripMenuItem fileInfoToolStripMenuItem;
         private ToolStripMenuItem zoneHexViewToolStripMenuItem;
+        private ToolStripMenuItem fileReportToolStripMenuItem;
         private ToolStripMenuItem helpToolStripMenuItem;
         private ToolStripMenuItem supportedFormatsToolStripMenuItem;
         private ToolStripMenuItem renameRawFileToolStripMenuItem;
@@ -1118,6 +1202,8 @@ namespace Call_of_Duty_FastFile_Editor
         private TabPage rawFilesPage;
         private TabPage zoneFileTabPage;
         private DataGridView zoneInfoDataGridView;
+        private TabPage logsTabPage;
+        private LogsTabPage logsTabContent;
         private BindingSource bindingSource1;
         private TabPage tagsTabPage;
         private ListView tagsListView;
@@ -1144,6 +1230,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ListView weaponsListView;
         private ContextMenuStrip weaponsContextMenu;
         private ToolStripMenuItem editWeaponMenuItem;
+        private ToolStripMenuItem advancedEditWeaponMenuItem;
         private TabPage imagesTabPage;
         private Label imagesInstructionLabel;
         private ListView imagesListView;

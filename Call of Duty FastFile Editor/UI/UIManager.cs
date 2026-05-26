@@ -78,7 +78,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 // Apply colors based on file extension
                 if (node.Text.Contains(".cfg"))
                 {
-                    node.ForeColor = Color.Black;
+                    node.ForeColor = Color.Teal;
                 }
                 else if (node.Text.Contains(".gsc"))
                 {

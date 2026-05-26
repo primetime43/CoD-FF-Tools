@@ -126,7 +126,8 @@ public static class FastFileConstants
     /// </summary>
     public const int ZoneHeaderSize_Xbox360 = 0x30;  // MW2 Xbox 360 only
     public const int ZoneHeaderSize_PS3 = 0x34;      // PS3, CoD4 (all platforms), WaW (all platforms)
-    public const int ZoneHeaderSize_PC = 0x38;       // PC
+    public const int ZoneHeaderSize_PC = 0x34;       // PC WaW = same 52-byte layout as PS3 (verified vs real samples)
+    public const int ZoneHeaderSize_Wii = 0x38;      // WaW Wii = 56-byte layout (8 blockSize slots, includes BlockSizeIndex)
 
     // XFile structure offsets (common to all platforms)
     public const int ZoneSizeOffset = 0x00;
@@ -152,19 +153,39 @@ public static class FastFileConstants
     public const int AssetsPtrOffset_Xbox360 = 0x2C;
 
     // XAssetList offsets - PC
-    public const int ScriptStringCountOffset_PC = 0x28;
-    public const int ScriptStringsPtrOffset_PC = 0x2C;
-    public const int AssetCountOffset_PC = 0x30;
-    public const int AssetsPtrOffset_PC = 0x34;
+    public const int ScriptStringCountOffset_PC = 0x24;
+    public const int ScriptStringsPtrOffset_PC = 0x28;
+    public const int AssetCountOffset_PC = 0x2C;
+    public const int AssetsPtrOffset_PC = 0x30;
+
+    // XAssetList offsets - Wii (8 blockSize slots so XAssetList starts +4 vs PS3)
+    public const int ScriptStringCountOffset_Wii = 0x28;
+    public const int ScriptStringsPtrOffset_Wii = 0x2C;
+    public const int AssetCountOffset_Wii = 0x30;
+    public const int AssetsPtrOffset_Wii = 0x34;
+
+    /// <summary>
+    /// True if the (game, platform) pair uses the 56-byte zone header layout (8 blockSize
+    /// slots, asset table starts at 0x38). Both Wii WaW and MW2 PC use this layout —
+    /// MW2 PC just stores the integers little-endian instead of big-endian.
+    /// Verified against retail MW2 PC samples (code_post_gfx.zone, common.zone).
+    /// </summary>
+    private static bool UsesEightBlockSizeLayout(GameVersion version, bool isPC, bool isWii)
+    {
+        return isWii || (version == GameVersion.MW2 && isPC);
+    }
 
     /// <summary>
     /// Gets the zone header size for the given game and platform.
-    /// CoD4 and WaW use PS3-style offsets on ALL platforms.
-    /// Only MW2 Xbox 360 uses the smaller 48-byte header.
+    /// - Wii WaW and MW2 PC: 56 bytes (8 blockSize slots)
+    /// - MW2 Xbox 360: 48 bytes (no BlockSizeVertex)
+    /// - Everything else: 52-byte PS3 layout
     /// </summary>
-    public static int GetZoneHeaderSize(GameVersion version, bool isXbox360, bool isPC)
+    public static int GetZoneHeaderSize(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        // CoD4 and WaW use PS3-style header on all platforms
+        if (UsesEightBlockSizeLayout(version, isPC, isWii)) return ZoneHeaderSize_Wii;
+
+        // CoD4 and WaW use PS3-style header on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)
             return ZoneHeaderSize_PS3;
 
@@ -177,12 +198,12 @@ public static class FastFileConstants
 
     /// <summary>
     /// Gets the AssetCount offset for the given game and platform.
-    /// CoD4 and WaW use PS3-style offsets on ALL platforms.
-    /// Only MW2 Xbox 360 uses Xbox 360-specific offsets.
     /// </summary>
-    public static int GetAssetCountOffset(GameVersion version, bool isXbox360, bool isPC)
+    public static int GetAssetCountOffset(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        // CoD4 and WaW use PS3-style offsets on all platforms
+        if (UsesEightBlockSizeLayout(version, isPC, isWii)) return AssetCountOffset_Wii;
+
+        // CoD4 and WaW use PS3-style offsets on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)
             return AssetCountOffset_PS3;
 
@@ -195,12 +216,12 @@ public static class FastFileConstants
 
     /// <summary>
     /// Gets the ScriptStringCount offset for the given game and platform.
-    /// CoD4 and WaW use PS3-style offsets on ALL platforms.
-    /// Only MW2 Xbox 360 uses Xbox 360-specific offsets.
     /// </summary>
-    public static int GetScriptStringCountOffset(GameVersion version, bool isXbox360, bool isPC)
+    public static int GetScriptStringCountOffset(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        // CoD4 and WaW use PS3-style offsets on all platforms
+        if (UsesEightBlockSizeLayout(version, isPC, isWii)) return ScriptStringCountOffset_Wii;
+
+        // CoD4 and WaW use PS3-style offsets on all non-Wii platforms
         if (version == GameVersion.CoD4 || version == GameVersion.WaW)
             return ScriptStringCountOffset_PS3;
 
@@ -245,35 +266,228 @@ public static class FastFileConstants
         _ => throw new ArgumentOutOfRangeException(nameof(version))
     };
 
-    public static byte GetRawFileAssetType(GameVersion version) => version switch
+    /// <summary>
+    /// Platform-aware rawfile asset type ID. CoD4/WaW PC drop pixelshader+vertexshader
+    /// (so IDs shift -2 from PS3), Xbox 360 drops only vertexshader (-1 from PS3). MW2
+    /// PC instead *adds* vertexdecl (+1 from PS3, +2 from Xbox 360). Wii uses PC enum.
+    /// </summary>
+    public static byte GetRawFileAssetType(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        GameVersion.CoD4 => CoD4RawFileAssetType,
-        GameVersion.WaW => WaWRawFileAssetType,
-        GameVersion.MW2 => MW2RawFileAssetType,
-        _ => throw new ArgumentOutOfRangeException(nameof(version))
-    };
+        bool noShaderSlots = isPC || isWii;
+        return version switch
+        {
+            GameVersion.CoD4 => noShaderSlots ? (byte)0x1F : isXbox360 ? (byte)0x20 : (byte)0x21,
+            GameVersion.WaW  => noShaderSlots ? (byte)0x20 : isXbox360 ? (byte)0x21 : (byte)0x22,
+            GameVersion.MW2  => isPC ? (byte)0x24 : isXbox360 ? (byte)0x22 : (byte)0x23,
+            _ => throw new ArgumentOutOfRangeException(nameof(version))
+        };
+    }
 
-    public static byte GetLocalizeAssetType(GameVersion version) => version switch
+    /// <summary>
+    /// Platform-aware localize asset type ID. Same shift rules as rawfile (see above).
+    /// </summary>
+    public static byte GetLocalizeAssetType(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        GameVersion.CoD4 => CoD4LocalizeAssetType,
-        GameVersion.WaW => WaWLocalizeAssetType,
-        GameVersion.MW2 => MW2LocalizeAssetType,
-        _ => throw new ArgumentOutOfRangeException(nameof(version))
-    };
+        bool noShaderSlots = isPC || isWii;
+        return version switch
+        {
+            GameVersion.CoD4 => noShaderSlots ? (byte)0x16 : isXbox360 ? (byte)0x17 : (byte)0x18,
+            GameVersion.WaW  => noShaderSlots ? (byte)0x17 : isXbox360 ? (byte)0x18 : (byte)0x19,
+            GameVersion.MW2  => isPC ? (byte)0x1B : isXbox360 ? (byte)0x19 : (byte)0x1A,
+            _ => throw new ArgumentOutOfRangeException(nameof(version))
+        };
+    }
 
-    public static byte[] GetMemAlloc1(GameVersion version) => version switch
-    {
-        GameVersion.CoD4 => CoD4MemAlloc1,
-        GameVersion.WaW => WaWMemAlloc1,
-        GameVersion.MW2 => MW2MemAlloc1,
-        _ => throw new ArgumentOutOfRangeException(nameof(version))
-    };
+    #region Raw File Header Constants
 
-    public static byte[] GetMemAlloc2(GameVersion version) => version switch
+    /// <summary>
+    /// Standard raw file header size for CoD4/WaW (uncompressed).
+    /// Format: [FFFFFFFF marker][size BE][FFFFFFFF marker]
+    /// </summary>
+    public const int RawFileHeaderSize_Standard = 12;
+
+    /// <summary>
+    /// MW2 compressed raw file header size (subsequent files).
+    /// Format: [FFFFFFFF marker][compressedLen BE][uncompLen BE][FFFFFFFF marker]
+    /// </summary>
+    public const int RawFileHeaderSize_MW2_Compressed = 16;
+
+    /// <summary>
+    /// MW2 compressed raw file header size (first file only).
+    /// Format: [FFFFFFFF marker][FFFFFFFF marker][compressedLen BE][uncompLen BE][FFFFFFFF marker]
+    /// </summary>
+    public const int RawFileHeaderSize_MW2_First = 20;
+
+    /// <summary>
+    /// Raw file entry marker bytes.
+    /// </summary>
+    public static readonly byte[] RawFileMarker = { 0xFF, 0xFF, 0xFF, 0xFF };
+
+    #endregion
+
+    #region Zlib Constants
+
+    /// <summary>
+    /// Zlib header first byte (CMF - Compression Method and Flags).
+    /// Value 0x78 indicates deflate compression with 32K window.
+    /// </summary>
+    public const byte ZlibHeaderByte = 0x78;
+
+    /// <summary>
+    /// Valid zlib FLG (flags) bytes that can follow the CMF byte.
+    /// </summary>
+    public static readonly byte[] ZlibValidFlags = { 0x01, 0x5E, 0x9C, 0xDA };
+
+    /// <summary>
+    /// Checks if data starts with a valid zlib header.
+    /// </summary>
+    /// <param name="data">Data to check</param>
+    /// <param name="offset">Offset to start checking at</param>
+    /// <returns>True if data starts with valid zlib header</returns>
+    public static bool HasZlibHeader(byte[] data, int offset = 0)
     {
-        GameVersion.CoD4 => CoD4MemAlloc2,
-        GameVersion.WaW => WaWMemAlloc2,
-        GameVersion.MW2 => MW2MemAlloc2,
-        _ => throw new ArgumentOutOfRangeException(nameof(version))
-    };
+        if (data == null || offset + 2 > data.Length)
+            return false;
+
+        if (data[offset] != ZlibHeaderByte)
+            return false;
+
+        return ZlibValidFlags.Contains(data[offset + 1]);
+    }
+
+    #endregion
+
+    #region Big-Endian Helpers
+
+    /// <summary>
+    /// Reads a 32-bit big-endian integer from a byte array.
+    /// </summary>
+    public static int ReadBigEndianInt32(byte[] data, int offset)
+    {
+        if (data == null || offset + 4 > data.Length)
+            throw new ArgumentException("Insufficient data for big-endian int32");
+
+        return (data[offset] << 24) |
+               (data[offset + 1] << 16) |
+               (data[offset + 2] << 8) |
+               data[offset + 3];
+    }
+
+    /// <summary>
+    /// Writes a 32-bit big-endian integer to a byte array.
+    /// </summary>
+    public static void WriteBigEndianInt32(byte[] data, int offset, int value)
+    {
+        if (data == null || offset + 4 > data.Length)
+            throw new ArgumentException("Insufficient space for big-endian int32");
+
+        data[offset] = (byte)((value >> 24) & 0xFF);
+        data[offset + 1] = (byte)((value >> 16) & 0xFF);
+        data[offset + 2] = (byte)((value >> 8) & 0xFF);
+        data[offset + 3] = (byte)(value & 0xFF);
+    }
+
+    /// <summary>
+    /// Gets big-endian bytes for a 32-bit integer.
+    /// </summary>
+    public static byte[] GetBigEndianBytes(int value)
+    {
+        return new byte[]
+        {
+            (byte)((value >> 24) & 0xFF),
+            (byte)((value >> 16) & 0xFF),
+            (byte)((value >> 8) & 0xFF),
+            (byte)(value & 0xFF)
+        };
+    }
+
+    #endregion
+
+    #region UInt32 Endian Read/Write (byte[])
+
+    /// <summary>Reads a 32-bit unsigned integer in big-endian order.</summary>
+    public static uint ReadUInt32BigEndian(byte[] data, int offset)
+        => (uint)((data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]);
+
+    /// <summary>Reads a 32-bit unsigned integer in little-endian order.</summary>
+    public static uint ReadUInt32LittleEndian(byte[] data, int offset)
+        => (uint)(data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16) | (data[offset + 3] << 24));
+
+    /// <summary>
+    /// Reads a 32-bit unsigned integer at the given byte order. PC zones are
+    /// little-endian; PS3 / Xbox 360 / Wii are big-endian — pass the source's IsPC.
+    /// </summary>
+    public static uint ReadUInt32(byte[] data, int offset, bool littleEndian)
+        => littleEndian ? ReadUInt32LittleEndian(data, offset) : ReadUInt32BigEndian(data, offset);
+
+    /// <summary>Writes a 32-bit unsigned integer in big-endian order.</summary>
+    public static void WriteUInt32BigEndian(byte[] data, int offset, uint value)
+    {
+        data[offset]     = (byte)(value >> 24);
+        data[offset + 1] = (byte)(value >> 16);
+        data[offset + 2] = (byte)(value >> 8);
+        data[offset + 3] = (byte)value;
+    }
+
+    /// <summary>Writes a 32-bit unsigned integer in little-endian order.</summary>
+    public static void WriteUInt32LittleEndian(byte[] data, int offset, uint value)
+    {
+        data[offset]     = (byte)value;
+        data[offset + 1] = (byte)(value >> 8);
+        data[offset + 2] = (byte)(value >> 16);
+        data[offset + 3] = (byte)(value >> 24);
+    }
+
+    /// <summary>Writes a 32-bit unsigned integer at the given byte order.</summary>
+    public static void WriteUInt32(byte[] data, int offset, uint value, bool littleEndian)
+    {
+        if (littleEndian) WriteUInt32LittleEndian(data, offset, value);
+        else WriteUInt32BigEndian(data, offset, value);
+    }
+
+    /// <summary>
+    /// Reads a null-terminated string starting at <paramref name="offset"/>.
+    /// Defaults to Latin1 (ISO-8859-1) so single-byte extended-ASCII names/values
+    /// (the encoding CoD zones use) round-trip byte-exactly; pass an explicit
+    /// encoding for ASCII-only fields if preferred.
+    /// </summary>
+    public static string ReadNullTerminatedString(byte[] data, int offset, System.Text.Encoding? encoding = null)
+    {
+        int end = offset;
+        while (end < data.Length && data[end] != 0) end++;
+        return (encoding ?? System.Text.Encoding.Latin1).GetString(data, offset, end - offset);
+    }
+
+    #endregion
+
+    #region Zone Header Accessors
+
+    /// <summary>
+    /// Reads the per-zone memory-allocation values from a decompressed zone header:
+    /// BlockSizeTemp (MemAlloc1) at <see cref="BlockSizeTempOffset"/> and BlockSizeVertex
+    /// (MemAlloc2) at <see cref="BlockSizeVertexOffset"/>, in the platform's byte order
+    /// (PC = little-endian, PS3/Xbox 360/Wii = big-endian).
+    ///
+    /// Returns nulls when the zone is too short to hold the field. BlockSizeVertex is also
+    /// null on MW2 Xbox 360, whose 48-byte header omits the slot (0x20 is ScriptStringCount
+    /// there). Callers preserving per-zone MemAlloc for PC/Wii rebuilds feed the non-null
+    /// results into <see cref="ZoneBuilder.WithBlockSizeTemp"/> / <c>WithBlockSizeVertex</c>.
+    /// </summary>
+    public static (uint? blockSizeTemp, uint? blockSizeVertex) ReadZoneMemAlloc(
+        byte[] zoneData, GameVersion gameVersion, bool isXbox360, bool isPC, bool isWii)
+    {
+        if (zoneData == null || zoneData.Length < BlockSizeTempOffset + 4)
+            return (null, null);
+
+        uint? temp = ReadUInt32(zoneData, BlockSizeTempOffset, littleEndian: isPC);
+
+        bool hasVertexSlot = !(gameVersion == GameVersion.MW2 && isXbox360);
+        uint? vertex = (hasVertexSlot && zoneData.Length >= BlockSizeVertexOffset + 4)
+            ? ReadUInt32(zoneData, BlockSizeVertexOffset, littleEndian: isPC)
+            : (uint?)null;
+
+        return (temp, vertex);
+    }
+
+    #endregion
 }

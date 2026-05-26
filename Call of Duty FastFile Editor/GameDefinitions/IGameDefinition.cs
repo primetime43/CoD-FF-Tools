@@ -35,6 +35,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         bool IsPC { get; }
 
         /// <summary>
+        /// Whether this is a Wii definition (big-endian, 56-byte zone header with 8 blockSize slots).
+        /// </summary>
+        bool IsWii { get; }
+
+        /// <summary>
         /// Console/PS3 version value.
         /// </summary>
         int VersionValue { get; }

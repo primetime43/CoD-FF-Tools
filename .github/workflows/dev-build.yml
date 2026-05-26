@@ -12,12 +12,17 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
+
+    - name: Compute short SHA
+      id: ver
+      shell: bash
+      run: echo "suffix=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
     - name: Restore dependencies
       run: dotnet restore "Call of Duty FastFile Editor.sln"
@@ -42,43 +47,70 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-compiler
 
-    - name: Build and Publish FastFile Tool GUI
+    - name: Build and Publish FastFile Extractor
       run: |
-        dotnet publish "FastFileToolGUI/FastFileToolGUI.csproj" `
+        dotnet publish "FastFileExtractor/FastFileExtractor.csproj" `
           -c Release `
           -r win-x64 `
           --self-contained false `
           -p:PublishSingleFile=true `
           -p:IncludeNativeLibrariesForSelfExtract=true `
-          -o ./publish-tool
+          -o ./publish-extractor
+
+    - name: Build and Publish FastFile CLI
+      run: |
+        dotnet publish "FastFileCLI/FastFileCLI.csproj" `
+          -c Release `
+          -r win-x64 `
+          --self-contained false `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o ./publish-cli
+
+    - name: Rename executables with version suffix
+      shell: pwsh
+      run: |
+        $s = "${{ steps.ver.outputs.suffix }}"
+        Move-Item "./publish/Call of Duty FastFile Editor.exe" "./publish/Call of Duty FastFile Editor-$s.exe"
+        Move-Item "./publish-compiler/FastFileCompilerGUI.exe" "./publish-compiler/FastFileCompilerGUI-$s.exe"
+        Move-Item "./publish-extractor/FastFileExtractor.exe" "./publish-extractor/FastFileExtractor-$s.exe"
+        Move-Item "./publish-cli/ffcli.exe" "./publish-cli/ffcli-$s.exe"
 
     - name: Upload Main Editor
       uses: actions/upload-artifact@v4
       with:
-        name: Call-of-Duty-FastFile-Editor-Dev
-        path: ./publish/Call of Duty FastFile Editor.exe
+        name: Call-of-Duty-FastFile-Editor-${{ steps.ver.outputs.suffix }}
+        path: ./publish/Call of Duty FastFile Editor-${{ steps.ver.outputs.suffix }}.exe
         retention-days: 14
 
     - name: Upload FastFile Compiler GUI
       uses: actions/upload-artifact@v4
       with:
-        name: FastFileCompilerGUI-Dev
-        path: ./publish-compiler/FastFileCompilerGUI.exe
+        name: FastFileCompilerGUI-${{ steps.ver.outputs.suffix }}
+        path: ./publish-compiler/FastFileCompilerGUI-${{ steps.ver.outputs.suffix }}.exe
         retention-days: 14
 
-    - name: Upload FastFile Tool GUI
+    - name: Upload FastFile Extractor
       uses: actions/upload-artifact@v4
       with:
-        name: FastFileToolGUI-Dev
-        path: ./publish-tool/FastFileToolGUI.exe
+        name: FastFileExtractor-${{ steps.ver.outputs.suffix }}
+        path: ./publish-extractor/FastFileExtractor-${{ steps.ver.outputs.suffix }}.exe
+        retention-days: 14
+
+    - name: Upload FastFile CLI
+      uses: actions/upload-artifact@v4
+      with:
+        name: FastFileCLI-${{ steps.ver.outputs.suffix }}
+        path: ./publish-cli/ffcli-${{ steps.ver.outputs.suffix }}.exe
         retention-days: 14
 
     - name: Upload All Tools Bundle
       uses: actions/upload-artifact@v4
       with:
-        name: All-Tools-Dev-Bundle
+        name: All-Tools-${{ steps.ver.outputs.suffix }}-Bundle
         path: |
-          ./publish/Call of Duty FastFile Editor.exe
-          ./publish-compiler/FastFileCompilerGUI.exe
-          ./publish-tool/FastFileToolGUI.exe
+          ./publish/Call of Duty FastFile Editor-${{ steps.ver.outputs.suffix }}.exe
+          ./publish-compiler/FastFileCompilerGUI-${{ steps.ver.outputs.suffix }}.exe
+          ./publish-extractor/FastFileExtractor-${{ steps.ver.outputs.suffix }}.exe
+          ./publish-cli/ffcli-${{ steps.ver.outputs.suffix }}.exe
         retention-days: 14

@@ -1,7 +1,7 @@
-using Call_of_Duty_FastFile_Editor.Constants;
 using Call_of_Duty_FastFile_Editor.GameDefinitions;
 using Call_of_Duty_FastFile_Editor.Models;
 using Call_of_Duty_FastFile_Editor.Services;
+using FastFileLib;
 using FastFileLib.GameDefinitions;
 using System.Diagnostics;
 using System.Text;
@@ -27,16 +27,9 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         private readonly bool _isMW2;
         private readonly bool _isXbox360;
         private readonly bool _isPC;
+        private readonly bool _isWii;
         private readonly bool _isBigEndian;
         private readonly int _headerSize;
-
-        // Platform-specific header sizes:
-        // Xbox 360 (MW2 only): XFile (32 bytes = 6 blocks) + XAssetList (16 bytes) = 48 bytes (0x30)
-        // PS3/CoD4/WaW (all platforms): XFile (36 bytes = 7 blocks) + XAssetList (16 bytes) = 52 bytes (0x34)
-        // PC: XFile (40 bytes = 8 blocks) + XAssetList (16 bytes) = 56 bytes (0x38)
-        private const int HEADER_SIZE_XBOX360 = 0x30;
-        private const int HEADER_SIZE_PS3 = 0x34;
-        private const int HEADER_SIZE_PC = 0x38;
 
         public StructureBasedZoneParser(ZoneFile zone)
         {
@@ -47,19 +40,17 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
             _isMW2 = zone.ParentFastFile?.IsMW2File ?? false;
             _isXbox360 = zone.ParentFastFile?.IsXbox360 ?? false;
             _isPC = zone.ParentFastFile?.IsPC ?? false;
-            _isBigEndian = !_isPC; // PC uses little-endian, consoles use big-endian
+            _isWii = zone.ParentFastFile?.IsWii ?? false;
+            // Wii uses PowerPC (big-endian) like PS3/Xbox 360. PC is the only LE platform.
+            _isBigEndian = !_isPC;
 
-            // Set header size based on platform and game
-            // CoD4 and WaW use the same zone structure across all platforms (PS3-style 52-byte header)
-            // Only MW2 Xbox 360 uses the smaller 48-byte header
-            if (_isXbox360 && !_isCod4 && !_isCod5)
-                _headerSize = HEADER_SIZE_XBOX360;
-            else if (_isPC)
-                _headerSize = HEADER_SIZE_PC;
-            else
-                _headerSize = HEADER_SIZE_PS3;
+            // Header size dispatched via library (Wii WaW and MW2 PC = 56 bytes, MW2 Xbox 360 = 48,
+            // everything else = 52). Same source as the FastFileConverter and the CLI parser.
+            var gameVersion = zone.ParentFastFile?.GameVersionEnum ?? GameVersion.Unknown;
+            _headerSize = FastFileConstants.GetZoneHeaderSize(gameVersion, _isXbox360, _isPC, _isWii);
 
-            Debug.WriteLine($"[StructureParser] Game: {(_isCod4 ? "CoD4" : (_isCod5 ? "WaW" : "MW2"))}, Platform: {(_isXbox360 ? "Xbox 360" : (_isPC ? "PC" : "PS3"))}, Header size: 0x{_headerSize:X}");
+            string platformName = _isWii ? "Wii" : (_isXbox360 ? "Xbox 360" : (_isPC ? "PC" : "PS3"));
+            Debug.WriteLine($"[StructureParser] Game: {(_isCod4 ? "CoD4" : (_isCod5 ? "WaW" : "MW2"))}, Platform: {platformName}, Header size: 0x{_headerSize:X}");
         }
 
         /// <summary>
@@ -159,6 +150,20 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                         _data[assetPoolStart + 5] == 0x00 && _data[assetPoolStart + 6] == 0x00 &&
                         _data[assetPoolStart + 7] == 0x00)
                     {
+                        // Ambiguity: a run of Format A entries [type][ptr][type][ptr]... shifted by
+                        // +4 bytes looks identical to Format B [ptr][type][ptr][type]... Check 4 bytes
+                        // back - if Format A LE matches there, that's the real start (we overshot due
+                        // to tag-section end miscalculation).
+                        if (assetPoolStart >= 4 &&
+                            _data[assetPoolStart - 3] == 0x00 && _data[assetPoolStart - 2] == 0x00 &&
+                            _data[assetPoolStart - 1] == 0x00 &&
+                            _data[assetPoolStart] == 0xFF && _data[assetPoolStart + 1] == 0xFF &&
+                            _data[assetPoolStart + 2] == 0xFF && _data[assetPoolStart + 3] == 0xFF)
+                        {
+                            assetPoolStart -= 4;
+                            Debug.WriteLine($"[StructureParser] Format B LE match adjusted -4 bytes to Format A LE at 0x{assetPoolStart:X}");
+                            break;
+                        }
                         Debug.WriteLine($"[StructureParser] Found Format B (LE) asset pool at 0x{assetPoolStart:X}");
                         break;
                     }
@@ -373,7 +378,9 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 }
                 else if (_isCod5)
                 {
-                    if (_isPC)
+                    // Wii uses the PC asset type enum (no pixelshader/vertexshader slots),
+                    // even though it's big-endian. So store in the PC-typed field, not the PS3 one.
+                    if (_isPC || _isWii)
                         record.AssetType_COD5_PC = (CoD5AssetTypePC)assetTypeInt;
                     else if (_isXbox360)
                         record.AssetType_COD5_Xbox360 = (CoD5AssetTypeXbox360)assetTypeInt;

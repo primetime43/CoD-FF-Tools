@@ -1,6 +1,6 @@
 using FastFileLib;
 
-namespace FastFileToolGUI;
+namespace FastFileExtractor;
 
 public partial class MainForm : Form
 {
@@ -8,6 +8,11 @@ public partial class MainForm : Form
     {
         InitializeComponent();
         PopulateGameVersionComboBox();
+    }
+
+    private void viewLogsLabel_Click(object? sender, EventArgs e)
+    {
+        new FastFileLib.WinForms.LogViewerForm().Show(this);
     }
 
     private void PopulateGameVersionComboBox()
@@ -196,14 +201,17 @@ public partial class MainForm : Form
             statusLabel.Text = "Packing...";
             Application.DoEvents();
 
-            if (xbox360Signed && originalFfPath != null)
-            {
-                FastFileProcessor.CompressXbox360Signed(packInputTextBox.Text, packOutputTextBox.Text, gameVersion, originalFfPath);
-            }
-            else
-            {
-                Compress(packInputTextBox.Text, packOutputTextBox.Text, gameVersion, platform);
-            }
+            // Both signed and unsigned paths go through the same lib service —
+            // signed flag picks the streaming + hash-table flow, unsigned picks
+            // platform-correct block-or-single-stream compression.
+            FastFileSaveService.Save(
+                packInputTextBox.Text,
+                packOutputTextBox.Text,
+                gameVersion,
+                platform,
+                signed: xbox360Signed,
+                originalFfPath: xbox360Signed ? originalFfPath : null);
+            statusLabel.Text = "Packed";
 
             var fi = new FileInfo(packOutputTextBox.Text);
             statusLabel.Text = $"Packed successfully! ({fi.Length:N0} bytes)";
@@ -249,7 +257,7 @@ public partial class MainForm : Form
     private void UpdateDetailedInfo(long fileSize, string header, bool isSigned, string studio, string game, string platform, uint version)
     {
         detailsTextBox.Clear();
-        detailsTextBox.AppendText($"File Size: {fileSize:N0} bytes ({fileSize / 1024.0 / 1024.0:F2} MB)\r\n");
+        detailsTextBox.AppendText($"File Size: {fileSize:N0} bytes ({FastFileInfo.FormatFileSize(fileSize)})\r\n");
         detailsTextBox.AppendText($"Header Magic: {header}\r\n");
         detailsTextBox.AppendText($"Signed: {(isSigned ? "Yes (RSA2048)" : "No")}\r\n");
         detailsTextBox.AppendText($"Studio: {studio}\r\n");
@@ -283,11 +291,6 @@ public partial class MainForm : Form
         statusLabel.Text = $"Extracted {blockCount} blocks";
     }
 
-    private void Compress(string inputPath, string outputPath, GameVersion gameVersion, string platform)
-    {
-        int blockCount = FastFileProcessor.Compress(inputPath, outputPath, gameVersion, platform);
-        statusLabel.Text = $"Packed {blockCount} blocks";
-    }
 
     private void MainForm_DragEnter(object sender, DragEventArgs e)
     {

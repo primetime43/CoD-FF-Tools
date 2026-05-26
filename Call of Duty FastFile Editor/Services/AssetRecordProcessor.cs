@@ -33,13 +33,12 @@ namespace Call_of_Duty_FastFile_Editor.Services
             // Create the result container.
             AssetRecordCollection result = new AssetRecordCollection();
 
-            // PC zone asset parsing is not yet supported - only show asset pool records
+            // PC zone parsing is incremental - currently only rawfile and localize are supported.
+            // CoD5PCGameDefinition.IsSupportedAssetType returns false for other types, so they
+            // get skipped by the loop below (no need to bail entirely).
             if (openedFastFile.IsPC)
             {
-                Debug.WriteLine($"[AssetRecordProcessor] PC zone asset parsing not supported. Returning empty result.");
-                Debug.WriteLine($"[AssetRecordProcessor] Asset pool contains {zoneAssetRecords.Count} records.");
-                // Return empty result - the asset pool records are still available in the zone file
-                return result;
+                Debug.WriteLine($"[AssetRecordProcessor] PC zone: parsing supported asset types (rawfile, localize). Asset pool: {zoneAssetRecords.Count} records.");
             }
 
             // Keep track of the index and end offset of the last successfully parsed asset record.
@@ -374,13 +373,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     result.RawFileNodes.Select(n => n.FileName),
                     StringComparer.OrdinalIgnoreCase);
 
-                // Count expected rawfiles from the asset pool
-                int expectedRawFileCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
+                // Count remaining rawfiles in the asset pool starting from where structure parsing
+                // stopped. This already excludes the rawfiles parsed in the earlier loop, so we do
+                // NOT subtract result.RawFileNodes.Count again - doing so caused a negative value
+                // (e.g., patch.ff: 11 remaining - 12 already parsed = -1) which made the while loop
+                // never execute.
+                int remainingRawFiles = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
                     structureParsingStoppedAtIndex, gameDefinition.RawFileAssetType);
-                int alreadyParsedRawFiles = result.RawFileNodes.Count;
-                int remainingRawFiles = expectedRawFileCount - alreadyParsedRawFiles;
 
-                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedRawFileCount} rawfiles, already parsed {alreadyParsedRawFiles}, remaining {remainingRawFiles}");
+                Debug.WriteLine($"[AssetRecordProcessor] Remaining rawfiles to find via pattern matching: {remainingRawFiles}");
 
                 int currentOffset = searchStartOffset;
                 int rawFilesParsed = 0;
@@ -437,12 +438,13 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 // For localized entries, use the asset pool to know exactly how many to expect
                 // Then parse them sequentially (NOT pattern scanning the entire zone)
-                int expectedLocalizeCount = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
+                // Same off-by-N fix as rawfiles above: count from where structure parsing stopped,
+                // don't subtract already-parsed (which would be wrong if any localize entries were
+                // parsed in earlier passes).
+                int remainingLocalizes = CountExpectedAssetType(openedFastFile, zoneAssetRecords,
                     structureParsingStoppedAtIndex, gameDefinition.LocalizeAssetType);
-                int alreadyParsedLocalizes = result.LocalizedEntries.Count;
-                int remainingLocalizes = expectedLocalizeCount - alreadyParsedLocalizes;
 
-                Debug.WriteLine($"[AssetRecordProcessor] Expected {expectedLocalizeCount} localizes, already parsed {alreadyParsedLocalizes}, remaining {remainingLocalizes}");
+                Debug.WriteLine($"[AssetRecordProcessor] Remaining localize entries to find via pattern matching: {remainingLocalizes}");
 
                 if (remainingLocalizes > 0)
                 {
@@ -541,9 +543,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                     while (menuFilesParsed < remainingMenuFiles && menuFileSearchOffset < zoneData.Length)
                     {
-                        // Search up to 1MB or remaining file length for menu files
-                        int maxSearchBytes = Math.Min(1000000, zoneData.Length - menuFileSearchOffset);
-                        var menuList = FindNextMenuList(zoneData, menuFileSearchOffset, maxSearchBytes, isBigEndian: true);
+                        // Scan the entire remaining zone. MW2 zones pack a lot of asset data
+                        // between menufiles (e.g. ui_mp.ff: ~18MB between the 2 MenuLists), so
+                        // a small window like 1MB silently drops most of them.
+                        int maxSearchBytes = zoneData.Length - menuFileSearchOffset;
+                        var menuList = FindNextMenuList(zoneData, menuFileSearchOffset, maxSearchBytes, isBigEndian: !openedFastFile.IsPC, gameDefinition);
 
                         if (menuList == null)
                         {
@@ -934,7 +938,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 return (int)record.AssetType_COD4_Xbox360;
             if (fastFile.IsCod4File)
                 return (int)record.AssetType_COD4;
-            if (fastFile.IsCod5File && fastFile.IsPC)
+            // Wii uses the PC enum (no shader asset slots), so the type byte is stored in
+            // AssetType_COD5_PC even though the file is big-endian.
+            if (fastFile.IsCod5File && (fastFile.IsPC || fastFile.IsWii))
                 return (int)record.AssetType_COD5_PC;
             if (fastFile.IsCod5File && fastFile.IsXbox360)
                 return (int)record.AssetType_COD5_Xbox360;
@@ -1150,8 +1156,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
         /// <summary>
         /// Finds the next MenuList by pattern matching.
         /// Searches for the MenuList header pattern: [FF FF FF FF] [menuCount] [FF FF FF FF] [name string]
+        /// Once a MenuList header is matched, the actual parsing is delegated to the game
+        /// definition so each game uses its own menuDef_t struct layout (CoD5 vs IW4).
         /// </summary>
-        private static MenuList? FindNextMenuList(byte[] zoneData, int startOffset, int maxSearchBytes, bool isBigEndian)
+        private static MenuList? FindNextMenuList(byte[] zoneData, int startOffset, int maxSearchBytes,
+                                                   bool isBigEndian, GameDefinitions.IGameDefinition gameDefinition)
         {
             Debug.WriteLine($"[AssetRecordProcessor] Searching for MenuList from 0x{startOffset:X}, max {maxSearchBytes} bytes");
 
@@ -1160,20 +1169,20 @@ namespace Call_of_Duty_FastFile_Editor.Services
             for (int pos = startOffset; pos < endOffset; pos++)
             {
                 // Look for the pattern: [FF FF FF FF] [4 bytes count] [FF FF FF FF]
-                uint namePtr = ReadUInt32BE(zoneData, pos);
-                if (namePtr != 0xFFFFFFFF)
+                // The 0xFFFFFFFF markers are endian-agnostic but the count must be read
+                // with the right byte order — PC zones store it little-endian.
+                if (zoneData[pos] != 0xFF || zoneData[pos + 1] != 0xFF || zoneData[pos + 2] != 0xFF || zoneData[pos + 3] != 0xFF)
                     continue;
 
-                // Check if menus pointer at offset +8 is also 0xFFFFFFFF
                 if (pos + 12 >= zoneData.Length)
                     continue;
 
-                uint menusPtr = ReadUInt32BE(zoneData, pos + 8);
-                if (menusPtr != 0xFFFFFFFF)
+                if (zoneData[pos + 8] != 0xFF || zoneData[pos + 9] != 0xFF || zoneData[pos + 10] != 0xFF || zoneData[pos + 11] != 0xFF)
                     continue;
 
-                // Read menu count
-                int menuCount = (int)ReadUInt32BE(zoneData, pos + 4);
+                int menuCount = isBigEndian
+                    ? (int)ReadUInt32BE(zoneData, pos + 4)
+                    : BitConverter.ToInt32(zoneData, pos + 4);
                 if (menuCount < 0 || menuCount > 500)
                     continue;
 
@@ -1194,8 +1203,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 Debug.WriteLine($"[AssetRecordProcessor] Found potential MenuList at 0x{pos:X}: name='{name}', count={menuCount}");
 
-                // Try to parse it
-                var menuList = MenuListParser.ParseMenuList(zoneData, pos, isBigEndian);
+                // Delegate the actual menuDef walk to the game definition so we use the
+                // right struct layout (CoD5 vs IW4).
+                var menuList = gameDefinition.ParseMenuFile(zoneData, pos);
                 if (menuList != null)
                 {
                     Debug.WriteLine($"[AssetRecordProcessor] Successfully parsed MenuList '{menuList.Name}' with {menuList.Menus.Count} menus");

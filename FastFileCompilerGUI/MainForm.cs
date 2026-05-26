@@ -8,7 +8,11 @@ public partial class MainForm : Form
     private readonly List<RawFileEntry> _rawFiles = new();
     private readonly List<RawFileEntry> _existingFiles = new();
     private string? _loadedFastFilePath;
-    private byte[]? _loadedZoneData; // Original zone data for patching
+
+    // PC/Wii treat these as per-zone allocations rather than fixed constants;
+    // preserve them verbatim when rebuilding. Null = no FF loaded.
+    private uint? _loadedBlockSizeTemp;
+    private uint? _loadedBlockSizeVertex;
 
     public MainForm()
     {
@@ -30,50 +34,63 @@ public partial class MainForm : Form
         };
 
         if (dialog.ShowDialog() != DialogResult.OK) return;
+        await LoadFastFileAsync(dialog.FileName);
+    }
 
-        var ffPath = dialog.FileName;
+    /// <summary>
+    /// Loads, decompresses, and parses a FastFile at <paramref name="ffPath"/> in the
+    /// background. Populates _existingFiles + the preserved MemAlloc values, sets the
+    /// zone name, and re-enables the UI in a finally block. Both the "Load FF" button
+    /// and the drag-drop handler use this so the two entry points stay in sync.
+    /// </summary>
+    private async Task LoadFastFileAsync(string ffPath)
+    {
         SetUIEnabled(false);
         UpdateStatus("Loading FastFile...");
 
+        var progress = CreateProgressReporter();
+
         try
         {
-            await Task.Run(() =>
+            // Do all the IO/parse on a background thread; return the results.
+            // The await continuation runs on the captured UI context, so the
+            // state-commit code below executes on the UI thread without Invoke.
+            var loaded = await Task.Run(() =>
             {
-                // Load and decompress the FastFile
-                Invoke(() => UpdateStatus("Decompressing..."));
+                // Read the FF header up-front so we know the game/platform before
+                // decompressing; the scanner needs both to pick the right rawfile header layout.
+                var ffInfo = FastFileInfo.FromFile(ffPath);
 
-                var decompressor = new Decompressor();
+                progress.Report((0, "Decompressing..."));
+
                 var zonePath = Path.ChangeExtension(ffPath, ".zone");
-                decompressor.DecompressToFile(ffPath, zonePath);
+                // FastFileProcessor handles all platforms (PC single-stream, MW2 extended header,
+                // signed Xbox 360 streaming, Wii). The older Decompressor class only knew about
+                // block format and choked on PC files.
+                FastFileProcessor.Decompress(ffPath, zonePath);
 
-                Invoke(() => UpdateStatus("Parsing zone file..."));
+                progress.Report((0, "Parsing zone file..."));
 
-                // Parse the zone to get raw files
                 var zoneData = File.ReadAllBytes(zonePath);
-                var parsedFiles = ParseZoneRawFiles(zoneData);
+                var parsedFiles = ParseZoneRawFiles(zoneData, ffInfo);
+                var (memTemp, memVertex) = FastFileConstants.ReadZoneMemAlloc(
+                    zoneData, ffInfo.GameVersion, ffInfo.Platform == "Xbox 360", ffInfo.IsPC, ffInfo.IsWii);
 
-                Invoke(() =>
-                {
-                    _existingFiles.Clear();
-                    foreach (var file in parsedFiles)
-                    {
-                        _existingFiles.Add(file);
-                    }
+                try { File.Delete(zonePath); } catch { /* temp cleanup is best-effort */ }
 
-                    _loadedFastFilePath = ffPath;
-                    _loadedZoneData = zoneData; // Store original zone for patching
-                    checkBoxIncludeExisting.Enabled = true;
-                    checkBoxIncludeExisting.Checked = true;
-                    labelLoadedFF.Text = $"({_existingFiles.Count} assets)";
-                    labelLoadedFF.ForeColor = System.Drawing.Color.Green;
-
-                    // Set zone name from loaded file
-                    textBoxZoneName.Text = Path.GetFileNameWithoutExtension(ffPath);
-                });
-
-                // Clean up temp zone file - we kept the data in memory
-                try { File.Delete(zonePath); } catch { }
+                return (parsedFiles, memTemp, memVertex);
             });
+
+            _existingFiles.Clear();
+            _existingFiles.AddRange(loaded.parsedFiles);
+            _loadedFastFilePath = ffPath;
+            _loadedBlockSizeTemp = loaded.memTemp;
+            _loadedBlockSizeVertex = loaded.memVertex;
+            checkBoxIncludeExisting.Enabled = true;
+            checkBoxIncludeExisting.Checked = true;
+            labelLoadedFF.Text = $"({_existingFiles.Count} assets)";
+            labelLoadedFF.ForeColor = System.Drawing.Color.Green;
+            textBoxZoneName.Text = Path.GetFileNameWithoutExtension(ffPath);
 
             UpdateStatus($"Loaded {_existingFiles.Count} existing assets from {Path.GetFileName(ffPath)}");
             MessageBox.Show(
@@ -97,11 +114,30 @@ public partial class MainForm : Form
         }
     }
 
+    /// <summary>
+    /// Creates a progress reporter that updates the status label and progress bar.
+    /// Must be called on the UI thread — Progress&lt;T&gt; captures the current
+    /// SyncContext at construction and dispatches callbacks through it. The
+    /// IsDisposed guard handles the close-mid-operation race.
+    /// </summary>
+    private IProgress<(int pct, string status)> CreateProgressReporter()
+    {
+        return new Progress<(int pct, string status)>(report =>
+        {
+            if (IsDisposed || !IsHandleCreated) return;
+            if (report.pct >= 0 && report.pct <= 100)
+                progressBar.Value = report.pct;
+            if (!string.IsNullOrEmpty(report.status))
+                UpdateStatus(report.status);
+        });
+    }
+
     private void ClearLoadedFF()
     {
         _existingFiles.Clear();
         _loadedFastFilePath = null;
-        _loadedZoneData = null;
+        _loadedBlockSizeTemp = null;
+        _loadedBlockSizeVertex = null;
         checkBoxIncludeExisting.Enabled = false;
         checkBoxIncludeExisting.Checked = false;
         labelLoadedFF.Text = "(No FF loaded)";
@@ -109,144 +145,26 @@ public partial class MainForm : Form
     }
 
     /// <summary>
-    /// Valid file extensions for raw files in zone data.
+    /// Parses raw files from zone data via the shared FastFileLib scanner so all
+    /// game/platform header variants (CoD4/WaW 12-byte BE, MW2 16/20-byte BE,
+    /// MW2 PC 16-byte LE with zlib payloads) are handled in one place.
     /// </summary>
-    private static readonly string[] ValidExtensions = {
-        ".cfg", ".gsc", ".atr", ".csc", ".rmb", ".arena", ".vision", ".txt", ".str", ".menu"
-    };
-
-    /// <summary>
-    /// Parses raw files from zone data using pattern-based search.
-    /// Looks for file extensions then backtracks to find the header.
-    /// </summary>
-    private List<RawFileEntry> ParseZoneRawFiles(byte[] zoneData)
+    private static List<RawFileEntry> ParseZoneRawFiles(byte[] zoneData, FastFileInfo ffInfo)
     {
-        var result = new List<RawFileEntry>();
-        var foundOffsets = new HashSet<int>(); // Track found files to avoid duplicates
+        var locations = RawFileScanner.FindRawFiles(zoneData, ffInfo.GameVersion, ffInfo.IsPC);
 
-        // Search for each file extension pattern
-        foreach (var ext in ValidExtensions)
-        {
-            byte[] pattern = System.Text.Encoding.ASCII.GetBytes(ext + "\0");
-
-            for (int i = 0; i <= zoneData.Length - pattern.Length; i++)
+        var result = locations
+            .Select(loc => new RawFileEntry
             {
-                // Check if pattern matches at this position
-                bool match = true;
-                for (int j = 0; j < pattern.Length; j++)
-                {
-                    if (zoneData[i + j] != pattern[j])
-                    {
-                        match = false;
-                        break;
-                    }
-                }
+                AssetName = loc.Name,
+                SourcePath = "[from loaded FF]",
+                Size = loc.Data.Length,
+                Data = loc.Data,
+            })
+            .ToList();
 
-                if (!match) continue;
-
-                // Found extension pattern at position i
-                // Now backtrack to find the FF FF FF FF marker before the filename
-                int ffffPosition = i - 1;
-                while (ffffPosition >= 4)
-                {
-                    if (zoneData[ffffPosition] == 0xFF &&
-                        zoneData[ffffPosition - 1] == 0xFF &&
-                        zoneData[ffffPosition - 2] == 0xFF &&
-                        zoneData[ffffPosition - 3] == 0xFF)
-                    {
-                        break;
-                    }
-                    ffffPosition--;
-
-                    // Don't backtrack too far (max filename length ~256)
-                    if (i - ffffPosition > 300)
-                    {
-                        ffffPosition = -1;
-                        break;
-                    }
-                }
-
-                if (ffffPosition < 4) continue;
-
-                // Check the byte after FF marker isn't 0x00 (would indicate end of filename area)
-                if (zoneData[ffffPosition + 1] == 0x00) continue;
-
-                // Size is 7 bytes before the FF marker position
-                // Structure: [FF FF FF FF] [4-byte size] [FF FF FF FF] [name\0] [data]
-                int sizePosition = ffffPosition - 7;
-                if (sizePosition < 0) continue;
-
-                // Calculate header start (4 bytes before size)
-                int headerStart = sizePosition - 4;
-                if (headerStart < 0) continue;
-
-                // Skip if we already found a file at this header position
-                if (foundOffsets.Contains(headerStart)) continue;
-
-                // Read size (big-endian)
-                int size = (zoneData[sizePosition] << 24) | (zoneData[sizePosition + 1] << 16) |
-                           (zoneData[sizePosition + 2] << 8) | zoneData[sizePosition + 3];
-
-                if (size <= 0 || size > 10_000_000) continue; // Sanity check
-
-                // Extract filename (starts right after FF FF FF FF marker)
-                int nameStart = ffffPosition + 1;
-                int nameEnd = nameStart;
-                while (nameEnd < zoneData.Length && zoneData[nameEnd] != 0)
-                    nameEnd++;
-
-                if (nameEnd <= nameStart) continue;
-
-                string name = System.Text.Encoding.ASCII.GetString(zoneData, nameStart, nameEnd - nameStart);
-
-                // Validate the name has the extension we were looking for
-                if (!name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) continue;
-
-                // Data starts after null terminator
-                int dataStart = nameEnd + 1;
-                if (dataStart + size > zoneData.Length)
-                {
-                    // Adjust size if it exceeds bounds
-                    size = zoneData.Length - dataStart;
-                    if (size <= 0) continue;
-                }
-
-                // Extract data (remove trailing zero padding)
-                byte[] data = new byte[size];
-                Array.Copy(zoneData, dataStart, data, 0, size);
-                data = RemoveZeroPadding(data);
-
-                result.Add(new RawFileEntry
-                {
-                    AssetName = name,
-                    SourcePath = "[from loaded FF]",
-                    Size = data.Length,
-                    Data = data
-                });
-
-                foundOffsets.Add(headerStart);
-            }
-        }
-
-        // Sort by asset name for consistent ordering
         result.Sort((a, b) => string.Compare(a.AssetName, b.AssetName, StringComparison.OrdinalIgnoreCase));
         return result;
-    }
-
-    /// <summary>
-    /// Removes trailing zero bytes from data.
-    /// </summary>
-    private static byte[] RemoveZeroPadding(byte[] content)
-    {
-        int i = content.Length - 1;
-        while (i >= 0 && content[i] == 0x00)
-            i--;
-
-        if (i < 0) return Array.Empty<byte>();
-
-        byte[] trimmed = new byte[i + 1];
-        Array.Copy(content, 0, trimmed, 0, i + 1);
-        return trimmed;
     }
 
     #endregion
@@ -282,17 +200,40 @@ public partial class MainForm : Form
 
         if (dialog.ShowDialog() == DialogResult.OK)
         {
-            var basePath = dialog.SelectedPath;
-            var files = Directory.GetFiles(basePath, "*.*", SearchOption.AllDirectories);
-
-            foreach (var file in files)
-            {
-                // Create relative path as asset name
-                var assetName = Path.GetRelativePath(basePath, file).Replace('\\', '/');
-                AddFile(file, assetName);
-            }
+            int added = AddFolderRecursive(dialog.SelectedPath);
             UpdateFileCount();
+            if (added == 0)
+            {
+                MessageBox.Show(
+                    "No supported rawfile extensions found in that folder.\n\n" +
+                    $"Supported: {string.Join(", ", FastFileConstants.ValidRawFileExtensions)}",
+                    "No Files Added",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
         }
+    }
+
+    /// <summary>
+    /// Enumerates <paramref name="basePath"/> recursively and adds files whose
+    /// extension is in <see cref="FastFileConstants.ValidRawFileExtensions"/>.
+    /// Skips junk like .git/, Thumbs.db, desktop.ini that's commonly nested next
+    /// to script source. Returns the number of files added.
+    /// </summary>
+    private int AddFolderRecursive(string basePath)
+    {
+        int added = 0;
+        var files = Directory.EnumerateFiles(basePath, "*.*", SearchOption.AllDirectories);
+        foreach (var file in files)
+        {
+            var ext = Path.GetExtension(file);
+            if (!FastFileConstants.IsValidRawFileExtension(ext)) continue;
+
+            var assetName = Path.GetRelativePath(basePath, file).Replace('\\', '/');
+            AddFile(file, assetName);
+            added++;
+        }
+        return added;
     }
 
     private void AddFile(string sourcePath, string assetName)
@@ -468,22 +409,39 @@ public partial class MainForm : Form
         }
     }
 
-    private void fileListView_DragDrop(object sender, DragEventArgs e)
+    private async void fileListView_DragDrop(object sender, DragEventArgs e)
     {
         if (e.Data?.GetData(DataFormats.FileDrop) is not string[] files) return;
+
+        // If any of the dropped paths is a FastFile, treat the drop as a "Load FF"
+        // gesture: load the first .ff/.ffm and ignore the others (with a warning if
+        // there were any). Mixing "load FF" with "add raw files" in one drop is
+        // ambiguous — better to make the user do it as two actions.
+        var ffPath = files.FirstOrDefault(IsFastFilePath);
+        if (ffPath != null)
+        {
+            int otherCount = files.Count(f => f != ffPath);
+            if (otherCount > 0)
+            {
+                MessageBox.Show(
+                    $"Loading FastFile '{Path.GetFileName(ffPath)}'.\n\n" +
+                    $"{otherCount} other item(s) in this drop were ignored — drop them separately to add as raw files.",
+                    "Mixed Drop",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            await LoadFastFileAsync(ffPath);
+            return;
+        }
 
         foreach (var path in files)
         {
             if (Directory.Exists(path))
             {
-                // It's a folder - add all files
-                var basePath = path;
-                var innerFiles = Directory.GetFiles(basePath, "*.*", SearchOption.AllDirectories);
-                foreach (var file in innerFiles)
-                {
-                    var assetName = Path.GetRelativePath(basePath, file).Replace('\\', '/');
-                    AddFile(file, assetName);
-                }
+                // Folder drop — filter same way as the Add Folder button so .git/Thumbs.db
+                // etc. don't sneak in. Single-file drops below stay permissive (user chose
+                // them explicitly).
+                AddFolderRecursive(path);
             }
             else if (File.Exists(path))
             {
@@ -491,6 +449,14 @@ public partial class MainForm : Form
             }
         }
         UpdateFileCount();
+    }
+
+    private static bool IsFastFilePath(string path)
+    {
+        if (!File.Exists(path)) return false;
+        var ext = Path.GetExtension(path);
+        return string.Equals(ext, ".ff", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ext, ".ffm", StringComparison.OrdinalIgnoreCase);
     }
 
     #endregion
@@ -536,85 +502,73 @@ public partial class MainForm : Form
         var zoneName = textBoxZoneName.Text;
         var saveZone = checkBoxSaveZone.Checked;
 
+        // Merge existing rawfiles (from loaded FF) with user-added files. User-added wins on
+        // name collisions so users can replace a loaded file just by adding one with the same name.
+        // Non-rawfile assets from the loaded zone (xmodels, materials, menus, weapons, sounds, etc.)
+        // are intentionally dropped — this tool is for editing rawfiles only.
+        var filesToBuild = new List<RawFileEntry>();
+        if (includeExisting)
+            filesToBuild.AddRange(_existingFiles);
+        foreach (var userFile in _rawFiles)
+        {
+            int existingIdx = filesToBuild.FindIndex(f =>
+                f.AssetName.Equals(userFile.AssetName, StringComparison.OrdinalIgnoreCase));
+            if (existingIdx >= 0)
+                filesToBuild[existingIdx] = userFile;
+            else
+                filesToBuild.Add(userFile);
+        }
+
         // Disable UI during compile
         SetUIEnabled(false);
         progressBar.Value = 0;
         UpdateStatus("Compiling...");
 
+        var progress = CreateProgressReporter();
+        // Snapshot fields read by the worker so we don't touch UI/instance state off-thread.
+        var loadedTemp = _loadedBlockSizeTemp;
+        var loadedVertex = _loadedBlockSizeVertex;
+        var loadedFastFilePath = _loadedFastFilePath;
+
         try
         {
             await Task.Run(() =>
             {
-                byte[] zoneData;
+                progress.Report((20, "Building zone file..."));
 
-                // If we have a loaded zone and want to preserve it, use patching
-                if (includeExisting && _loadedZoneData != null)
+                // When rebuilding on top of a loaded source, preserve its MemAlloc values
+                // verbatim — they're per-zone allocations on PC/Wii, and even on console
+                // matching the source avoids spurious differences vs retail.
+                var builder = new ZoneBuilder(gameVersion, zoneName, platform);
+                if (includeExisting)
                 {
-                    Invoke(() => UpdateStatus("Patching zone file..."));
-                    Invoke(() => progressBar.Value = 20);
-
-                    // Build list of files to replace (from user's added files)
-                    var filesToReplace = new List<RawFile>();
-                    int totalFiles = _rawFiles.Count;
-                    int processed = 0;
-
-                    foreach (var entry in _rawFiles)
-                    {
-                        byte[] fileData = entry.Data ?? File.ReadAllBytes(entry.SourcePath);
-
-                        var rawFile = new RawFile
-                        {
-                            Name = entry.AssetName,
-                            Data = fileData
-                        };
-                        rawFile.StripHeaderIfPresent();
-                        filesToReplace.Add(rawFile);
-
-                        processed++;
-                        int progress = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
-                        Invoke(() => progressBar.Value = progress);
-                    }
-
-                    Invoke(() => progressBar.Value = 50);
-                    Invoke(() => UpdateStatus("Applying patches..."));
-
-                    // Patch the original zone - preserves all structure, replaces/adds raw files
-                    var patcher = new ZonePatcher(_loadedZoneData, gameVersion);
-                    zoneData = patcher.Patch(filesToReplace);
+                    builder.WithBlockSizeTemp(loadedTemp)
+                           .WithBlockSizeVertex(loadedVertex);
                 }
-                else
+                int totalFiles = filesToBuild.Count;
+                int processed = 0;
+
+                foreach (var entry in filesToBuild)
                 {
-                    // No existing zone loaded - build from scratch
-                    Invoke(() => UpdateStatus("Building zone file..."));
-                    Invoke(() => progressBar.Value = 20);
+                    byte[] fileData = entry.Data ?? File.ReadAllBytes(entry.SourcePath);
 
-                    var builder = new ZoneBuilder(gameVersion, zoneName);
-                    int totalFiles = _rawFiles.Count;
-                    int processed = 0;
-
-                    foreach (var entry in _rawFiles)
+                    var rawFile = new RawFile
                     {
-                        byte[] fileData = entry.Data ?? File.ReadAllBytes(entry.SourcePath);
+                        Name = entry.AssetName,
+                        Data = fileData
+                    };
+                    rawFile.StripHeaderIfPresent();
+                    builder.AddRawFile(rawFile);
 
-                        var rawFile = new RawFile
-                        {
-                            Name = entry.AssetName,
-                            Data = fileData
-                        };
-                        rawFile.StripHeaderIfPresent();
-                        builder.AddRawFile(rawFile);
-
-                        processed++;
-                        int progress = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
-                        Invoke(() => progressBar.Value = progress);
-                    }
-
-                    Invoke(() => progressBar.Value = 50);
-                    zoneData = builder.Build();
+                    processed++;
+                    int pct = 20 + (int)(30.0 * processed / Math.Max(totalFiles, 1));
+                    progress.Report((pct, string.Empty));
                 }
 
-                Invoke(() => UpdateStatus("Compressing..."));
-                Invoke(() => progressBar.Value = 70);
+                progress.Report((50, string.Empty));
+                byte[] zoneData = builder.Build();
+
+                progress.Report((70, "Compressing..."));
 
                 // Save zone file first if requested
                 if (saveZone)
@@ -629,16 +583,19 @@ public partial class MainForm : Form
 
                 try
                 {
-                    if (isXbox360Signed)
-                    {
-                        // Xbox 360 signed format - use streaming compression with hash table from original
-                        FastFileProcessor.CompressXbox360Signed(tempZonePath, outputPath, gameVersion, _loadedFastFilePath!);
-                    }
-                    else
-                    {
-                        // Standard format - use block compression with platform-specific version
-                        FastFileProcessor.Compress(tempZonePath, outputPath, gameVersion, platform);
-                    }
+                    // Single canonical save path — dispatches platform-correctly across PC
+                    // (single zlib LE), Wii (single zlib BE), PS3/Xbox 360 unsigned (block
+                    // format), Xbox 360 signed (streaming + hash table from original FF),
+                    // and MW2 PC (single zlib + 9-byte preamble). Previously this used
+                    // FastFileProcessor.Compress directly, which is block-format-only and
+                    // produced broken output for PC/Wii.
+                    FastFileSaveService.Save(
+                        tempZonePath,
+                        outputPath,
+                        gameVersion,
+                        platform,
+                        signed: isXbox360Signed,
+                        originalFfPath: isXbox360Signed ? loadedFastFilePath : null);
                 }
                 finally
                 {
@@ -646,7 +603,7 @@ public partial class MainForm : Form
                     try { File.Delete(tempZonePath); } catch { }
                 }
 
-                Invoke(() => progressBar.Value = 100);
+                progress.Report((100, string.Empty));
             });
 
             UpdateStatus($"Successfully compiled: {Path.GetFileName(outputPath)}");
@@ -656,7 +613,6 @@ public partial class MainForm : Form
             {
                 message += $"\nZone: {Path.ChangeExtension(outputPath, ".zone")}";
             }
-
             MessageBox.Show(message, "Compile Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
@@ -684,29 +640,56 @@ public partial class MainForm : Form
 
     private (string platform, bool isXbox360Signed) GetSelectedPlatform()
     {
-        return comboBoxPlatform.SelectedIndex switch
+        // Key off the label string rather than an index so dynamically removing/adding
+        // entries (e.g. hiding Wii when MW2 is selected) doesn't shift selection meaning.
+        string sel = comboBoxPlatform.SelectedItem?.ToString() ?? "PS3";
+        return sel switch
         {
-            0 => ("PS3", false),
-            1 => ("Xbox360", false),      // Xbox 360 Unsigned
-            2 => ("Xbox360", true),       // Xbox 360 Signed
-            3 => ("PC", false),
-            4 => ("Wii", false),
-            _ => ("PS3", false)
+            "PS3"                 => ("PS3", false),
+            "Xbox 360 (Unsigned)" => ("Xbox360", false),
+            "Xbox 360 (Signed)"   => ("Xbox360", true),
+            "PC"                  => ("PC", false),
+            "Wii"                 => ("Wii", false),
+            _                     => ("PS3", false),
         };
     }
 
     private void comboBoxPlatform_SelectedIndexChanged(object sender, EventArgs e)
     {
-        string tooltipText = comboBoxPlatform.SelectedIndex switch
+        string sel = comboBoxPlatform.SelectedItem?.ToString() ?? "";
+        string tooltipText = sel switch
         {
-            0 => "PlayStation 3 - Standard unsigned format",
-            1 => "Xbox 360 Unsigned - For unsigned/retail Xbox 360 files",
-            2 => "Xbox 360 Signed - Requires loading an existing signed FF first to preserve the hash table",
-            3 => "PC - Windows platform format",
-            4 => "Wii - Nintendo Wii platform format",
-            _ => ""
+            "PS3"                 => "PlayStation 3 - Standard unsigned format",
+            "Xbox 360 (Unsigned)" => "Xbox 360 Unsigned - For unsigned/retail Xbox 360 files",
+            "Xbox 360 (Signed)"   => "Xbox 360 Signed - Requires loading an existing signed FF first to preserve the hash table",
+            "PC"                  => "PC - Windows platform format",
+            "Wii"                 => "Wii - Nintendo Wii platform format",
+            _                     => "",
         };
         toolTip.SetToolTip(comboBoxPlatform, tooltipText);
+    }
+
+    /// <summary>
+    /// When the user picks a game, hide platforms that game wasn't released on.
+    /// Currently the only unsupported combo is MW2 + Wii (MW2 never shipped on Wii).
+    /// If the user had Wii selected and switches to MW2, snap selection to PS3.
+    /// </summary>
+    private void comboBoxGame_SelectedIndexChanged(object sender, EventArgs e)
+    {
+        bool isMw2 = GetSelectedGameVersion() == GameVersion.MW2;
+        int wiiIdx = comboBoxPlatform.Items.IndexOf("Wii");
+        string currentPlatform = comboBoxPlatform.SelectedItem?.ToString() ?? "";
+
+        if (isMw2 && wiiIdx >= 0)
+        {
+            comboBoxPlatform.Items.RemoveAt(wiiIdx);
+            if (currentPlatform == "Wii")
+                comboBoxPlatform.SelectedItem = "PS3";
+        }
+        else if (!isMw2 && wiiIdx < 0)
+        {
+            comboBoxPlatform.Items.Add("Wii");
+        }
     }
 
     #endregion
@@ -751,6 +734,11 @@ public partial class MainForm : Form
     private void exitMenuItem_Click(object sender, EventArgs e)
     {
         Close();
+    }
+
+    private void viewLogsMenuItem_Click(object sender, EventArgs e)
+    {
+        new FastFileLib.WinForms.LogViewerForm().Show(this);
     }
 
     private void aboutMenuItem_Click(object sender, EventArgs e)

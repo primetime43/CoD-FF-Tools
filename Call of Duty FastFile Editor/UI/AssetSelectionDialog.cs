@@ -91,7 +91,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                     typeName = record.AssetType_COD4_Xbox360.ToString();
                 else if (_fastFile.IsCod4File)
                     typeName = record.AssetType_COD4.ToString();
-                else if (_fastFile.IsCod5File && _fastFile.IsPC)
+                // Wii reuses the PC enum (same shader-less layout) even though it's big-endian.
+                else if (_fastFile.IsCod5File && (_fastFile.IsPC || _fastFile.IsWii))
                     typeName = record.AssetType_COD5_PC.ToString();
                 else if (_fastFile.IsCod5File && _fastFile.IsXbox360)
                     typeName = record.AssetType_COD5_Xbox360.ToString();

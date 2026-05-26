@@ -175,7 +175,7 @@ public partial class Form1 : Form
             DropDownStyle = ComboBoxStyle.DropDownList,
             Width = 100
         };
-        _targetPlatformCombo.Items.AddRange(new object[] { "PS3", "Xbox 360", "PC" });
+        _targetPlatformCombo.Items.AddRange(new object[] { "PS3", "Xbox 360", "PC", "Wii" });
         _targetPlatformCombo.SelectedIndex = 0;
         _targetPlatformCombo.SelectedIndexChanged += TargetPlatformCombo_SelectedIndexChanged;
 
@@ -213,7 +213,16 @@ public partial class Form1 : Form
             Visible = false
         };
 
+        var viewLogsButton = new Button
+        {
+            Text = "View Logs...",
+            Width = 100,
+            Height = 35
+        };
+        viewLogsButton.Click += (_, _) => new FastFileLib.WinForms.LogViewerForm().Show(this);
+
         buttonPanel.Controls.Add(_convertButton);
+        buttonPanel.Controls.Add(viewLogsButton);
         buttonPanel.Controls.Add(_progressBar);
 
         // Log section
@@ -438,6 +447,7 @@ public partial class Form1 : Form
         {
             "Xbox 360" => Platform.Xbox360,
             "PC" => Platform.PC,
+            "Wii" => Platform.Wii,
             _ => Platform.PS3
         };
 
@@ -452,17 +462,35 @@ public partial class Form1 : Form
         {
             ConversionResult result;
 
-            // Use the ZoneBuilder approach for PS3 conversions (builds fresh zone from raw files)
-            if (targetPlatform == Platform.PS3)
+            // Pick the conversion mode by what the target needs:
+            //   In-place patch (Convert): preserves ALL assets, but only works when source and
+            //     target share byte order AND header layout. In practice that's the PS3↔Xbox 360
+            //     case (both big-endian, same 52-byte WaW/CoD4 layout). Convert() throws a clear
+            //     error for cross-endianness (→ PC) or cross-layout (→ Wii / MW2 PC) so we don't
+            //     route those here.
+            //   Rebuild (ConvertUsingBaseZone): builds a fresh zone in the target's byte order +
+            //     layout from the extracted raw files. Required for PC and Wii targets (and PS3,
+            //     historically). Drops non-rawfile/localize assets — fine for script mod patches.
+            var srcInfo = FastFileInfo.FromFile(_inputPathTextBox.Text);
+            bool sourceIsLE = srcInfo.IsPC;
+            bool targetIsLE = targetPlatform == Platform.PC;
+            bool needsRebuild =
+                targetPlatform == Platform.PS3 ||
+                targetPlatform == Platform.PC ||
+                targetPlatform == Platform.Wii ||
+                sourceIsLE != targetIsLE;   // any cross-endianness case
+
+            if (needsRebuild)
             {
                 string zoneName = _zoneNameTextBox.Text.Trim();
                 Log($"  Zone name: {zoneName}");
+                Log("  Mode: rebuild (ConvertUsingBaseZone) — preserves rawfiles/localization");
                 result = await Task.Run(() =>
-                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text, zoneName));
+                    FastFileConverter.ConvertUsingBaseZone(_inputPathTextBox.Text, "", _outputPathTextBox.Text, zoneName, targetPlatform));
             }
             else
             {
-                // Direct conversion mode for other platforms
+                Log("  Mode: in-place patch (Convert) — preserves all assets");
                 result = await Task.Run(() =>
                     FastFileConverter.Convert(_inputPathTextBox.Text, _outputPathTextBox.Text, targetPlatform));
             }

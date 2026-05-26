@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <SelfContained>false</SelfContained>
+    <AssemblyName>FastFileExtractor</AssemblyName>
+    <RootNamespace>FastFileExtractor</RootNamespace>
+    <Version>3.1.0</Version>
+    <AssemblyVersion>3.1.0</AssemblyVersion>
+    <FileVersion>3.1.0</FileVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FastFileLib\FastFileLib.csproj" />
+    <ProjectReference Include="..\FastFileLib.WinForms\FastFileLib.WinForms.csproj" />
+  </ItemGroup>
+
+</Project>

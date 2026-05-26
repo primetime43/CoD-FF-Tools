@@ -35,12 +35,27 @@ public class ConversionResult
 }
 
 /// <summary>
-/// Converts FastFiles between platforms (PS3, Xbox 360, PC).
+/// Converts FastFiles between platforms (PS3, Xbox 360, PC, Wii).
+///
+/// Two conversion modes:
+///   <see cref="Convert"/> — in-place header patch + asset-type-ID remap. Requires
+///     source and target zone-header layouts to match (52-byte ↔ 52-byte, 56-byte ↔
+///     56-byte, etc). Refuses cross-layout with a clear error. Preserves per-zone
+///     MemAlloc values when targeting PC or Wii (uses magic constants for PS3/Xbox 360).
+///   <see cref="ConvertUsingBaseZone"/> — rebuilds the zone from scratch via
+///     <see cref="ZoneBuilder"/>. Use this for cross-layout conversions (e.g. MW2 PS3
+///     52-byte → MW2 PC 56-byte, or anything to/from Wii's 56-byte from a 52-byte source).
+///
+/// Asset-type-ID remapping is enum-shift aware: Xbox 360 drops vertexshader (−1 from
+/// PS3), CoD4/WaW PC drops both pixelshader and vertexshader (−2), MW2 PC keeps both
+/// and adds vertexdecl (+1 from PS3). Wii uses the PC enum.
 /// </summary>
 public static class FastFileConverter
 {
     /// <summary>
-    /// Converts a FastFile from one platform to another.
+    /// Converts a FastFile from one platform to another via in-place header/asset-ID
+    /// patching. Throws (returns failure) if the source and target use different
+    /// zone-header layouts — use <see cref="ConvertUsingBaseZone"/> for those cases.
     /// </summary>
     /// <param name="inputPath">Path to source FastFile</param>
     /// <param name="outputPath">Path for converted FastFile</param>
@@ -66,17 +81,9 @@ public static class FastFileConverter
                 result.Warnings.Add("Source file is signed (Xbox 360 MP). Converting to unsigned format.");
             }
 
-            // Check for PC source (little-endian zone data)
-            if (result.SourcePlatform == "PC")
-            {
-                result.Warnings.Add("PC FastFiles use little-endian zone data. Conversion may not work correctly for all asset types.");
-            }
-
-            // Check for PC target
-            if (targetPlatform == Platform.PC)
-            {
-                result.Warnings.Add("Converting to PC requires little-endian zone data. Only rawfiles/localization will work correctly.");
-            }
+            // Cross-endianness (BE console/Wii ↔ LE PC) is refused inside PatchZoneHeaderForPlatform
+            // with a precise, actionable error pointing at ConvertUsingBaseZone — no pre-emptive
+            // warning needed here, and the in-place same-endianness paths don't need one either.
 
             // Create temp file for zone data
             string tempZonePath = Path.GetTempFileName();
@@ -87,9 +94,12 @@ public static class FastFileConverter
                 int blocksDecompressed = DecompressWithSignatureHandling(inputPath, tempZonePath, sourceInfo);
                 result.BlocksProcessed = blocksDecompressed;
 
-                // Patch zone header for target platform (memory allocation values differ between platforms)
-                // Also replaces platform-specific asset references (xenon_ -> ps3_, etc.)
-                int assetReplacements = PatchZoneHeaderForPlatform(tempZonePath, sourceInfo.GameVersion, targetPlatform);
+                // Patch zone header for target platform (memory allocation values, BlockSize
+                // block swap, asset-enum shifts). Cross-byte-layout changes (e.g. MW2 PS3 52-byte
+                // → MW2 Xbox 360 48-byte, or anything ↔ MW2 PC 56-byte) require shifting bytes
+                // around the zone header, which the in-place patcher can't do — that case throws
+                // with a clear error and the caller should use ConvertUsingBaseZone instead.
+                int assetReplacements = PatchZoneHeaderForPlatform(tempZonePath, sourceInfo, targetPlatform);
                 result.Warnings.Add("Zone header memory allocation values patched for target platform.");
 
                 if (assetReplacements > 0)
@@ -121,19 +131,28 @@ public static class FastFileConverter
     }
 
     /// <summary>
-    /// Converts a mod FastFile by building a fresh PS3 zone from the extracted raw files.
-    /// This approach extracts raw files from the source mod and builds a clean PS3 zone
-    /// using ZoneBuilder (same as the FFCompiler tool).
+    /// Converts a mod FastFile by extracting its rawfiles + localize entries and building a
+    /// fresh zone for <paramref name="targetPlatform"/> via <see cref="ZoneBuilder"/>. This is
+    /// the "rebuild from scratch" path — it drops every non-rawfile/localize asset (xmodels,
+    /// materials, menus, weapons, sounds), which is fine for script-only mod patches but wrong
+    /// for content zones. ZoneBuilder is platform-aware so the output uses the right header
+    /// layout + endianness + asset type IDs for the chosen target.
     /// </summary>
-    /// <param name="sourceModPath">Path to the source mod FastFile (Xbox/PC)</param>
-    /// <param name="basePs3ZonePath">Not used in this version - kept for API compatibility</param>
+    /// <param name="sourceModPath">Path to the source mod FastFile (any platform)</param>
+    /// <param name="basePs3ZonePath">Not used — kept for API compatibility</param>
     /// <param name="outputPath">Path for the converted FastFile</param>
     /// <param name="zoneName">Optional zone name override (if null, auto-detected from filename)</param>
-    /// <returns>Conversion result with details</returns>
-    public static ConversionResult ConvertUsingBaseZone(string sourceModPath, string basePs3ZonePath, string outputPath, string? zoneName = null)
+    /// <param name="targetPlatform">Target platform for the rebuilt zone. Defaults to PS3
+    /// since that's the historical default behavior of this method.</param>
+    public static ConversionResult ConvertUsingBaseZone(
+        string sourceModPath,
+        string basePs3ZonePath,
+        string outputPath,
+        string? zoneName = null,
+        Platform targetPlatform = Platform.PS3)
     {
         var result = new ConversionResult();
-        result.TargetPlatform = "PS3";
+        result.TargetPlatform = targetPlatform.ToString();
 
         try
         {
@@ -164,44 +183,71 @@ public static class FastFileConverter
                 int blocksDecompressed = DecompressWithSignatureHandling(sourceModPath, tempSourceZonePath, sourceInfo);
                 result.BlocksProcessed = blocksDecompressed;
 
-                // Step 2: Extract raw files from source mod zone
+                // Step 2: Extract raw files and localized strings from source mod zone
                 result.Warnings.Add("Extracting raw files from source mod...");
                 byte[] sourceZoneData = File.ReadAllBytes(tempSourceZonePath);
-                var rawFiles = ExtractRawFilesFromZone(sourceZoneData);
+                var rawFiles = ExtractRawFilesFromZone(sourceZoneData, sourceInfo);
                 result.Warnings.Add($"Found {rawFiles.Count} raw files in source mod.");
 
-                if (rawFiles.Count == 0)
+                var localizedEntries = ExtractLocalizedEntriesFromZone(sourceZoneData);
+                if (localizedEntries.Count > 0)
+                    result.Warnings.Add($"Found {localizedEntries.Count} localized strings in source mod.");
+
+                if (rawFiles.Count == 0 && localizedEntries.Count == 0)
                 {
-                    throw new InvalidOperationException("No raw files found in source mod. Cannot convert.");
+                    throw new InvalidOperationException("No raw files or localized strings found in source mod. Cannot convert.");
                 }
 
-                // Step 3: Build a fresh PS3 zone using ZoneBuilder (same approach as FFCompiler)
-                result.Warnings.Add("Building fresh PS3 zone with extracted raw files...");
-                // Use provided zone name or auto-detect from input filename
+                // Step 3: Build a fresh zone for the target platform using ZoneBuilder.
+                string targetPlatformStr = PlatformToString(targetPlatform);
+                result.Warnings.Add($"Building fresh {targetPlatformStr} zone with extracted assets...");
                 string effectiveZoneName = !string.IsNullOrWhiteSpace(zoneName)
                     ? zoneName
                     : GetZoneNameFromPath(sourceModPath);
                 result.Warnings.Add($"Using zone name: {effectiveZoneName}");
-                var zoneBuilder = new ZoneBuilder(result.GameVersion, effectiveZoneName);
+                var zoneBuilder = new ZoneBuilder(result.GameVersion, effectiveZoneName, targetPlatformStr);
                 zoneBuilder.AddRawFiles(rawFiles);
+                zoneBuilder.AddLocalizedEntries(localizedEntries);
+
+                // PC and Wii use per-zone MemAlloc values, not the console magic constants. When the
+                // rebuild is SAME-platform (e.g. re-packing a PC zone as PC), the source zone's values
+                // are valid target values, so preserve them verbatim — same as the editor's IncreaseSize
+                // path and the in-place Convert() path. We deliberately do NOT preserve cross-platform
+                // (e.g. PS3 -> PC): the source carries console magic (0x10B0 etc.) which isn't a valid
+                // PC/Wii per-zone value, and MW2 PC additionally requires vertex=0 — so cross-platform
+                // falls back to ZoneBuilder's platform defaults, which already special-case those.
+                bool samePlatformPcWii =
+                    (targetPlatform == Platform.PC && sourceInfo.IsPC) ||
+                    (targetPlatform == Platform.Wii && sourceInfo.IsWii);
+                if (samePlatformPcWii)
+                {
+                    // Same platform here means PC->PC or Wii->Wii (never MW2 Xbox 360), so the
+                    // vertex slot is always present; the shared reader handles byte order + bounds.
+                    var (memTemp, memVertex) = FastFileConstants.ReadZoneMemAlloc(
+                        sourceZoneData, result.GameVersion, isXbox360: false,
+                        isPC: sourceInfo.IsPC, isWii: sourceInfo.IsWii);
+                    if (memTemp.HasValue) zoneBuilder.WithBlockSizeTemp(memTemp);
+                    if (memVertex.HasValue) zoneBuilder.WithBlockSizeVertex(memVertex);
+                }
+
                 byte[] newZone = zoneBuilder.Build();
 
-                result.Warnings.Add($"Built new zone with {rawFiles.Count} raw files ({newZone.Length} bytes).");
+                result.Warnings.Add($"Built new zone with {rawFiles.Count} raw files + {localizedEntries.Count} localized strings ({newZone.Length} bytes).");
 
-                // Save new zone
                 File.WriteAllBytes(tempNewZonePath, newZone);
 
-                // Track all files as "replaced" (they're all included in the new zone)
-                result.ReplacedFiles = rawFiles.Select(f => f.Name).ToList();
+                result.ReplacedFiles = rawFiles.Select(f => f.Name)
+                    .Concat(localizedEntries.Select(e => $"localize:{e.Reference}"))
+                    .ToList();
 
-                // Step 4: Compress new zone to PS3 FastFile
-                result.Warnings.Add("Compressing to PS3 FastFile...");
-                CompressForPlatform(tempNewZonePath, outputPath, result.GameVersion, Platform.PS3);
+                // Step 4: Compress new zone to the target's FastFile format.
+                result.Warnings.Add($"Compressing to {targetPlatformStr} FastFile...");
+                CompressForPlatform(tempNewZonePath, outputPath, result.GameVersion, targetPlatform);
 
                 result.ConvertedSize = new FileInfo(outputPath).Length;
                 result.Success = true;
                 result.Message = $"Successfully converted {Path.GetFileName(sourceModPath)}. " +
-                                $"Built fresh PS3 zone with {rawFiles.Count} raw files.";
+                                $"Built fresh {targetPlatformStr} zone with {rawFiles.Count} raw files.";
             }
             finally
             {
@@ -222,90 +268,115 @@ public static class FastFileConverter
     }
 
     /// <summary>
-    /// Extracts all raw files from a zone file.
+    /// Extracts all raw files from a zone file by delegating to the canonical
+    /// <see cref="RawFileScanner.FindRawFiles"/>. That locator is game- and
+    /// endianness-aware (CoD4/WaW 12-byte BE on console / LE on PC, MW2 16/20-byte
+    /// with inline zlib), so this works for PC (little-endian) sources too — a
+    /// bespoke big-endian-only scanner here previously found 0 rawfiles in PC zones,
+    /// which broke PC→PS3 conversion.
     /// </summary>
-    private static List<RawFile> ExtractRawFilesFromZone(byte[] zoneData)
+    private static List<RawFile> ExtractRawFilesFromZone(byte[] zoneData, FastFileInfo sourceInfo)
     {
-        var rawFiles = new List<RawFile>();
-        var validExtensions = new[] { ".cfg", ".gsc", ".atr", ".csc", ".rmb", ".arena", ".vision", ".txt", ".str", ".menu" };
-        var foundOffsets = new HashSet<int>();
+        var locations = RawFileScanner.FindRawFiles(zoneData, sourceInfo.GameVersion, sourceInfo.IsPC);
+        return locations
+            .Select(loc => new RawFile(loc.Name, loc.Data))
+            .ToList();
+    }
 
-        foreach (var ext in validExtensions)
+    /// <summary>
+    /// Extracts all localized string entries from a zone file by scanning for the
+    /// 8-byte FF FF FF FF FF FF FF FF marker followed by [value\0][reference\0].
+    /// Rawfile headers use only 4 FF bytes followed by a non-FF size field, so 8
+    /// consecutive FFs is essentially unique to localize entries.
+    /// </summary>
+    private static List<LocalizedEntry> ExtractLocalizedEntriesFromZone(byte[] zoneData)
+    {
+        var entries = new List<LocalizedEntry>();
+        var seenKeys = new HashSet<string>();
+
+        for (int i = 0; i <= zoneData.Length - 10; i++)
         {
-            byte[] pattern = Encoding.ASCII.GetBytes(ext + "\0");
-
-            for (int i = 0; i <= zoneData.Length - pattern.Length; i++)
+            // Look for 8 consecutive FF bytes
+            bool isMarker = true;
+            for (int j = 0; j < 8; j++)
             {
-                bool match = true;
-                for (int j = 0; j < pattern.Length; j++)
-                {
-                    if (zoneData[i + j] != pattern[j])
-                    {
-                        match = false;
-                        break;
-                    }
-                }
-                if (!match) continue;
-
-                // Find the FF FF FF FF marker before the filename
-                int markerEnd = i - 1;
-                while (markerEnd >= 4)
-                {
-                    if (zoneData[markerEnd] == 0xFF &&
-                        zoneData[markerEnd - 1] == 0xFF &&
-                        zoneData[markerEnd - 2] == 0xFF &&
-                        zoneData[markerEnd - 3] == 0xFF)
-                        break;
-                    markerEnd--;
-                    if (i - markerEnd > 300)
-                    {
-                        markerEnd = -1;
-                        break;
-                    }
-                }
-
-                if (markerEnd < 4) continue;
-                if (zoneData[markerEnd + 1] == 0x00) continue;
-
-                int sizeOffset = markerEnd - 7;
-                if (sizeOffset < 0) continue;
-
-                int headerOffset = sizeOffset - 4;
-                if (headerOffset < 0) continue;
-                if (foundOffsets.Contains(headerOffset)) continue;
-
-                // Read size (big-endian)
-                int size = (zoneData[sizeOffset] << 24) |
-                          (zoneData[sizeOffset + 1] << 16) |
-                          (zoneData[sizeOffset + 2] << 8) |
-                          zoneData[sizeOffset + 3];
-
-                if (size <= 0 || size > 10_000_000) continue;
-
-                // Read filename
-                int nameStart = markerEnd + 1;
-                int nameEnd = nameStart;
-                while (nameEnd < zoneData.Length && zoneData[nameEnd] != 0)
-                    nameEnd++;
-
-                if (nameEnd <= nameStart) continue;
-
-                string name = Encoding.ASCII.GetString(zoneData, nameStart, nameEnd - nameStart);
-                if (!name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) continue;
-
-                // Read data
-                int dataOffset = nameEnd + 1;
-                if (dataOffset + size > zoneData.Length) continue;
-
-                byte[] data = new byte[size];
-                Array.Copy(zoneData, dataOffset, data, 0, size);
-
-                rawFiles.Add(new RawFile(name, data));
-                foundOffsets.Add(headerOffset);
+                if (zoneData[i + j] != 0xFF) { isMarker = false; break; }
             }
+            if (!isMarker) continue;
+
+            // Next byte after marker is the first byte of the value string. If it's FF, we're
+            // still in padding/markers — keep scanning.
+            int valueStart = i + 8;
+            if (valueStart >= zoneData.Length || zoneData[valueStart] == 0xFF)
+                continue;
+
+            // Read value (null-terminated)
+            int valueEnd = valueStart;
+            while (valueEnd < zoneData.Length && zoneData[valueEnd] != 0x00)
+                valueEnd++;
+            if (valueEnd == valueStart || valueEnd >= zoneData.Length)
+                continue;
+            // Latin1, NOT Encoding.Default (UTF-8 on .NET 8). CoD localized values are
+            // single-byte; decoding accented bytes (e.g. 0xE9 'é') as UTF-8 yields U+FFFD,
+            // which then re-encodes to different bytes and corrupts the string on rebuild.
+            // Latin1 round-trips bytes 0x00..0xFF exactly. See ZoneBuilder.BuildLocalizedSection.
+            string value = Encoding.Latin1.GetString(zoneData, valueStart, valueEnd - valueStart);
+
+            // Read reference key (null-terminated)
+            int keyStart = valueEnd + 1;
+            int keyEnd = keyStart;
+            while (keyEnd < zoneData.Length && zoneData[keyEnd] != 0x00)
+                keyEnd++;
+            if (keyEnd == keyStart || keyEnd >= zoneData.Length)
+                continue;
+            string key = Encoding.ASCII.GetString(zoneData, keyStart, keyEnd - keyStart);
+
+            // Validate the key looks like a localize key (SCREAMING_SNAKE_CASE).
+            // This filters out matches that happen to land inside rawfile data or padding.
+            if (!IsValidLocalizeKey(key)) continue;
+            if (!seenKeys.Add(key)) continue;
+
+            entries.Add(new LocalizedEntry(key, value));
+
+            // Advance past this entry to avoid re-matching its trailing FFs.
+            i = keyEnd;
         }
 
-        return rawFiles;
+        return entries;
+    }
+
+    /// <summary>
+    /// Lightweight localize-key validator. Keys are SCREAMING_SNAKE_CASE with digits
+    /// and underscores (e.g. RANK_PRESTIGE_10, MENU_CONTROLS). Mirrors the editor's
+    /// AssetRecordProcessor.IsValidLocalizeKey heuristics.
+    /// </summary>
+    private static bool IsValidLocalizeKey(string key)
+    {
+        if (string.IsNullOrEmpty(key) || key.Length < 3 || key.Length > 150)
+            return false;
+        if (key[0] < 'A' || key[0] > 'Z')
+            return false;
+
+        int uppercaseCount = 0;
+        int underscoreCount = 0;
+        int consecutiveSame = 1;
+        char prev = '\0';
+
+        foreach (char c in key)
+        {
+            bool isUpper = c >= 'A' && c <= 'Z';
+            bool isDigit = c >= '0' && c <= '9';
+            bool isUnderscore = c == '_';
+            if (!isUpper && !isDigit && !isUnderscore) return false;
+            if (isUpper) uppercaseCount++;
+            if (isUnderscore) underscoreCount++;
+            if (c == prev) { consecutiveSame++; if (consecutiveSame > 3) return false; }
+            else consecutiveSame = 1;
+            prev = c;
+        }
+
+        // Real keys have at least one underscore and a few uppercase letters.
+        return underscoreCount >= 1 && uppercaseCount >= 2;
     }
 
     /// <summary>
@@ -360,34 +431,11 @@ public static class FastFileConverter
     }
 
     /// <summary>
-    /// Detects the source platform from FastFile info.
+    /// Detects the source platform from FastFile info. Thin alias over
+    /// <see cref="FastFileInfo.Platform"/> kept for callers that pass a
+    /// <see cref="FastFileInfo"/> rather than the raw fields.
     /// </summary>
-    private static string DetectPlatform(FastFileInfo info)
-    {
-        // PC has different version numbers
-        if (info.Version == FastFileInfo.CoD4_PC_Version ||
-            info.Version == FastFileInfo.MW2_PC_Version)
-        {
-            return "PC";
-        }
-
-        // Wii has different version numbers
-        if (info.Version == FastFileInfo.CoD4_Wii_Version ||
-            info.Version == FastFileInfo.WaW_Wii_Version)
-        {
-            return "Wii";
-        }
-
-        // Signed files are Xbox 360 MP
-        if (info.IsSigned)
-        {
-            return "Xbox 360";
-        }
-
-        // PS3 and Xbox 360 share the same version bytes for unsigned files
-        // We can't definitively tell them apart, so return "Console (PS3/Xbox 360)"
-        return "Console (PS3/Xbox 360)";
-    }
+    private static string DetectPlatform(FastFileInfo info) => info.Platform;
 
     /// <summary>
     /// Decompresses a FastFile, handling signed file signatures.
@@ -406,58 +454,115 @@ public static class FastFileConverter
     /// - Asset record field order (Xbox uses [ptr][type], PS3 uses [type][ptr])
     /// - Platform-specific asset name replacements
     /// </summary>
-    private static int PatchZoneHeaderForPlatform(string zonePath, GameVersion gameVersion, Platform targetPlatform)
+    private static int PatchZoneHeaderForPlatform(string zonePath, FastFileInfo sourceInfo, Platform targetPlatform)
     {
         byte[] zoneData = File.ReadAllBytes(zonePath);
+        GameVersion gameVersion = sourceInfo.GameVersion;
+        bool sourceIsPC = sourceInfo.IsPC;
+        bool sourceIsWii = sourceInfo.IsWii;
+        bool targetIsPC = targetPlatform == Platform.PC;
+        bool targetIsWii = targetPlatform == Platform.Wii;
 
-        // Get proper header size for the game (CoD4 always uses PS3-style 52-byte header)
-        int minHeaderSize = gameVersion == GameVersion.CoD4
-            ? FastFileConstants.ZoneHeaderSize_PS3
-            : FastFileConstants.ZoneHeaderSize_Xbox360;
-
-        if (zoneData.Length < minHeaderSize)
-            return 0; // Zone too small to have header
-
-        // Get the correct memory allocation values for the target platform and game
-        (uint blockSizeTemp, uint blockSizeVertex) = GetMemoryAllocationValues(gameVersion, targetPlatform);
-
-        // Patch BlockSizeTemp at offset 0x08 (4 bytes, big-endian)
-        WriteUInt32BE(zoneData, FastFileConstants.BlockSizeTempOffset, blockSizeTemp);
-
-        // Patch BlockSizeVertex at offset 0x20 (4 bytes, big-endian)
-        // Note: For CoD4 all platforms have this field. For WaW/MW2 Xbox 360, this offset is ScriptStringCount.
-        // Only write BlockSizeVertex for games/platforms that have it.
-        if (gameVersion == GameVersion.CoD4 || targetPlatform == Platform.PS3 || targetPlatform == Platform.PC)
+        // Source and target layouts differ for some (game, platform) pairs. The in-place patcher
+        // can only shift values within the SAME-size header — anything that needs to insert or
+        // remove the BlockSizeIndex slot (MW2 PC's 56-byte vs MW2 Xbox 360's 48-byte vs MW2 PS3's
+        // 52-byte) requires rebuilding the zone. Refuse those rather than silently corrupting.
+        int sourceHeaderSize = FastFileConstants.GetZoneHeaderSize(gameVersion,
+            isXbox360: !sourceIsPC && !sourceIsWii && sourceInfo.Platform == "Xbox 360",
+            isPC: sourceIsPC, isWii: sourceIsWii);
+        int targetHeaderSize = FastFileConstants.GetZoneHeaderSize(gameVersion,
+            isXbox360: targetPlatform == Platform.Xbox360,
+            isPC: targetIsPC, isWii: targetIsWii);
+        if (sourceHeaderSize != targetHeaderSize)
         {
-            WriteUInt32BE(zoneData, FastFileConstants.BlockSizeVertexOffset, blockSizeVertex);
+            throw new InvalidOperationException(
+                $"Cross-layout conversion not supported by Convert(): source uses {sourceHeaderSize}-byte zone " +
+                $"header, target needs {targetHeaderSize}-byte. Use ConvertUsingBaseZone (rebuilds the zone) " +
+                "or the FF Editor's in-place edit flow.");
         }
 
-        // Handle BlockSizeVirtual (0x14) and BlockSizeCallback (0x1C) swap
-        uint blockSizeVirtual = ReadUInt32BE(zoneData, 0x14);
-        uint blockSizeCallback = ReadUInt32BE(zoneData, 0x1C);
-
-        if (targetPlatform == Platform.PS3 || targetPlatform == Platform.PC)
+        // Cross-endianness conversion (BE console/Wii ↔ LE PC) can't be done in-place: the patch
+        // only byte-swaps the zone HEADER, but the entire zone BODY (asset pointers, rawfile size
+        // headers, string counts, etc.) is also in the source's byte order. Swapping every field
+        // in the body requires fully parsing the zone, which is what ZoneBuilder does on rebuild.
+        // Refuse rather than emit a header-correct-but-body-wrong-endianness file.
+        bool sourceIsLE = sourceIsPC;
+        bool targetIsLE = targetIsPC;
+        if (sourceIsLE != targetIsLE)
         {
-            if (blockSizeVirtual == 0 && blockSizeCallback != 0)
+            string srcOrder = sourceIsLE ? "little-endian (PC)" : "big-endian (PS3/Xbox 360/Wii)";
+            string tgtOrder = targetIsLE ? "little-endian (PC)" : "big-endian (PS3/Xbox 360/Wii)";
+            throw new InvalidOperationException(
+                $"Cross-endianness conversion not supported by Convert(): source is {srcOrder}, target is " +
+                $"{tgtOrder}. The in-place patcher only byte-swaps the zone header, not the body, so the output " +
+                "would be corrupt. Use ConvertUsingBaseZone (rebuilds the zone in the target byte order).");
+        }
+
+        if (zoneData.Length < sourceHeaderSize) return 0;  // zone too small to have header
+
+        // Read existing block-size fields in SOURCE endianness so we can preserve them (or use
+        // them in subsequent decisions). Endianness is the source's byte order, not the target's.
+        bool sourceIsXbox360 = !sourceIsPC && !sourceIsWii && sourceInfo.Platform == "Xbox 360";
+        var (srcTemp, srcVertex) = FastFileConstants.ReadZoneMemAlloc(
+            zoneData, gameVersion, sourceIsXbox360, sourceIsPC, sourceIsWii);
+        uint existingTemp     = srcTemp ?? 0u;
+        uint existingVertex   = srcVertex ?? 0u;
+        uint existingVirtual  = ReadUInt32(zoneData, 0x14, sourceIsPC);
+        uint existingCallback = ReadUInt32(zoneData, 0x1C, sourceIsPC);
+
+        // Pick MemAlloc values to write. For PS3/Xbox 360 targets the documented magic constants
+        // are correct; for PC/Wii targets retail uses per-zone values, so preserve from source.
+        (uint blockSizeTemp, uint blockSizeVertex) = (targetIsPC || targetIsWii)
+            ? (existingTemp, existingVertex)
+            : GetMemoryAllocationValues(gameVersion, targetPlatform);
+
+        // Write block-size fields in TARGET endianness.
+        WriteUInt32(zoneData, FastFileConstants.BlockSizeTempOffset, blockSizeTemp, targetIsLE);
+
+        // BlockSizeVertex exists in every layout EXCEPT MW2 Xbox 360's 48-byte header (where 0x20
+        // is ScriptStringCount instead). Only write the slot for layouts that have it.
+        bool targetHasVertexSlot = !(gameVersion == GameVersion.MW2 && targetPlatform == Platform.Xbox360);
+        if (targetHasVertexSlot)
+        {
+            WriteUInt32(zoneData, FastFileConstants.BlockSizeVertexOffset, blockSizeVertex, targetIsLE);
+        }
+
+        // BlockSizeVirtual (0x14) vs BlockSizeCallback (0x1C) swap. Some Xbox 360 zones use 0x1C
+        // for what PS3 puts at 0x14 (or vice versa). The heuristic: if one slot is zero and the
+        // other isn't, move the non-zero value into the slot the target convention uses.
+        if (targetPlatform == Platform.PS3 || targetIsPC || targetIsWii)
+        {
+            if (existingVirtual == 0 && existingCallback != 0)
             {
-                WriteUInt32BE(zoneData, 0x14, blockSizeCallback);
-                WriteUInt32BE(zoneData, 0x1C, 0);
+                WriteUInt32(zoneData, 0x14, existingCallback, targetIsLE);
+                WriteUInt32(zoneData, 0x1C, 0, targetIsLE);
+            }
+            else
+            {
+                // Already in PS3-style layout — just rewrite in target endianness to handle
+                // BE→LE / LE→BE swap when source and target byte orders differ.
+                WriteUInt32(zoneData, 0x14, existingVirtual, targetIsLE);
+                WriteUInt32(zoneData, 0x1C, existingCallback, targetIsLE);
             }
         }
         else if (targetPlatform == Platform.Xbox360)
         {
-            if (blockSizeCallback == 0 && blockSizeVirtual != 0)
+            if (existingCallback == 0 && existingVirtual != 0)
             {
-                WriteUInt32BE(zoneData, 0x1C, blockSizeVirtual);
-                WriteUInt32BE(zoneData, 0x14, 0);
+                WriteUInt32(zoneData, 0x1C, existingVirtual, targetIsLE);
+                WriteUInt32(zoneData, 0x14, 0, targetIsLE);
+            }
+            else
+            {
+                WriteUInt32(zoneData, 0x14, existingVirtual, targetIsLE);
+                WriteUInt32(zoneData, 0x1C, existingCallback, targetIsLE);
             }
         }
 
-        // Convert asset type IDs between platforms
-        // Xbox 360 lacks vertexshader (0x08), so types >= 0x08 are shifted by 1
-        ConvertAssetTypeIDs(zoneData, targetPlatform, gameVersion);
+        ConvertAssetTypeIDs(zoneData, sourceInfo, targetPlatform);
 
-        // Replace platform-specific asset references (e.g., xenon_controller -> ps3_controller)
+        // Replace platform-specific asset references (e.g., xenon_controller -> ps3_controller).
+        // String-level replacement, endianness-independent.
         int replacements = ReplacePlatformAssetReferences(zoneData, targetPlatform);
 
         File.WriteAllBytes(zonePath, zoneData);
@@ -593,82 +698,199 @@ public static class FastFileConverter
     /// Both platforms use [4-byte type][4-byte ptr] field order - NO swap needed.
     /// Note: CoD4 uses PS3-style offsets on ALL platforms.
     /// </summary>
-    private static void ConvertAssetTypeIDs(byte[] zoneData, Platform targetPlatform, GameVersion gameVersion)
+    private static void ConvertAssetTypeIDs(byte[] zoneData, FastFileInfo sourceInfo, Platform targetPlatform)
     {
-        // MW2 may have different handling - skip for now
-        if (gameVersion == GameVersion.MW2)
-        {
-            return;
-        }
+        GameVersion gameVersion = sourceInfo.GameVersion;
+        bool sourceIsPC = sourceInfo.IsPC;
+        bool sourceIsWii = sourceInfo.IsWii;
+        bool sourceIsXbox360 = !sourceIsPC && !sourceIsWii && sourceInfo.Platform == "Xbox 360";
+        bool targetIsPC = targetPlatform == Platform.PC;
+        bool targetIsWii = targetPlatform == Platform.Wii;
+        bool targetIsXbox360 = targetPlatform == Platform.Xbox360;
 
-        // CoD4 uses PS3-style offsets on all platforms
-        // For WaW, we assume the source is PS3-style (most common case)
-        int assetCountOffset = FastFileConstants.GetAssetCountOffset(gameVersion, isXbox360: false, isPC: false);
-        int assetCount = (int)ReadUInt32BE(zoneData, assetCountOffset);
+        // No-op when source and target use the same asset enum: nothing to shift.
+        int sourceEnumKey = EnumKey(sourceIsXbox360, sourceIsPC, sourceIsWii);
+        int targetEnumKey = EnumKey(targetIsXbox360, targetIsPC, targetIsWii);
+        if (sourceEnumKey == targetEnumKey) return;
 
-        if (assetCount <= 0 || assetCount > 10000)
-            return; // Invalid asset count
+        // Locate AssetCount + AssetsPtr using the source's layout offsets, and read AssetCount
+        // in the source's endianness. Without these the asset pool walker can't bound its loop.
+        int assetCountOffset = FastFileConstants.GetAssetCountOffset(
+            gameVersion, sourceIsXbox360, sourceIsPC, sourceIsWii);
+        if (assetCountOffset + 4 > zoneData.Length) return;
+        int assetCount = (int)ReadUInt32(zoneData, assetCountOffset, sourceIsPC);
+        if (assetCount <= 0 || assetCount > 100_000) return;
 
-        // Find asset pool by pattern matching: look for consecutive valid asset records
-        // Asset record pattern: [00 00 00 XX][FF FF FF FF] where XX is a valid asset type (0x01-0x24)
-        int assetPoolStart = -1;
-        for (int i = 0x100; i < Math.Min(zoneData.Length - 16, 0x3000); i++)
-        {
-            // Check for pattern: 00 00 00 XX FF FF FF FF (where XX is valid asset type 0x01-0x24)
-            if (zoneData[i] == 0x00 && zoneData[i + 1] == 0x00 && zoneData[i + 2] == 0x00 &&
-                zoneData[i + 3] >= 0x01 && zoneData[i + 3] <= 0x24 &&
-                zoneData[i + 4] == 0xFF && zoneData[i + 5] == 0xFF && zoneData[i + 6] == 0xFF && zoneData[i + 7] == 0xFF)
-            {
-                // Verify next record also looks valid
-                if (zoneData[i + 8] == 0x00 && zoneData[i + 9] == 0x00 && zoneData[i + 10] == 0x00 &&
-                    zoneData[i + 11] >= 0x01 && zoneData[i + 11] <= 0x24 &&
-                    zoneData[i + 12] == 0xFF && zoneData[i + 13] == 0xFF && zoneData[i + 14] == 0xFF && zoneData[i + 15] == 0xFF)
-                {
-                    assetPoolStart = i;
-                    break;
-                }
-            }
-        }
+        // Asset pool starts immediately after the header (or after the script string region,
+        // when ScriptStringCount > 0). Pattern-scan for it using the source's byte order:
+        //   BE source: [00 00 00 XX] [FF FF FF FF]  (type word + ptr)
+        //   LE source: [XX 00 00 00] [FF FF FF FF]
+        // Scanning two consecutive records reduces false positives on padding bytes.
+        int assetPoolStart = FindAssetPoolStart(zoneData, sourceIsPC, scanMax: 0x4000);
+        if (assetPoolStart < 0) return;
 
-        if (assetPoolStart < 0)
-            return; // Asset pool not found
-
-        // Convert asset type IDs
-        // Asset record format: [4-byte type BE][4-byte ptr]
+        // For each entry, remap the type ID from source enum to target enum, then write it back
+        // in the target's endianness. (Source and target type-byte positions differ when
+        // endianness differs — BE puts the type ID at offset+3, LE puts it at offset+0.)
         int offset = assetPoolStart;
         for (int i = 0; i < assetCount; i++)
         {
             if (offset + 8 > zoneData.Length) break;
 
-            // Type is in the first field, low byte is at offset + 3 (big-endian)
-            byte assetType = zoneData[offset + 3];
-
-            // WaW and CoD4: Xbox 360 lacks vertexshader at 0x08
-            // Types 0x00-0x07 are same on both platforms
-            // Starting from 0x08, PS3 has vertexshader which Xbox 360 doesn't have
-            // So Xbox types >= 0x08 need +1 for PS3, and PS3 types >= 0x09 need -1 for Xbox
-            if (targetPlatform == Platform.PS3 || targetPlatform == Platform.PC)
+            byte srcType = sourceIsPC ? zoneData[offset] : zoneData[offset + 3];
+            int? dstType = RemapAssetTypeId(srcType, gameVersion, sourceEnumKey, targetEnumKey);
+            if (dstType is not null)
             {
-                // Converting Xbox -> PS3: add 1 to types >= 0x08
-                if (assetType >= 0x08 && assetType < 0xFF)
-                {
-                    zoneData[offset + 3] = (byte)(assetType + 1);
-                }
+                // Clear all four type-word bytes, then write the new type ID at the position
+                // the target endianness uses. Avoids leaving stale high bytes from the source.
+                zoneData[offset]     = 0;
+                zoneData[offset + 1] = 0;
+                zoneData[offset + 2] = 0;
+                zoneData[offset + 3] = 0;
+                zoneData[targetIsPC ? offset : offset + 3] = (byte)dstType.Value;
             }
-            else if (targetPlatform == Platform.Xbox360)
-            {
-                // Converting PS3 -> Xbox: subtract 1 from types >= 0x09
-                // (skip vertexshader 0x08 which doesn't exist on Xbox)
-                if (assetType >= 0x09 && assetType <= 0x24)
-                {
-                    zoneData[offset + 3] = (byte)(assetType - 1);
-                }
-                // Note: vertexshader (0x08) doesn't exist on Xbox 360 - would be an error
-            }
+            // If dstType is null the source type doesn't exist on the target (e.g. PS3
+            // vertexshader on Xbox 360); leave the slot as-is. The asset itself will likely
+            // be invalid post-conversion, which is documented as a Convert() limitation.
 
             offset += 8;
         }
     }
+
+    /// <summary>
+    /// Per-game asset-enum identifier so we can compare source vs target asset enums without
+    /// stringly-typed keys. 0=PS3, 1=Xbox360, 2=PC(or Wii — Wii uses PC enum).
+    /// </summary>
+    private static int EnumKey(bool isXbox360, bool isPC, bool isWii)
+        => isPC || isWii ? 2 : isXbox360 ? 1 : 0;
+
+    /// <summary>
+    /// Scans for the start of the zone's asset pool. Each pool entry is 8 bytes:
+    /// [type word 4B][ptr 4B = FFFFFFFF]. We look for two consecutive entries to reduce
+    /// false positives on stray markers in the script-string region.
+    /// </summary>
+    private static int FindAssetPoolStart(byte[] zoneData, bool isLE, int scanMax)
+    {
+        int end = Math.Min(zoneData.Length - 16, scanMax);
+        for (int i = 0x40; i < end; i++)
+        {
+            if (!LooksLikeAssetEntry(zoneData, i, isLE)) continue;
+            if (!LooksLikeAssetEntry(zoneData, i + 8, isLE)) continue;
+            return i;
+        }
+        return -1;
+    }
+
+    private static bool LooksLikeAssetEntry(byte[] zoneData, int offset, bool isLE)
+    {
+        // This walker assumes the [type word][FFFFFFFF] (TypeFirst) layout, since the type-id
+        // read and write-back below index that way. Accept only TypeFirst records whose id is
+        // in the real asset-type-id range; the shared primitive enforces the FFFFFFFF pointer
+        // half and the high-bytes-zero rule.
+        return ZoneAssetPool.TryReadRecord(zoneData, offset, isLE, out uint typeId, out var order)
+            && order == AssetRecordOrder.TypeFirst
+            && typeId >= 0x01 && typeId <= 0x2A;
+    }
+
+    /// <summary>
+    /// Maps a single asset type ID from the source enum to the target enum, per game.
+    /// Returns null if the source type doesn't exist on the target (e.g. PS3-only
+    /// vertexshader when converting PS3→Xbox 360, or PS3 pixelshader→PC).
+    /// </summary>
+    private static int? RemapAssetTypeId(byte srcType, GameVersion gv, int srcEnumKey, int dstEnumKey)
+    {
+        // Decode the source type id to a canonical "asset name" index using the per-game,
+        // per-platform enum, then encode it for the target. Implemented as a switch on the
+        // few asset types we actually care about (rawfile, localize, menufile, etc.) plus
+        // a generic shift for the rest.
+        //
+        // CoD4 enum shifts (relative to PS3):
+        //   PS3:     reference (has pixelshader 0x05, vertexshader 0x06)
+        //   Xbox360: drops vertexshader 0x06 → IDs >= 0x06 shift -1
+        //   PC:      drops both pixelshader 0x05 AND vertexshader 0x06 → IDs >= 0x05 shift -2
+        //
+        // WaW enum shifts (relative to PS3):
+        //   PS3:     reference (has pixelshader 0x07, vertexshader 0x08)
+        //   Xbox360: drops vertexshader 0x08 → IDs >= 0x08 shift -1
+        //   PC:      drops both → IDs >= 0x07 shift -2
+        //
+        // MW2 enum shifts (relative to PS3):
+        //   PS3:     reference (has vertexshader 0x07, no vertexdecl)
+        //   Xbox360: drops vertexshader 0x07 → IDs >= 0x07 shift -1
+        //   PC:      adds vertexdecl at 0x08 → IDs >= 0x08 shift +1
+        //
+        // To translate src→dst, normalize to PS3, then shift to dst.
+
+        int ps3Type = ToPs3Type(srcType, gv, srcEnumKey);
+        if (ps3Type < 0) return null;  // doesn't exist on source (shouldn't happen if input is valid)
+
+        return FromPs3Type(ps3Type, gv, dstEnumKey);
+    }
+
+    private static int ToPs3Type(byte srcType, GameVersion gv, int srcEnumKey)
+    {
+        // srcEnumKey: 0=PS3, 1=Xbox360, 2=PC/Wii
+        if (srcEnumKey == 0) return srcType;
+
+        int dropAt = DropAtId(gv);  // first id that PS3 has and Xbox 360 doesn't
+        int xboxToPs3Shift = 1;
+        int pcDropOffset = gv == GameVersion.MW2 ? -1 : 1;  // MW2 PC ADDS at 0x08 (instead of dropping)
+
+        if (srcEnumKey == 1)
+        {
+            // Xbox 360 → PS3: IDs >= dropAt shift +1
+            return srcType < dropAt ? srcType : srcType + xboxToPs3Shift;
+        }
+        else
+        {
+            // PC/Wii → PS3.
+            if (gv == GameVersion.MW2)
+            {
+                // PC adds vertexdecl at 0x08. PC IDs >= 0x09 shift -1 to PS3.
+                if (srcType < 0x08) return srcType;
+                if (srcType == 0x08) return -1;  // vertexdecl is PC-only
+                return srcType - 1;
+            }
+            // CoD4/WaW PC drops BOTH pixelshader and vertexshader. PC IDs >= dropAt-1 shift +2.
+            int pcDropAt = dropAt - 1;  // PC's first shifted id (one earlier than Xbox 360's)
+            return srcType < pcDropAt ? srcType : srcType + 2;
+        }
+    }
+
+    private static int? FromPs3Type(int ps3Type, GameVersion gv, int dstEnumKey)
+    {
+        if (dstEnumKey == 0) return ps3Type;
+
+        int dropAt = DropAtId(gv);
+        if (dstEnumKey == 1)
+        {
+            // PS3 → Xbox 360: vertexshader (id == dropAt) doesn't exist; IDs > dropAt shift -1.
+            if (ps3Type == dropAt) return null;
+            return ps3Type < dropAt ? ps3Type : ps3Type - 1;
+        }
+        // PS3 → PC/Wii.
+        if (gv == GameVersion.MW2)
+        {
+            // PC adds vertexdecl at 0x08; PS3 IDs >= 0x08 shift +1.
+            return ps3Type < 0x08 ? ps3Type : ps3Type + 1;
+        }
+        // CoD4/WaW PC drops pixelshader AND vertexshader; IDs >= pixelshader shift -2.
+        int pcDropAt = dropAt - 1;
+        if (ps3Type == pcDropAt || ps3Type == dropAt) return null;  // pixelshader/vertexshader
+        return ps3Type < pcDropAt ? ps3Type : ps3Type - 2;
+    }
+
+    /// <summary>
+    /// The id (in the PS3 enum) of the asset type that Xbox 360 drops — i.e. vertexshader.
+    /// Used as the pivot point for all enum-shift calculations.
+    /// </summary>
+    private static int DropAtId(GameVersion gv) => gv switch
+    {
+        GameVersion.CoD4 => 0x06,
+        GameVersion.WaW  => 0x08,
+        GameVersion.MW2  => 0x07,
+        _ => 0x08,
+    };
 
     /// <summary>
     /// Reads a 32-bit unsigned integer in big-endian format.
@@ -697,34 +919,40 @@ public static class FastFileConverter
         };
     }
 
-    /// <summary>
-    /// Writes a 32-bit unsigned integer in big-endian format.
-    /// </summary>
-    private static void WriteUInt32BE(byte[] data, int offset, uint value)
-    {
-        data[offset] = (byte)(value >> 24);
-        data[offset + 1] = (byte)(value >> 16);
-        data[offset + 2] = (byte)(value >> 8);
-        data[offset + 3] = (byte)(value & 0xFF);
-    }
+    // Endian read/write primitives live in FastFileConstants (shared with the editor,
+    // CLI, and CompilerGUI). These thin aliases keep the call sites in this file terse.
+    private static uint ReadUInt32(byte[] data, int offset, bool isLE)
+        => FastFileConstants.ReadUInt32(data, offset, isLE);
+
+    private static void WriteUInt32(byte[] data, int offset, uint value, bool isLE)
+        => FastFileConstants.WriteUInt32(data, offset, value, isLE);
 
     /// <summary>
-    /// Compresses zone data for a specific platform.
+    /// Compresses zone data for a specific platform. Routes through the canonical
+    /// FastFileSaveService.Save (which dispatches to the right compressor internally)
+    /// so each (game, platform) combo lands on the right format:
+    ///   - CoD4/WaW PS3 + Xbox 360 (unsigned) -> block format
+    ///   - CoD4/WaW PC                         -> single zlib stream (Compiler.CompilePc)
+    ///   - MW2 PS3                             -> block format + 25-byte extended header
+    ///   - MW2 Xbox 360                        -> single zlib stream + extended header
+    ///   - MW2 PC                              -> single zlib stream + 9-byte preamble
+    /// Always writes unsigned outputs (signed=false) — RSA re-signing is not supported.
     /// </summary>
     private static void CompressForPlatform(string zonePath, string outputPath, GameVersion gameVersion, Platform platform)
     {
-        string platformStr = platform switch
-        {
-            Platform.PS3 => "PS3",
-            Platform.Xbox360 => "Xbox360",
-            Platform.PC => "PC",
-            Platform.Wii => "Wii",
-            _ => "PS3"
-        };
-
-        // Use the existing compress method with platform parameter
-        FastFileProcessor.Compress(zonePath, outputPath, gameVersion, platformStr);
+        // Route through the canonical save service so every "produce FF on disk" path in the
+        // codebase goes through one place (consistent logging, future format fixes apply once).
+        FastFileSaveService.Save(zonePath, outputPath, gameVersion, PlatformToString(platform));
     }
+
+    private static string PlatformToString(Platform platform) => platform switch
+    {
+        Platform.PS3 => "PS3",
+        Platform.Xbox360 => "Xbox360",
+        Platform.PC => "PC",
+        Platform.Wii => "Wii",
+        _ => "PS3"
+    };
 
     /// <summary>
     /// Extracts the zone name from a file path.

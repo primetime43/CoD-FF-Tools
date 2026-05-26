@@ -10,9 +10,6 @@ namespace Call_of_Duty_FastFile_Editor.Models
     /// </summary>
     public class RawFileNode : IAssetRecordUpdatable
     {
-        // Backing field for the header bytes.
-        private byte[] _header;
-
         /// <summary>
         /// Has this file’s content been edited (but not yet saved) in the UI?
         /// </summary>
@@ -60,6 +57,20 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// Default is 12 for backwards compatibility.
         /// </summary>
         public int HeaderSize { get; set; } = 12;
+
+        /// <summary>
+        /// Indicates whether this raw file's data is internally zlib compressed.
+        /// This is common in MW2 PS3 FastFiles where raw files use the 16-byte header format
+        /// with compressedLen != len.
+        /// </summary>
+        public bool IsCompressed { get; set; }
+
+        /// <summary>
+        /// The compressed size of the raw file data in bytes.
+        /// Only relevant when IsCompressed is true.
+        /// This is the actual size of the data stored in the zone file.
+        /// </summary>
+        public int CompressedSize { get; set; }
 
         /// <summary>
         /// Backing field for CodeStartPosition when set explicitly by game-specific parsers.

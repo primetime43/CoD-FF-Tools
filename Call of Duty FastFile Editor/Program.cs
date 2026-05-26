@@ -2,6 +2,7 @@ using System;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Call_of_Duty_FastFile_Editor.Services;
+using FastFileLib.Logging;
 
 namespace Call_of_Duty_FastFile_Editor
 {
@@ -13,6 +14,11 @@ namespace Call_of_Duty_FastFile_Editor
         [STAThread]
         static void Main()
         {
+            // Capture Debug.WriteLine / Trace.WriteLine calls (used throughout the codebase)
+            // into LogService so the Logs tab can render them.
+            TraceCapture.Install();
+            LogService.Info("App", "FastFile Editor starting");
+
             ApplicationConfiguration.Initialize();
 
             // Create the service collection

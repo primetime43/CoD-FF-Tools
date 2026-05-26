@@ -127,43 +127,25 @@ namespace Call_of_Duty_FastFile_Editor.Services
         }
 
         /// <summary>
-        /// Reads a 4-byte unsigned integer from the given byte array at the specified offset in big-endian order.
+        /// Reads a 4-byte unsigned integer in big-endian order. Delegates to the shared
+        /// <see cref="FastFileLib.FastFileConstants"/> primitive.
         /// </summary>
         public static uint ReadUInt32BigEndian(byte[] data, int offset)
-        {
-            byte[] bytes = new byte[4];
-            Array.Copy(data, offset, bytes, 0, 4);
-            if (BitConverter.IsLittleEndian)
-                Array.Reverse(bytes);
-            return BitConverter.ToUInt32(bytes, 0);
-        }
+            => FastFileLib.FastFileConstants.ReadUInt32BigEndian(data, offset);
 
         /// <summary>
-        /// Reads a 4-byte unsigned integer from the given byte array at the specified offset in little-endian order.
+        /// Reads a 4-byte unsigned integer in little-endian order. Delegates to the shared
+        /// <see cref="FastFileLib.FastFileConstants"/> primitive.
         /// </summary>
         public static uint ReadUInt32LittleEndian(byte[] data, int offset)
-        {
-            if (offset + 4 > data.Length)
-                return 0;
-            return (uint)(data[offset] | (data[offset + 1] << 8) |
-                          (data[offset + 2] << 16) | (data[offset + 3] << 24));
-        }
+            => FastFileLib.FastFileConstants.ReadUInt32LittleEndian(data, offset);
 
         /// <summary>
-        /// Reads a null-terminated UTF8 string from the given byte array starting at the specified offset.
+        /// Reads a null-terminated string from the given byte array. Delegates to the shared
+        /// <see cref="FastFileLib.FastFileConstants"/> primitive.
         /// </summary>
         public static string ReadNullTerminatedString(byte[] data, int offset)
-        {
-            List<byte> byteList = new List<byte>();
-            while (offset < data.Length)
-            {
-                byte b = data[offset++];
-                if (b == 0)
-                    break;
-                byteList.Add(b);
-            }
-            return Encoding.UTF8.GetString(byteList.ToArray());
-        }
+            => FastFileLib.FastFileConstants.ReadNullTerminatedString(data, offset);
 
         /// <summary>
         /// Helper method to read a string until a null terminator starting at a specific offset

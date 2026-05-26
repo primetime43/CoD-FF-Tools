@@ -33,6 +33,17 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
     ///     ... more fields
     /// };
     /// </summary>
+    /// <summary>Which menuDef_t binary layout to use when walking menus inside a MenuList.</summary>
+    public enum MenuBinaryLayout
+    {
+        /// <summary>IW4 (MW2) layout — 752 bytes console / 400 PC, full OAT-spec walker.</summary>
+        Iw4,
+        /// <summary>CoD5 (WaW) console layout — 312 bytes (PS3 / Xbox 360), big-endian.</summary>
+        Cod5,
+        /// <summary>CoD5 (WaW) PC layout — 288 bytes (dynamicFlags[1] + cursorItem[1] vs console's [4]/[4]), little-endian.</summary>
+        Cod5PC,
+    }
+
     public static class MenuListParser
     {
         // WindowDef size varies between PC and console
@@ -48,7 +59,8 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         /// <summary>
         /// Parses a MenuList asset starting at the given offset.
         /// </summary>
-        public static MenuList? ParseMenuList(byte[] zoneData, int offset, bool isBigEndian = true)
+        public static MenuList? ParseMenuList(byte[] zoneData, int offset, bool isBigEndian = true,
+                                              MenuBinaryLayout layout = MenuBinaryLayout.Iw4)
         {
             Debug.WriteLine($"[MenuListParser] Parsing MenuList at offset 0x{offset:X}");
 
@@ -113,65 +125,190 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
             Debug.WriteLine($"[MenuListParser] Found MenuList: '{name}' with {menuCount} menus");
 
-            // Parse individual menus if count > 0
+            // Read the inline menuDef_t pointer array — each entry is 0xFFFFFFFF when the
+            // menu is serialized inline (the usual case).
+            int afterPointersOffset = afterNameOffset;
             if (menuCount > 0)
             {
-                int currentOffset = afterNameOffset;
-
-                // Read menu pointers (each 4 bytes, 0xFFFFFFFF when inline)
-                int[] menuPointers = new int[menuCount];
-                for (int i = 0; i < menuCount && currentOffset + 4 <= zoneData.Length; i++)
+                afterPointersOffset = afterNameOffset + (menuCount * 4);
+                if (afterPointersOffset > zoneData.Length)
                 {
-                    uint menuPtr = ReadUInt32(zoneData, currentOffset, isBigEndian);
-                    menuPointers[i] = (int)menuPtr;
-                    currentOffset += 4;
+                    Debug.WriteLine($"[MenuListParser] Pointer array extends past zone end");
+                    return null;
                 }
+            }
 
-                Debug.WriteLine($"[MenuListParser] Menu pointers start at 0x{afterNameOffset:X}, end at 0x{currentOffset:X}");
+            // Walk each menu with the right strategy per layout.
+            //
+            // IW4 (MW2): use the full OAT-ported field-by-field walker; if it gives up
+            // partway, fall back to signature scanning + heuristic field reads.
+            //
+            // CoD5 (WaW): skip the IW4 walker entirely (wrong struct layout produces
+            // garbage itemCount). Instead, signature-scan for menu starts and read each
+            // candidate's fields via the CoD5-aware reader. This finds the same set of
+            // menus the old fallback path found, but with correct itemCount / colors /
+            // rect / inline name instead of garbage.
+            int currentOffset = afterPointersOffset;
+            int lastSuccessfulEnd = afterPointersOffset;
 
-                // Now parse each menuDef_t
-                for (int i = 0; i < menuCount && currentOffset < zoneData.Length; i++)
+            if (layout == MenuBinaryLayout.Cod5 || layout == MenuBinaryLayout.Cod5PC)
+            {
+                // Strict CoD5 scan: scan forward byte-by-byte from the pointer array end
+                // and accept every position whose menuDef_t binary FitsMenuDefStruct (every
+                // pointer is 0/FFFFFFFF/resolved, every count/bool/color is in range, etc.).
+                // This finds all menuCount inline menus without needing to walk each menu's
+                // variable-size inline payload — the struct check itself is what tells
+                // itemDef_s candidates apart from menuDef_t candidates.
+                //
+                // PC vs console differs only in struct sizes (288 vs 312 bytes) and byte
+                // order (LE vs BE) — both handled by the same deserializer via flags.
+                bool isPCLayout = layout == MenuBinaryLayout.Cod5PC;
+                var cod5Reader = new Cod5MenuDeserializer(zoneData, afterPointersOffset, isBigEndian, isPCLayout);
+                int searchFrom = afterPointersOffset;
+
+                for (int i = 0; i < menuCount; i++)
                 {
-                    // Check if this menu is inline (pointer was 0xFFFFFFFF)
-                    if (menuPointers[i] != unchecked((int)0xFFFFFFFF))
+                    int menuStart = Cod5MenuDeserializer.FindNextCod5MenuStart(zoneData, searchFrom, isBigEndian, isPCLayout);
+                    if (menuStart < 0)
                     {
-                        Debug.WriteLine($"[MenuListParser] Menu {i} is external reference (0x{menuPointers[i]:X}), skipping");
+                        Debug.WriteLine($"[MenuListParser] CoD5{(isPCLayout?"-PC":"")}: no more menuDef_t-shaped data after 0x{searchFrom:X} (found {menuList.Menus.Count} of {menuCount})");
+                        break;
+                    }
+
+                    cod5Reader.Position = menuStart;
+                    var menu = cod5Reader.ReadMenuDef(i, -1);
+                    if (menu == null)
+                    {
+                        searchFrom = menuStart + 1;
+                        i--;
                         continue;
                     }
-
-                    var menu = ParseMenuDef(zoneData, currentOffset, isBigEndian, i);
-                    if (menu != null)
-                    {
-                        menuList.Menus.Add(menu);
-                        currentOffset = menu.EndOffset;
-                        Debug.WriteLine($"[MenuListParser] Parsed menu {i}: '{menu.Name}', endOffset=0x{currentOffset:X}");
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[MenuListParser] Failed to parse menu {i} at offset 0x{currentOffset:X}, trying to skip");
-                        // Try to find the next menu by pattern
-                        int nextMenuOffset = FindNextMenuDef(zoneData, currentOffset + 4, isBigEndian);
-                        if (nextMenuOffset > 0)
-                        {
-                            currentOffset = nextMenuOffset;
-                        }
-                        else
-                        {
-                            // Can't recover, stop parsing menus
-                            break;
-                        }
-                    }
+                    menuList.Menus.Add(menu);
+                    lastSuccessfulEnd = menu.EndOffset;
+                    // Advance by ONE byte, not by sizeof(menuDef_t) — we don't actually know
+                    // exactly where the next menu starts (would need a full items[] walker),
+                    // and the menus aren't always sizeof(menuDef_t) apart. The strict
+                    // FitsMenuDefStruct check guarantees the next match is also a menu.
+                    searchFrom = menuStart + 1;
                 }
-
-                menuList.DataEndOffset = currentOffset;
             }
             else
             {
-                menuList.DataEndOffset = afterNameOffset;
+                var deser = new Iw4MenuDeserializer(zoneData, afterPointersOffset, isConsole: isBigEndian, isBigEndian: isBigEndian);
+                int fallbackStartIndex = -1;
+
+                for (int i = 0; i < menuCount; i++)
+                {
+                    int menuStartBefore = deser.Position;
+                    var menu = deser.ReadMenuDef(i);
+                    if (menu == null)
+                    {
+                        Debug.WriteLine($"[MenuListParser] Deserializer failed at menu[{i}] (offset 0x{menuStartBefore:X}); falling back to signature scan for the remaining {menuCount - i} menus");
+                        fallbackStartIndex = i;
+                        currentOffset = menuStartBefore;
+                        break;
+                    }
+                    menuList.Menus.Add(menu);
+                    lastSuccessfulEnd = menu.EndOffset;
+                    currentOffset = menu.EndOffset;
+                }
+
+                if (fallbackStartIndex >= 0)
+                {
+                    const int minMenuSize = 0x2B0;
+                    const int maxScanPerMenu = 4 * 1024 * 1024;
+                    for (int i = fallbackStartIndex; i < menuCount; i++)
+                    {
+                        int menuStart = FindMenuStartSignature(zoneData, currentOffset, maxScanPerMenu, isBigEndian);
+                        if (menuStart < 0)
+                        {
+                            Debug.WriteLine($"[MenuListParser] Signature fallback also failed at menu[{i}] (from 0x{currentOffset:X})");
+                            break;
+                        }
+                        var menu = ParseMenuDef(zoneData, menuStart, isBigEndian, i);
+                        if (menu == null) break;
+                        menuList.Menus.Add(menu);
+                        lastSuccessfulEnd = Math.Max(menu.EndOffset, menuStart + minMenuSize);
+                        currentOffset = menuStart + minMenuSize;
+                    }
+                }
             }
 
-            Debug.WriteLine($"[MenuListParser] Completed MenuList '{name}': {menuList.Menus.Count}/{menuCount} menus parsed, end=0x{menuList.DataEndOffset:X}");
+            menuList.DataEndOffset = lastSuccessfulEnd;
+            Debug.WriteLine($"[MenuListParser] Completed MenuList '{name}': {menuList.Menus.Count} of {menuCount} menus parsed (layout={layout}), end=0x{menuList.DataEndOffset:X}");
             return menuList;
+        }
+
+        /// <summary>
+        /// Scans forward from <paramref name="startOffset"/> for the next plausible menuDef_t
+        /// start. The signature requires 0xFFFFFFFF + two back-to-back rectDef_s structs (rect
+        /// + rectClient), with all floats finite and roughly UI-sized, plus horz/vert align
+        /// bytes in [0,3]. Stops after <paramref name="maxScanDistance"/> bytes. Returns -1
+        /// if no signature found.
+        /// </summary>
+        private static int FindMenuStartSignature(byte[] data, int startOffset, int maxScanDistance, bool isBigEndian)
+        {
+            int end = Math.Min(startOffset + maxScanDistance, data.Length - 0x2C);
+            for (int p = startOffset; p < end; p++)
+            {
+                // Cheap reject: must start with 0xFFFFFFFF (name pointer placeholder).
+                if (data[p] != 0xFF || data[p + 1] != 0xFF || data[p + 2] != 0xFF || data[p + 3] != 0xFF)
+                    continue;
+
+                // rect (offset +0x04): 4 floats + horz/vert align byte + 2 padding bytes
+                if (!IsPlausibleRectAt(data, p + 4, isBigEndian))
+                    continue;
+
+                // rectClient (offset +0x18): same shape
+                if (!IsPlausibleRectAt(data, p + 24, isBigEndian))
+                    continue;
+
+                return p;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Validates a rectDef_s at <paramref name="rectOffset"/>: 4 floats (x, y, w, h) in
+        /// plausible UI coordinate range, plus horz/vert align bytes in [0,3]. Allows w/h to
+        /// be 0 since some menus use 0-size rects.
+        /// </summary>
+        private static bool IsPlausibleRectAt(byte[] data, int rectOffset, bool isBigEndian)
+        {
+            float x = ReadFloat(data, rectOffset, isBigEndian);
+            float y = ReadFloat(data, rectOffset + 4, isBigEndian);
+            float w = ReadFloat(data, rectOffset + 8, isBigEndian);
+            float h = ReadFloat(data, rectOffset + 12, isBigEndian);
+
+            // Reject NaN / Infinity / denormals (each value must be 0 OR a normal float)
+            if (!IsPlausibleCoord(x)) return false;
+            if (!IsPlausibleCoord(y)) return false;
+            if (!IsPlausibleCoord(w)) return false;
+            if (!IsPlausibleCoord(h)) return false;
+
+            // Width/height should be non-negative (zero is OK; some hidden menus use 0-size rects)
+            if (w < 0 || h < 0) return false;
+
+            // horz/vert align bytes must be small enum values
+            byte horzAlign = data[rectOffset + 16];
+            byte vertAlign = data[rectOffset + 17];
+            if (horzAlign > 3 || vertAlign > 3) return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// A "plausible" UI coordinate is either exactly zero or a normal float in pixel range
+        /// (|v| >= 0.01 and |v| <= 10000). This rejects sub-pixel denormals like 4.98E-10 that
+        /// frequently show up when reading random bytes as floats — a strong false-positive
+        /// signal when scanning for menuDef_t headers inside binary menu payloads.
+        /// </summary>
+        private static bool IsPlausibleCoord(float v)
+        {
+            if (float.IsNaN(v) || float.IsInfinity(v)) return false;
+            if (v == 0f) return true;
+            float abs = Math.Abs(v);
+            return abs >= 0.01f && abs <= 10000f;
         }
 
         /// <summary>

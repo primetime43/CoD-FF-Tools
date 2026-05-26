@@ -6,11 +6,12 @@ Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives
 
 | Game | PS3 | Xbox 360 | PC | Wii |
 |------|-----|----------|-----|-----|
-| CoD4: Modern Warfare | Full | Full | Extract | Extract |
-| WaW: World at War | Full | Full | Extract | Extract |
-| MW2: Modern Warfare 2 | Full | Needs Tested | Extract | - |
+| CoD4: Modern Warfare | Full | Full | Partial | Extract |
+| WaW: World at War | Full | Full | Partial | **Partial** |
+| MW2: Modern Warfare 2 | Full | Needs Tested | Partial | - |
 
-**Full** = decompress, edit assets, recompress
+**Full** = decompress, edit all asset types, recompress
+**Partial** = decompress, edit rawfile + localize, recompress (other asset types listed but skipped)
 **Extract** = decompress to zone only (no asset editing)
 
 ## Asset Support
@@ -36,7 +37,7 @@ Tools for extracting, editing, and building Call of Duty FastFile (.ff) archives
 | FastFile Editor | Edit raw files, localized strings, weapons, and menus inside existing FastFiles |
 | FastFile Compiler | Build new FastFiles from scratch using raw files and localized strings |
 | FastFile Converter | Convert FastFiles between platforms (PS3, Xbox 360) |
-| FastFile Tool | Simple extract/repack utility for zone files |
+| FastFile Extractor | Simple extract/repack utility for zone files |
 
 ## Screenshots
 
@@ -84,7 +85,7 @@ Grab the latest build from [Releases](https://github.com/primetime43/CoD-FF-Tool
 | Call of Duty FastFile Editor | Main editor GUI |
 | FastFileCompilerGUI | FastFile creation GUI |
 | FastFileConverterGUI | Platform conversion GUI |
-| FastFileToolGUI | Extract/repack GUI |
+| FastFileExtractor | Extract/repack GUI (FF ⇄ zone) |
 
 ## Contributing
 
