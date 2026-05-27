@@ -11,8 +11,8 @@ below apply to PS3 only.
 - ✅ Decompress and inflate to zone in one pass (`FastFileProcessor.TryDecompressGhosts`)
   - Outer raw-deflate blocks (2-byte BE srcSize + payload, 64 KB out each)
   - Inner per-asset zlib streams expanded inline against decoded `compressedLen` from each asset header
-- ✅ Walk the asset pool (`GhostsZoneParser`) — handles both patch FFs (pool at `0x40`) and base FFs (pool further in, located by pattern)
-- ✅ Asset pool tab populates in the editor with type names from `GhostsAssetTypePS3`
+- 🟡 Walk the asset pool (`GhostsZoneParser`) — works for **patch FFs only**. Patches use 8-byte `[FF*4][type BE u32]` pool entries starting at `0x40`; base FFs use a different layout (a long run of pointer placeholders with type information stored elsewhere) and aren't walked correctly yet.
+- ✅ Asset pool tab populates in the editor for patch FFs (type names from `GhostsAssetTypePS3`); base FFs decompress + inflate fine but the asset-pool tab stays empty.
 - ❌ Per-asset content parsers (rawfile body, scriptfile body, weapon struct, etc.) — not implemented; all `Parse*` methods on `GhostsGameDefinition` return null
 - ❌ Recompression / re-signing — not implemented and not viable without IW's RSA-2048 private key
 
@@ -171,31 +171,44 @@ trailing data that follows the last complete block.
 ### XFile header
 
 The first 64 bytes (`0x00..0x3F`) contain a sequence of u32 BE fields:
-zone size at `0x00`, several block-size slots at `0x08..0x2F`, then what
-appears to be `scriptStringCount` at `0x30` and a `0xFFFFFFFF`
-ScriptStringsPtr placeholder at `0x34`. The exact field layout has not
-been fully mapped; specifically, no field at the usual PS3 / MW2 offsets
-matches the observed asset count, so an explicit `AssetCount` field is
-either at an unknown position or absent in favour of pattern-terminated
-walking. For tooling purposes the pool walker (`GhostsZoneParser`) finds
-the pool by scanning for the longest contiguous run of valid
-`[FFFFFFFF][type BE u32 ≤ 0x36]` 8-byte records within the first `0x200`
-bytes, which works for every sample tested.
+zone size at `0x00`, several block-size slots at `0x08..0x2F`, then count
++ pointer-placeholder pairs around `0x28..0x37`. The exact field layout
+has not been fully mapped; in particular the layout differs between
+patch and base zones.
 
-### Asset pool
+**Patch zones** (e.g. `patch_homecoming.zone`, `ghosts_patch_common_mp.zone`):
+the asset pool starts at `0x40` immediately after the XFile header, with
+8-byte `[ptr][type]` entries terminated by the pattern breaking. The pool
+walker (`GhostsZoneParser`) finds it by scanning the first `0x200` bytes
+for the longest contiguous run of valid
+`[FFFFFFFF][type BE u32 ≤ 0x35]` 8-byte records.
 
-Each entry is 8 bytes. Pool entries use **`[pointer placeholder][type ID]`**
-order (pointer first), matching MW2 PS3 — not the `[type][pointer]` order
-used by MW2 PC.
+**Base zones** (e.g. `common.zone`): different layout that hasn't been
+reverse-engineered. Bytes from `0x40` onwards are a long run of pointer
+placeholders (continuous `FF FF FF FF`) rather than 8-byte `[ptr][type]`
+records, suggesting the type information is stored separately (perhaps a
+parallel type array later in the zone). The current pool walker doesn't
+recognise this layout and the asset-pool tab stays empty for base zones.
+
+### Asset pool (patch zones only)
+
+In patch zones each entry is 8 bytes. Pool entries use
+**`[pointer placeholder][type ID]`** order (pointer first), matching
+MW2 PS3 — not the `[type][pointer]` order used by MW2 PC.
 
 ```
 FF FF FF FF  00 00 00 XX
 └─ pointer ┘ └─ type ─┘    (BE u32, high 3 bytes zero, low byte = type ID)
 ```
 
-Patch FFs put the pool at `0x40` immediately after the XFile header. Base
-FFs have a larger XFile header and the pool starts at a higher offset
-(located by pattern search, no fixed offset known).
+The pool starts at `0x40` immediately after the XFile header. Verified
+for the 3 patch samples — `patch_homecoming.zone` (4 entries, all
+scriptfile), `patch_mp_dome_ns.zone` (4 entries — 2 rawfile + 2
+scriptfile), `ghosts_patch_common_mp.zone` (122 entries — 120
+scriptfile + 2 rawfile).
+
+Base zones use a different layout (see XFile header section above) and
+this 8-byte `[ptr][type]` walking doesn't apply.
 
 ### Asset type IDs (IW6 PS3)
 
@@ -268,14 +281,21 @@ length exactly, `decLen` matches `len(zlib.decompress(stream))` exactly.
 
 The asset content following the header is either:
 - A standard zlib stream (`0x78 DA` / `0x78 9C` / `0x78 5E` / `0x78 01` magic),
-  in which case `compLen` and `decLen` are populated. Used heavily by patch
-  zones (e.g. 121 streams in `ghosts_patch_common_mp.zone`, 5 in
-  `patch_homecoming.zone`, 5 in `patch_mp_dome_ns.zone`) and sparingly by
-  base zones (181 streams in the 47 MB `common.zone`, mostly rawfile assets
-  named like `animscripts/*`, `maps/*.gsc`, `vision/*.vision`).
+  in which case `compLen` and `decLen` are populated. Used by every
+  scriptfile and rawfile asset observed in patch zones (e.g. all 122
+  scriptfile+rawfile entries in `ghosts_patch_common_mp.zone` are
+  zlib-wrapped). Used sparingly by base zones — `common.zone` has 181
+  inner zlib streams across its 47 MB body, almost all of them rawfile
+  assets named like `animscripts/*`, `maps/*.gsc`, `vision/*.vision`.
 - Flat binary data with no inner zlib. Used by asset types like xmodel /
   image / sound / world data — the outer deflate already compresses these
   once, so a second zlib pass would produce nearly-identical bytes.
+
+The stream count detected by a scan-for-zlib-magic pass doesn't always
+exactly match the pool entry count, because the detection can trip on
+data inside other assets that happens to look like a zlib stream
+preceded by FF-bracketed-name bytes. For pool-based asset enumeration,
+walk the pool directly rather than scanning for zlib magic.
 
 The toolchain's `InflateGhostsZoneAssets` expands every inner zlib stream
 inline as part of decompression, so a zone produced by this codebase has

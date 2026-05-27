@@ -617,6 +617,35 @@ namespace Call_of_Duty_FastFile_Editor
             _assetPoolStartOffset = zone.AssetPoolStartOffset;
             _assetPoolEndOffset = zone.AssetPoolEndOffset;
 
+            // Ghosts: use a dedicated rawfile scanner that walks the (already inflated)
+            // zone for the short-shape rawfile header pattern. The shared MW2-style
+            // AssetRecordProcessor doesn't recognise IW6 asset shapes, and the
+            // GhostsGameDefinition.ParseRawFile method returns null so feeding records
+            // through it would produce an empty list. The library's TryDecompressGhosts
+            // already expanded every inner zlib stream during decompression, so the
+            // rawfile body is plaintext at known offsets.
+            if (_openedFastFile.IsGhostsFile)
+            {
+                _processResult = new AssetRecordCollection();
+                _menuLists = new List<MenuList>();
+                _rawFileNodes = loadRawFiles
+                    ? GhostsRawFileScanner.Scan(zone.Data, scanStart: _assetPoolEndOffset)
+                    : new List<RawFileNode>();
+                RawFileNode.CurrentZone = zone;
+                _localizedEntries = new List<LocalizedEntry>();
+                _techSets = new List<TechSetAsset>();
+                _xanims = new List<XAnimParts>();
+                _weapons = new List<WeaponAsset>();
+                _images = new List<ImageAsset>();
+                _stringTables = new List<StringTable>();
+                _hasUnsupportedAssets = true;       // IW6 has many types we don't parse
+                _originalLocalizeCount = 0;
+                _hasUnsavedChanges = false;
+                _localizeNeedsRebuild = false;
+                _loadTags = false;                  // no IW6 script-string parser
+                return;
+            }
+
             // Process asset records - uses structure-based parsing first, then pattern matching fallback
             _processResult = AssetRecordProcessor.ProcessAssetRecords(_openedFastFile, _zoneAssetRecords, forcePatternMatching);
 
