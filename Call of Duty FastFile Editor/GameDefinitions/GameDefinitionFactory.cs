@@ -39,6 +39,10 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         // Wii (big-endian like PS3 but PC-style asset type IDs; 56-byte header)
         private static readonly CoD5WiiGameDefinition _cod5Wii = new();
 
+        // Ghosts (IW6) — PS3 only. Pool-listing only; per-asset content parsers
+        // aren't implemented yet (see GhostsGameDefinition).
+        private static readonly GhostsGameDefinition _ghostsPs3 = new();
+
         /// <summary>
         /// Gets the appropriate game definition for the given FastFile.
         /// Automatically selects PS3 or Xbox 360 variant based on the file's signature.
@@ -79,6 +83,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 return isXbox360 ? _cod5Xbox : _cod5Ps3;
             if (fastFile.IsMW2File)
                 return isXbox360 ? _mw2Xbox : _mw2Ps3;
+            if (fastFile.IsGhostsFile)
+                return _ghostsPs3;  // PS3 only for now
 
             throw new NotSupportedException($"Unsupported game version: 0x{fastFile.GameVersion:X}");
         }

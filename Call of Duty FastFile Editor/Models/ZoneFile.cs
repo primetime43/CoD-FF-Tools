@@ -34,6 +34,20 @@ namespace Call_of_Duty_FastFile_Editor.Models
 
             var z = new ZoneFile(path, fastFile);
             z.LoadData();
+
+            // Ghosts (IW6) uses a different XFile header layout than CoD4/WaW/MW2 PS3,
+            // and the AssetCount/ScriptStringCount fields aren't at PS3 offsets. Use a
+            // dedicated pool walker that doesn't depend on those header fields. Per-asset
+            // content parsing (rawfile bodies, weapon structs, etc.) isn't implemented
+            // yet — the pool walker only populates ZoneFileAssets.ZoneAssetRecords so
+            // the asset-pool tab can list types + offsets.
+            if (fastFile.IsGhostsFile)
+            {
+                z.HeaderFieldValues = new Dictionary<string, uint>();
+                new GhostsZoneParser(z).Parse();
+                return z;
+            }
+
             z.ReadHeaderFields();
             z.ParseAssetPool();
             return z;

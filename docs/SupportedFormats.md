@@ -9,6 +9,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 | CoD4: Modern Warfare | ✅ Full | ✅ Full | 🟡 Partial | ⚠️ Extract |
 | WaW: World at War | ✅ Full | ✅ Full | 🟡 Partial | 🟡 Partial |
 | MW2: Modern Warfare 2 | ✅ Full | 🔬 Full (unverified) | 🟡 Partial | ➖ |
+| Ghosts | ⚠️ Extract | ❓ Untested | ❓ Untested | ➖ |
 
 ### Version IDs
 
@@ -17,6 +18,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 | CoD4 | `0x00000001` | `0x00000005` | `0x000001A2` |
 | WaW | `0x00000183` | `0x00000183` | `0x0000019B` |
 | MW2 | `0x0000010D` | `0x00000114` | ➖ |
+| Ghosts | `0x0000022E` | — | ➖ |
 
 ### Legend
 - ✅ **Full** - Decompress, parse assets, edit, and recompress
@@ -24,6 +26,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 - 📖 **Read-only** - Decompress, parse rawfile/localize, but **no recompress yet**. Opens both unsigned and signed retail files.
 - 🔬 **Full (unverified)** - Implementation feature-parity with the verified platform; no hardware load test yet
 - ⚠️ **Extract** - Decompress to zone file only (no asset editing/recompress)
+- ❓ **Untested** - No samples available; format may or may not match the verified platform
 - ➖ **Not Available** - Game not released on this platform
 
 ### PC Notes
@@ -43,6 +46,20 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
   - **Signed** (`IWff0100`): "authed chunks" format using `IWffs100` at offset `0x15`, then 8144-byte `DB_AuthHeader` with RSA-2048 signature and 244 SHA-256 master block hashes, then 8KB chunks in groups of 257 (1 hash chunk + 256 data chunks). Multiplayer + patch files.
 - **Recompression** (`FastFileProcessor.CompressMW2PC`) writes the unsigned layout: standard header + 9-byte preamble (preserved from the original FF when available) + single zlib stream. Signed inputs are saved as unsigned — re-signing the `DB_AuthHeader` requires Infinity Ward's RSA-2048 private key. Unsigned FFs are a valid loadable variant (used for SP/campaign files in retail).
 - See `docs/MW2_PC_FastFile_Format.md` for the full breakdown.
+
+### Ghosts (IW6) Notes
+- **Read-only / extract-only.** The library can decompress + inflate a Ghosts PS3 retail `.ff` to a fully-expanded `.zone` file, and the editor populates the asset-pool tab with type names from `GhostsGameDefinition` (PS3 only). Per-asset content parsers (rawfile body, weapon struct, GSC scriptfile, etc.) are not implemented — `GhostsGameDefinition.Parse*` methods all return null.
+- Both FF variants share the same downstream layout from `IWffS100` onwards:
+  - **Patch FF** (e.g. `patch_common_mp.ff`): `IWffS100` immediately after the 36-byte outer header at file offset `0x24`.
+  - **Base FF** (e.g. `common.ff`): a 12 KB index table sits between the outer header and `IWffS100` (which lands at `0x3294` for the sample). The index table's record format hasn't been reverse-engineered; it isn't needed for decompression.
+- Decompression anchors on `IWffS100`: 8 KB `DB_AuthHeader` + 48 bytes padding + 112 KB "LO" metadata region + raw-deflate block stream at `IWffS100 + 0x20000`. Each block has a 2-byte BE size header and decompresses to exactly 64 KB.
+- Inner per-asset zlib streams are expanded inline as a second pass — final `.zone` has all asset content readable directly in a hex view (0 residual `78 XX` streams in all 4 tested samples).
+- Two header shapes for per-asset entries: "long" (28 bytes, 8 trailing FFs, 3 size u32s — used by scriptfile/MPTYPE/AITYPE) and "short" (16 bytes, 4 trailing FFs, 2 size u32s — used by rawfile). The first u32 after the leading FFs is always the exact zlib stream byte count.
+- Auth header is the same shape as MW3's `DB_AuthHeader` but with SHA-1 hashes (20 bytes + 12 zero pad in 32-byte slots) instead of SHA-256, and uses `IWffS100` (capital S) inner magic vs MW3's lowercase `IWffs100`.
+- No encryption anywhere — outer is raw deflate, inner is standard zlib.
+- No save support: re-signing the `DB_AuthHeader` requires Infinity Ward's RSA-2048 private key.
+- Only PS3 verified (4 retail samples). Xbox 360 / Wii-U / PC variants use shifted asset type IDs and aren't wired up.
+- See `docs/Ghosts_FastFile_Format.md` for the format reference and `docs/Ghosts_Extraction_Howto.md` for the extraction algorithm.
 
 ### Wii Notes
 - WaW Wii uses a **single zlib stream** like PC (not block format), but the zone is **big-endian** like PS3.

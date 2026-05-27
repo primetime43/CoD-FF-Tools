@@ -44,6 +44,7 @@ public class FastFileInfo
     public const uint MW2_Console_Version = (uint)MW2Definition.VersionValue;
     public const uint MW2_PC_Version = (uint)MW2Definition.PCVersionValue;
     public const uint MW2_DevBuild_Version = (uint)MW2Definition.DevBuildVersionValue;
+    public const uint Ghosts_Version = (uint)GhostsDefinition.VersionValue;
 
     /// <summary>
     /// Reads FastFile header information from a file. For unsigned BE console FFs
@@ -312,6 +313,18 @@ public class FastFileInfo
                 info.Platforms = new[] { "Xbox 360" };
                 info.HeaderSize = -1; // Variable, needs to be calculated
                 break;
+            case Ghosts_Version:
+                // Ghosts (IW6) PS3 retail. Both patch FFs (IWffS100 at file offset 0x24)
+                // and base FFs (12 KB index table before IWffS100) match here on the
+                // 12-byte outer header alone. Decompression downstream finds IWffS100
+                // dynamically and anchors on it, so the two variants share the same code
+                // path. Read-only support: decompress to zone only; no asset parsing yet.
+                info.GameVersion = GameVersion.Ghosts;
+                info.GameName = "Ghosts";
+                info.Studio = "Infinity Ward";
+                info.Platforms = new[] { "PS3" };
+                info.HeaderSize = 12;
+                break;
             default:
                 info.GameVersion = GameVersion.Unknown;
                 info.GameName = "Unknown";
@@ -391,6 +404,13 @@ public class FastFileInfo
         // Wii versions
         if (version == CoD4_Wii_Version || version == WaW_Wii_Version)
             return "Wii";
+
+        // Ghosts uses IWff0100 (signed magic) on PS3 retail — the signed flag doesn't
+        // mean Xbox 360 here, unlike CoD4/WaW/MW2. Verified against retail Ghosts PS3
+        // patch + base FFs. (No Xbox 360 Ghosts samples tested yet; this label may
+        // need refinement when one is.)
+        if (version == Ghosts_Version)
+            return "PS3";
 
         // Signed magic is exclusively Xbox 360 for console games (CoD4/WaW/MW2 console).
         // MW2 PC signed (IWff0100 + LE version) is caught above by the PC version check.

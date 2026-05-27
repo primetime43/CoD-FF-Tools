@@ -8,5 +8,6 @@ public enum GameVersion
     Unknown,
     CoD4,
     WaW,
-    MW2
+    MW2,
+    Ghosts
 }

@@ -318,14 +318,15 @@ namespace Call_of_Duty_FastFile_Editor
 
             if (!_openedFastFile.IsValid)
             {
-                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid .ff file!\n\nSupported: CoD4, WaW (CoD5), MW2", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid .ff file!\n\nSupported: CoD4, WaW (CoD5), MW2, Ghosts (decompress only)", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return;
             }
 
             // Determine game name for display
-            string gameName = _openedFastFile.IsCod4File ? "CoD4" :
-                              _openedFastFile.IsCod5File ? "WaW (CoD5)" :
-                              _openedFastFile.IsMW2File ? "MW2" : "Unknown";
+            string gameName = _openedFastFile.IsCod4File   ? "CoD4" :
+                              _openedFastFile.IsCod5File   ? "WaW (CoD5)" :
+                              _openedFastFile.IsMW2File    ? "MW2" :
+                              _openedFastFile.IsGhostsFile ? "Ghosts" : "Unknown";
 
             try
             {
@@ -345,33 +346,41 @@ namespace Call_of_Duty_FastFile_Editor
                 // Load & parse that zone in one go
                 _openedFastFile.LoadZone();
 
-                // Get tag count for the dialog
-                int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
-
-                // Show asset selection dialog
+                // Asset selection dialog: ask which categories to load. Skipped for
+                // Ghosts (IW6) because per-asset content parsers aren't implemented —
+                // every category would come back empty anyway, so there's nothing to
+                // choose between. The asset-pool listing still populates from the
+                // GhostsZoneParser output.
                 bool loadRawFiles = true;
                 bool loadLocalizedEntries = true;
                 bool loadTags = true;
 
-                using (var assetDialog = new AssetSelectionDialog(
-                    _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
-                    _openedFastFile,
-                    tagCount))
+                if (!_openedFastFile.IsGhostsFile)
                 {
-                    if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
+                    int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
+                    using (var assetDialog = new AssetSelectionDialog(
+                        _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
+                        _openedFastFile,
+                        tagCount))
                     {
-                        SaveCloseFastFileAndCleanUp();
-                        return;
+                        if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
+                        {
+                            SaveCloseFastFileAndCleanUp();
+                            return;
+                        }
+                        loadRawFiles = assetDialog.LoadRawFiles;
+                        loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
+                        loadTags = assetDialog.LoadTags;
                     }
-                    loadRawFiles = assetDialog.LoadRawFiles;
-                    loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
-                    loadTags = assetDialog.LoadTags;
                 }
 
                 // Show loading indicator while parsing assets
                 ShowLoading($"Parsing {gameName} zone assets...");
 
-                // Here is where the asset records actual data is parsed throughout the zone
+                // Here is where the asset records actual data is parsed throughout the zone.
+                // For Ghosts, GhostsGameDefinition returns null from all Parse* methods, so the
+                // parsed-content lists (rawfile/localize/menu/etc.) come back empty — but the
+                // asset-pool listing still works.
                 LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
             }
             catch (Exception ex)
@@ -433,14 +442,15 @@ namespace Call_of_Duty_FastFile_Editor
 
             if (!_openedFastFile.IsValid)
             {
-                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid .ff file!\n\nSupported: CoD4, WaW (CoD5), MW2", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+                MessageBox.Show("Invalid FastFile!\n\nThe FastFile you have selected is not a valid .ff file!\n\nSupported: CoD4, WaW (CoD5), MW2, Ghosts (decompress only)", "Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
                 return;
             }
 
             // Determine game name for display
-            string gameName = _openedFastFile.IsCod4File ? "CoD4" :
-                              _openedFastFile.IsCod5File ? "WaW (CoD5)" :
-                              _openedFastFile.IsMW2File ? "MW2" : "Unknown";
+            string gameName = _openedFastFile.IsCod4File   ? "CoD4" :
+                              _openedFastFile.IsCod5File   ? "WaW (CoD5)" :
+                              _openedFastFile.IsMW2File    ? "MW2" :
+                              _openedFastFile.IsGhostsFile ? "Ghosts" : "Unknown";
 
             try
             {
@@ -473,32 +483,40 @@ namespace Call_of_Duty_FastFile_Editor
                     _openedFastFile.LoadZone();
                 });
 
-                // Get tag count for the dialog (may access zone data)
-                int tagCount = 0;
-                RunOnUIThread(() =>
-                {
-                    tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
-                    HideLoading();
-                });
-
-                // Show asset selection dialog
+                // Asset selection dialog: skipped for Ghosts (IW6) because per-asset
+                // content parsers aren't implemented yet — every category would come
+                // back empty anyway. The asset-pool listing still populates.
                 bool loadRawFiles = true;
                 bool loadLocalizedEntries = true;
                 bool loadTags = true;
 
-                using (var assetDialog = new AssetSelectionDialog(
-                    _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
-                    _openedFastFile,
-                    tagCount))
+                if (!_openedFastFile.IsGhostsFile)
                 {
-                    if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
+                    int tagCount = 0;
+                    RunOnUIThread(() =>
                     {
-                        SaveCloseFastFileAndCleanUp();
-                        return;
+                        tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
+                        HideLoading();
+                    });
+
+                    using (var assetDialog = new AssetSelectionDialog(
+                        _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
+                        _openedFastFile,
+                        tagCount))
+                    {
+                        if (assetDialog.ShowDialog(this) == DialogResult.Cancel)
+                        {
+                            SaveCloseFastFileAndCleanUp();
+                            return;
+                        }
+                        loadRawFiles = assetDialog.LoadRawFiles;
+                        loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
+                        loadTags = assetDialog.LoadTags;
                     }
-                    loadRawFiles = assetDialog.LoadRawFiles;
-                    loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
-                    loadTags = assetDialog.LoadTags;
+                }
+                else
+                {
+                    RunOnUIThread(() => HideLoading());
                 }
 
                 // Show loading indicator while parsing assets
@@ -4364,6 +4382,8 @@ namespace Call_of_Duty_FastFile_Editor
                 return (int)record.AssetType_MW2_Xbox360;
             if (_openedFastFile.IsMW2File)
                 return (int)record.AssetType_MW2;
+            if (_openedFastFile.IsGhostsFile)
+                return (int)record.AssetType_Ghosts;
             return 0;
         }
 

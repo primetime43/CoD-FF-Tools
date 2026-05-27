@@ -16,6 +16,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
         private readonly bool _isCod4;
         private readonly bool _isCod5;
         private readonly bool _isMW2;
+        private readonly bool _isGhosts;
         private readonly bool _isXbox360;
         private readonly bool _isPC;
         private readonly bool _isWii;
@@ -95,6 +96,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 _isCod4 = _zoneFile.ParentFastFile.IsCod4File;
                 _isCod5 = _zoneFile.ParentFastFile.IsCod5File;
                 _isMW2 = _zoneFile.ParentFastFile.IsMW2File;
+                _isGhosts = _zoneFile.ParentFastFile.IsGhostsFile;
                 _isXbox360 = _zoneFile.ParentFastFile.IsXbox360;
                 _isPC = _zoneFile.ParentFastFile.IsPC;
                 _isWii = _zoneFile.ParentFastFile.IsWii;
@@ -424,6 +426,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 return (int)record.AssetType_COD5;
             if (_isMW2)
                 return (int)record.AssetType_MW2;
+            if (_isGhosts)
+                return (int)record.AssetType_Ghosts;
             return 0;
         }
 
@@ -452,6 +456,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 return record.AssetType_COD5.ToString();
             else if (_isMW2)
                 return record.AssetType_MW2.ToString();
+            else if (_isGhosts)
+                return record.AssetType_Ghosts.ToString();
             return "unknown";
         }
 

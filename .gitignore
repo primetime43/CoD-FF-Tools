@@ -20,3 +20,5 @@ FastFileExtractor/bin/Release/net8.0/win-x64
 TestProject/
 
 *.csproj.user
+*.py
+/scripts

@@ -952,6 +952,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 return (int)record.AssetType_MW2_Xbox360;
             if (fastFile.IsMW2File)
                 return (int)record.AssetType_MW2;
+            if (fastFile.IsGhostsFile)
+                return (int)record.AssetType_Ghosts;
             return 0;
         }
 

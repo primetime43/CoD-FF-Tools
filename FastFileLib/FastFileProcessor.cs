@@ -49,6 +49,22 @@ public static class FastFileProcessor
         // Read header info
         var info = FastFileInfo.FromReader(br);
 
+        // Ghosts (IW6) — distinct enough from CoD4/WaW/MW2 to short-circuit before the
+        // shared SkipToCompressedData path. The patch and base variants only differ in
+        // what sits between the outer header and IWffS100 (nothing vs a 12 KB index
+        // table), so we find IWffS100 by search and anchor on +0x20000 for the deflate
+        // stream. See docs/Ghosts_FastFile_Format.md.
+        if (info.GameVersion == GameVersion.Ghosts)
+        {
+            int ghostsBlocks = TryDecompressGhosts(br, bw);
+            if (ghostsBlocks > 0)
+                return ghostsBlocks;
+            throw new InvalidDataException(
+                "Ghosts FastFile recognised (IWff0100 + version 0x22E) but the IWffS100 " +
+                "inner magic was not found in the first 64 KB — file may be corrupt or use " +
+                "an unsupported Ghosts variant.");
+        }
+
         // Skip to compressed data based on game version
         SkipToCompressedData(br, info);
 
@@ -838,6 +854,272 @@ public static class FastFileProcessor
         }
 
         return payload;
+    }
+
+    /// <summary>
+    /// Decompresses a Call of Duty: Ghosts (IW6) FastFile. Both patch FFs (IWffS100 at
+    /// file offset 0x24) and base FFs (12 KB pre-auth index table, IWffS100 deeper into
+    /// the file) share the same downstream layout, so we anchor on the IWffS100 magic
+    /// rather than a fixed offset.
+    ///
+    /// Layout from IWffS100 (=A):
+    ///   A..A+0x1FD0     DB_AuthHeader (RSA signature + 244 SHA-1 master block hashes)
+    ///   A+0x1FD0..A+0x2000  48 bytes padding
+    ///   A+0x2000..A+0x20000  LO region (14 × 8 KB chunks of 7-bit-clean metadata)
+    ///   A+0x20000..EOF       2-byte-BE-size raw-deflate blocks (each → 64 KB out)
+    ///
+    /// The output is the **inflated** zone — after running raw-deflate decompression on
+    /// the block stream, we also expand every per-asset inner zlib stream inline (the
+    /// MPTYPE / rawfile content that lives after the asset pool). The result is a zone
+    /// that can be browsed in a hex editor with all asset strings readable directly.
+    /// Per-asset header bytes (the FF-bracketed size+name preamble before each zlib
+    /// stream) are preserved verbatim; only the zlib payload bytes are replaced with
+    /// their decompressed form.
+    ///
+    /// See docs/Ghosts_FastFile_Format.md for the full format reference.
+    /// </summary>
+    private static int TryDecompressGhosts(BinaryReader br, BinaryWriter bw)
+    {
+        long outputStartPos = bw.BaseStream.Position;
+
+        try
+        {
+            br.BaseStream.Position = 0;
+            byte[] fileData = br.ReadBytes((int)br.BaseStream.Length);
+
+            int authOffset = FindGhostsInnerMagic(fileData);
+            if (authOffset < 0)
+                return 0;
+
+            int blockStart = authOffset + GameDefinitions.GhostsDefinition.DeflateBlockStartOffsetFromInnerMagic;
+            if (blockStart + 2 >= fileData.Length)
+                return 0;
+
+            // First pass: decode outer raw-deflate blocks into an in-memory raw zone.
+            using var rawZone = new MemoryStream();
+            int pos = blockStart;
+            int blocks = 0;
+            while (pos < fileData.Length)
+            {
+                if (pos + 2 > fileData.Length) break;
+                int srcSize = (fileData[pos] << 8) | fileData[pos + 1];
+                if (srcSize == 0) break;
+                if (pos + 2 + srcSize > fileData.Length)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[FastFileProcessor] Ghosts block {blocks}: srcSize 0x{srcSize:X} would overflow file");
+                    break;
+                }
+
+                using (var input = new MemoryStream(fileData, pos + 2, srcSize, writable: false))
+                using (var deflate = new DeflateStream(input, CompressionMode.Decompress))
+                {
+                    deflate.CopyTo(rawZone);
+                }
+
+                pos += 2 + srcSize;
+                blocks++;
+            }
+
+            if (blocks == 0)
+                return 0;
+
+            // Second pass: walk the raw zone for inline per-asset zlib streams and
+            // replace them inline with their decompressed bytes. See
+            // docs/Ghosts_FastFile_Format.md for the per-asset header layout.
+            byte[] rawZoneBytes = rawZone.ToArray();
+            byte[] inflated = InflateGhostsZoneAssets(rawZoneBytes, out int streamsInflated);
+
+            bw.BaseStream.Write(inflated, 0, inflated.Length);
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[FastFileProcessor] Ghosts decompressed: IWffS100@0x{authOffset:X}, " +
+                $"{blocks} blocks, raw zone {rawZoneBytes.Length}B, {streamsInflated} inner zlib " +
+                $"streams expanded → {inflated.Length}B output");
+            return blocks;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[FastFileProcessor] Ghosts decompression failed: {ex.Message}");
+            bw.BaseStream.Position = outputStartPos;
+            bw.BaseStream.SetLength(outputStartPos);
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Locates the IWffS100 inner-magic anchor used by Ghosts decompression. Returns -1
+    /// if not found within the first 64 KB (the patch variant has it at offset 0x24; the
+    /// base variant has it after a ~12 KB index table — both well inside 64 KB).
+    /// </summary>
+    private static int FindGhostsInnerMagic(byte[] fileData)
+    {
+        byte[] magic = Encoding.ASCII.GetBytes(GameDefinitions.GhostsDefinition.InnerMagic);
+        int searchLimit = Math.Min(fileData.Length - magic.Length, 0x10000);
+        for (int i = 0; i <= searchLimit; i++)
+        {
+            int j = 0;
+            for (; j < magic.Length; j++)
+                if (fileData[i + j] != magic[j]) break;
+            if (j == magic.Length) return i;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Walks a decompressed Ghosts zone and replaces every per-asset zlib stream inline
+    /// with its decompressed bytes. The XFile header, asset pool, and per-asset headers
+    /// (FF-bracketed size+name preambles) are copied verbatim; only the zlib payload
+    /// bytes are swapped for their inflated form.
+    ///
+    /// Recognition rule for a real zlib stream: bytes `78 01/5E/9C/DA`, preceded within
+    /// the previous 8 bytes by a block containing 4+ FFs, with a printable-ASCII name
+    /// between the FFs and the zlib magic. This filters out false-positive `78 XX` byte
+    /// pairs that occur randomly in dense binary asset data.
+    /// </summary>
+    /// <param name="zone">Decompressed zone bytes</param>
+    /// <param name="streamsInflated">Number of inner zlib streams successfully expanded</param>
+    /// <returns>The inflated zone (≥ input size; equal if no inner zlib streams were found)</returns>
+    public static byte[] InflateGhostsZoneAssets(byte[] zone, out int streamsInflated)
+    {
+        streamsInflated = 0;
+        if (zone == null || zone.Length < 0x40)
+            return zone ?? Array.Empty<byte>();
+
+        // Pre-scan for valid streams. Skip the first 0x40 bytes — that's XFile header
+        // territory. Small patch zones (e.g. patch_mp_dome_ns) can have their first
+        // asset content as early as ~0xA0; the 0x40 floor still lets us catch those
+        // while skipping the XFile header itself. Pool entries (FF FF FF FF + type)
+        // never look like zlib magic so they're safe to scan over.
+        var streams = new List<(int start, int comp, byte[] decompressed)>();
+        for (int i = 0x40; i < zone.Length - 2; i++)
+        {
+            if (zone[i] != 0x78) continue;
+            byte b1 = zone[i + 1];
+            if (b1 != 0x01 && b1 != 0x5E && b1 != 0x9C && b1 != 0xDA) continue;
+
+            // Recognise + parse the asset header that should immediately precede this
+            // zlib magic. We can't rely on input-stream Position to find the end of
+            // the zlib payload because .NET's ZLibStream buffers reads from the
+            // underlying stream in ~8 KB chunks regardless of what the deflate
+            // algorithm actually consumes. Instead, read `compressedLen` directly out
+            // of the asset header — verified to be the exact zlib byte count.
+            if (!TryReadGhostsAssetHeader(zone, i, out int compLen)) continue;
+            if (compLen < 2 || i + compLen > zone.Length) continue;
+
+            try
+            {
+                using var input = new MemoryStream(zone, i, compLen, writable: false);
+                using var zlib = new ZLibStream(input, CompressionMode.Decompress);
+                using var output = new MemoryStream();
+                zlib.CopyTo(output);
+                if (output.Length >= 1)
+                {
+                    streams.Add((i, compLen, output.ToArray()));
+                    i += compLen - 1;  // skip past this stream (loop increments by 1)
+                }
+            }
+            catch
+            {
+                // not a real zlib stream — keep scanning
+            }
+        }
+
+        if (streams.Count == 0)
+            return zone;
+
+        // Rebuild: copy input bytes verbatim, but each zlib stream is replaced by its
+        // decompressed payload.
+        using var rebuilt = new MemoryStream();
+        int cursor = 0;
+        foreach (var (start, comp, decompressed) in streams)
+        {
+            rebuilt.Write(zone, cursor, start - cursor);
+            rebuilt.Write(decompressed, 0, decompressed.Length);
+            cursor = start + comp;
+        }
+        rebuilt.Write(zone, cursor, zone.Length - cursor);
+        streamsInflated = streams.Count;
+        return rebuilt.ToArray();
+    }
+
+    /// <summary>
+    /// Walks back from a candidate zlib magic offset to parse the surrounding asset
+    /// header, returning the compressed length declared by the header. Returns false
+    /// if the header pattern doesn't match (so this isn't a real asset zlib stream).
+    ///
+    /// Two distinct shapes have been observed in IW6 PS3 zones, distinguished by
+    /// how many FF bytes immediately precede the name:
+    ///
+    ///   "Long"  (scriptfile / MPTYPE / AITYPE — 8 trailing FFs before name):
+    ///       [FF*≥4][compLen u32][decLen u32][??? u32][FF*8]<name>\0<zlib>
+    ///       Total header bytes before name: ≥4 + 12 + 8 = ≥24
+    ///
+    ///   "Short" (rawfile-style — 4 trailing FFs before name):
+    ///       [FF*≥4][compLen u32][decLen u32][FF*4]<name>\0<zlib>
+    ///       Total header bytes before name: ≥4 + 8 + 4 = ≥16
+    ///
+    /// In both, the first u32 right after the leading-FF block is the compressed
+    /// byte count of the zlib stream — that's what we return.
+    /// </summary>
+    private static bool TryReadGhostsAssetHeader(byte[] zone, int zlibOffset, out int compressedLen)
+    {
+        compressedLen = 0;
+
+        // 1. Back up over the required 0x00 (name terminator before zlib magic).
+        int p = zlibOffset - 1;
+        if (p < 0 || zone[p] != 0x00) return false;
+        p--;
+
+        // 2. Back up over printable-ASCII name (≥1 char, ≤127 chars).
+        int nameEnd = p + 1;
+        const int MaxNameLen = 127;
+        while (p > 0 && zone[p] >= 0x20 && zone[p] <= 0x7E && (nameEnd - p) < MaxNameLen)
+            p--;
+        int nameStart = p + 1;
+        if (nameEnd - nameStart < 1) return false;
+
+        // 3. Try both shapes in order — long first (more specific), then short.
+        //    A greedy FF count would fail when a size field legitimately ends in
+        //    0xFF (e.g. decompLen=0x00000EFF for vision/mpnuke.vision in common.zone),
+        //    which would gobble that byte into the trailing-FF run and shift the
+        //    size-field offset by one.
+        if (TryParseHeader(zone, nameStart, trailFfCount: 8, sizeFieldBytes: 12, out compressedLen))
+            return true;
+        if (TryParseHeader(zone, nameStart, trailFfCount: 4, sizeFieldBytes: 8, out compressedLen))
+            return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Attempt to parse one of the two known IW6 asset header shapes:
+    ///   trailFf=8, sizeFieldBytes=12  →  [FF*≥4][compLen][decLen][???][FF*8]&lt;name&gt;
+    ///   trailFf=4, sizeFieldBytes= 8  →  [FF*≥4][compLen][decLen][FF*4]&lt;name&gt;
+    /// Returns true with compressedLen set when the surrounding FF blocks match
+    /// exactly the expected counts; returns false otherwise (caller falls
+    /// through to the other shape).
+    /// </summary>
+    private static bool TryParseHeader(byte[] zone, int nameStart, int trailFfCount, int sizeFieldBytes, out int compressedLen)
+    {
+        compressedLen = 0;
+        if (nameStart < trailFfCount + sizeFieldBytes + 4) return false;
+
+        // Trailing FFs immediately before the name (exact count required).
+        for (int j = 1; j <= trailFfCount; j++)
+            if (zone[nameStart - j] != 0xFF) return false;
+
+        int sizeFieldsStart = nameStart - trailFfCount - sizeFieldBytes;
+
+        // Leading FFs immediately before the size fields (require ≥4).
+        for (int j = 1; j <= 4; j++)
+            if (zone[sizeFieldsStart - j] != 0xFF) return false;
+
+        compressedLen = (zone[sizeFieldsStart] << 24)
+                      | (zone[sizeFieldsStart + 1] << 16)
+                      | (zone[sizeFieldsStart + 2] << 8)
+                      | zone[sizeFieldsStart + 3];
+        return compressedLen > 0 && compressedLen < 0x4000000;  // < 64 MB
     }
 
     /// <summary>

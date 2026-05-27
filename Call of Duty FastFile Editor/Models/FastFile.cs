@@ -8,7 +8,8 @@ namespace Call_of_Duty_FastFile_Editor.Models
     {
         CoD4,
         CoD5,
-        MW2
+        MW2,
+        Ghosts
     }
 
     public class FastFile
@@ -31,6 +32,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public bool IsCod4File => OpenedFastFileHeader.IsCod4File;
         public bool IsCod5File => OpenedFastFileHeader.IsCod5File;
         public bool IsMW2File => OpenedFastFileHeader.IsMW2File;
+        public bool IsGhostsFile => OpenedFastFileHeader.IsGhostsFile;
         public bool IsSigned => OpenedFastFileHeader.IsSigned;
 
         /// <summary>
@@ -39,7 +41,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// IWff0100 + LE version. PC and Wii files are detected separately by FastFileInfo, so
         /// exclude them here. Dev-build FFM (version 0xFD) is always Xbox 360 (no PC variant).
         /// </summary>
-        public bool IsXbox360 => !IsPC && !IsWii && (
+        public bool IsXbox360 => !IsPC && !IsWii && !IsGhostsFile && (
             OpenedFastFileHeader.IsSigned ||
             OpenedFastFileHeader.GameVersion == FastFileLib.GameDefinitions.MW2Definition.DevBuildVersionValue);
 
@@ -68,17 +70,22 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// <summary>
         /// Gets the platform string for this FastFile.
         /// </summary>
-        public string Platform => IsPC ? "PC" : (IsWii ? "Wii" : (OpenedFastFileHeader.IsSigned ? "Xbox 360" : "PS3"));
+        public string Platform => IsPC ? "PC"
+                                : IsWii ? "Wii"
+                                : IsGhostsFile ? "PS3"  // Ghosts is signed on PS3 retail; no Xbox 360 samples tested yet
+                                : OpenedFastFileHeader.IsSigned ? "Xbox 360"
+                                : "PS3";
 
         /// <summary>
         /// Gets the FastFileLib.GameVersion enum value for this FastFile.
         /// Use this when calling shared library APIs that take a GameVersion parameter.
         /// </summary>
         public FastFileLib.GameVersion GameVersionEnum =>
-            IsCod4File ? FastFileLib.GameVersion.CoD4 :
-            IsCod5File ? FastFileLib.GameVersion.WaW :
-            IsMW2File  ? FastFileLib.GameVersion.MW2 :
-                         FastFileLib.GameVersion.Unknown;
+            IsCod4File   ? FastFileLib.GameVersion.CoD4 :
+            IsCod5File   ? FastFileLib.GameVersion.WaW :
+            IsMW2File    ? FastFileLib.GameVersion.MW2 :
+            IsGhostsFile ? FastFileLib.GameVersion.Ghosts :
+                           FastFileLib.GameVersion.Unknown;
 
         public FastFile(string filePath)
         {
@@ -155,9 +162,10 @@ namespace Call_of_Duty_FastFile_Editor.Models
         {
             return gameVersion switch
             {
-                FastFileLib.GameVersion.CoD4 => GameType.CoD4,
-                FastFileLib.GameVersion.WaW => GameType.CoD5,
-                FastFileLib.GameVersion.MW2 => GameType.MW2,
+                FastFileLib.GameVersion.CoD4   => GameType.CoD4,
+                FastFileLib.GameVersion.WaW    => GameType.CoD5,
+                FastFileLib.GameVersion.MW2    => GameType.MW2,
+                FastFileLib.GameVersion.Ghosts => GameType.Ghosts,
                 _ => null
             };
         }
@@ -201,6 +209,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
             public bool IsCod4File { get; private set; }
             public bool IsCod5File { get; private set; }
             public bool IsMW2File { get; private set; }
+            public bool IsGhostsFile { get; private set; }
             public bool IsSigned { get; private set; }
 
             /// <summary>
@@ -251,6 +260,14 @@ namespace Call_of_Duty_FastFile_Editor.Models
                         IsMW2File = true;
                         IsValid = true;
                         break;
+                    case FastFileLib.GameVersion.Ghosts:
+                        // Read-only support: we can decompress to a zone, but asset-pool
+                        // parsing isn't implemented for IW6 yet. The editor will surface
+                        // an empty / partial zone view; that's expected until per-asset
+                        // parsing lands.
+                        IsGhostsFile = true;
+                        IsValid = true;
+                        break;
                     default:
                         IsValid = false;
                         break;
@@ -280,6 +297,10 @@ namespace Call_of_Duty_FastFile_Editor.Models
                     case GameType.MW2:
                         GameVersion = MW2Definition.VersionValue;
                         IsMW2File = true;
+                        break;
+                    case GameType.Ghosts:
+                        GameVersion = GhostsDefinition.VersionValue;
+                        IsGhostsFile = true;
                         break;
                 }
             }
