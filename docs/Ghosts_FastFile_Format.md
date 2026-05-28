@@ -250,7 +250,65 @@ platforms aren't tested.
 
 Each asset entry is a small header followed by the asset's content. Two
 distinct header shapes have been observed in PS3 zones, distinguished by
-how many `0xFF` bytes immediately precede the asset name:
+how many `0xFF` bytes immediately precede the asset name.
+
+#### Notation used in the diagrams below
+
+- `u8` / `u16` / `u32` / `u64` — unsigned integers of N bytes (1 / 2 / 4 / 8).
+- `BE` — big-endian: most-significant byte first. PS3 is PowerPC, so every
+  multi-byte integer in IW6 PS3 zones is big-endian.
+  Example: bytes `00 00 0A E6` as a `u32 BE` decode to `0x00000AE6` = 2790.
+- `LE` — little-endian (not used in IW6 PS3; appears in MW2 PC comparisons).
+- `compLen` / `decLen` — compressed length / decompressed length, in bytes.
+  In every asset header verified so far, `compLen` is the exact zlib stream
+  byte count and `decLen` matches `len(zlib.decompress(stream))`.
+- `<name>\0` — null-terminated ASCII string, the asset's name (e.g.
+  `mp/constbaselines/bl_ps3_mp_boneyard_ns_war.bin`).
+
+Three worked examples (all short-shape headers from PS3 retail). The header
+is always 16 bytes — 4 leading `FF`s, the two `u32 BE` size fields, then 4
+trailing `FF`s — followed by the null-terminated name and the asset body.
+
+**Binary rawfile** — `mp/constbaselines/bl_ps3_mp_boneyard_ns_war.bin`:
+
+```
+Bytes:  FF FF FF FF 00 00 0A E6 00 00 94 00 FF FF FF FF
+        └─ FF*4 ──┘ └─compLen─┘ └─ decLen─┘ └─ FF*4 ──┘
+                     u32 BE      u32 BE
+                     = 2 790      = 37 888
+```
+
+Body is a 2,790-byte zlib stream that decompresses to 37,888 bytes of binary
+constbaseline data (PS3 netcode snapshot, not human-readable).
+
+**Text rawfile** — `vision/mp_alien_town_thermal.vision`:
+
+```
+Bytes:  FF FF FF FF 00 00 03 39 00 00 0E E7 FF FF FF FF
+        └─ FF*4 ──┘ └─compLen─┘ └─ decLen─┘ └─ FF*4 ──┘
+                     u32 BE      u32 BE
+                     =   825      =  3 815
+```
+
+Body is an 825-byte zlib stream that decompresses to 3,815 bytes of ASCII
+vision config (`r_glow "0"`, `r_glowBloomCutoff "0.99"`, …).
+
+**Text rawfile** — `maps/mp/mp_skeleton_fx.gsc`:
+
+```
+Bytes:  FF FF FF FF 00 00 03 6C 00 00 13 C6 FF FF FF FF
+        └─ FF*4 ──┘ └─compLen─┘ └─ decLen─┘ └─ FF*4 ──┘
+                     u32 BE      u32 BE
+                     =   876      =  5 062
+```
+
+Body is an 876-byte zlib stream that decompresses to 5,062 bytes of GSC source
+(`main() { level._effect[ "vfx_sunflare_midday_white" ] = loadfx(...); … }`).
+
+All three were verified by reading bytes 0–15 of the file the editor's rawfile
+extractor produced for each asset. After `InflateGhostsZoneAssets` runs the
+zone holds the decompressed body in place of the zlib stream, but the per-asset
+header keeps the original on-disk `compLen` / `decLen` as metadata.
 
 **"Long" shape** (8 trailing FFs — 28 bytes header + name + content):
 ```
