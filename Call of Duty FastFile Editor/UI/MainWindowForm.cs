@@ -4393,7 +4393,9 @@ namespace Call_of_Duty_FastFile_Editor
         {
             if (_openedFastFile.IsCod4File && _openedFastFile.IsPC)
                 return (int)record.AssetType_COD4_PC;
-            if (_openedFastFile.IsCod4File && _openedFastFile.IsXbox360)
+            // CoD4 Wii uses the Xbox 360 enum (rawfile=0x20 etc), verified against
+            // retail Reflex zones. Asymmetric vs CoD5 Wii which uses the PC enum.
+            if (_openedFastFile.IsCod4File && (_openedFastFile.IsXbox360 || _openedFastFile.IsWii))
                 return (int)record.AssetType_COD4_Xbox360;
             if (_openedFastFile.IsCod4File)
                 return (int)record.AssetType_COD4;

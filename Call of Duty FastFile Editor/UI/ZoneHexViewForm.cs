@@ -413,7 +413,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
         {
             if (_isCod4 && _isPC)
                 return (int)record.AssetType_COD4_PC;
-            if (_isCod4 && _isXbox360)
+            // CoD4 Wii uses the Xbox 360 enum (rawfile=0x20 etc).
+            if (_isCod4 && (_isXbox360 || _isWii))
                 return (int)record.AssetType_COD4_Xbox360;
             if (_isCod4)
                 return (int)record.AssetType_COD4;
@@ -444,7 +445,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
         {
             if (_isCod4 && _isPC)
                 return record.AssetType_COD4_PC.ToString();
-            else if (_isCod4 && _isXbox360)
+            else if (_isCod4 && (_isXbox360 || _isWii))
                 return record.AssetType_COD4_Xbox360.ToString();
             else if (_isCod4)
                 return record.AssetType_COD4.ToString();

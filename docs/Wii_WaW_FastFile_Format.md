@@ -142,12 +142,64 @@ Editor saves of Wii FFs flow through the editor's `FastFileSave` shim → `FastF
 `platform="Wii"` from `openedFastFile.IsWii` (set by `FastFileInfo.FromFile` at
 open time when version `0x19B` is detected).
 
+## CoD4 Wii (Reflex Edition) — confirmed
+
+CoD4 Wii shares most of the WaW Wii shape (single zlib stream, BE, 56-byte header) but
+uses a **different asset type enum**. Verified from retail `CoD-MWR-extracted` files:
+
+| Aspect | WaW Wii | **CoD4 Wii (Reflex)** |
+|---|---|---|
+| FF version (BE) | `00 00 01 9B` (0x19B) | `00 00 01 A2` (0x1A2) |
+| Studio | Treyarch | Infinity Ward |
+| Zone header size | 56 bytes (8 blockSize slots) | same |
+| Compression | Single zlib stream | same |
+| Endianness | Big (PowerPC) | same |
+| Rawfile entry format | 12-byte CoD4/WaW BE | same |
+| **Asset type enum** | `CoD5AssetTypePC` (no shader slots) | **`CoD4AssetTypeXbox360`** (drops vertexshader only) |
+| rawfile asset id | 0x20 | **0x20** (same byte, different reason) |
+| techset asset id | 0x07 | **0x06** |
+| image asset id | 0x08 | **0x07** |
+| Extensions | none observed | `packindex = 0x22` (for `.pak` texture archives) |
+
+Asymmetry proof: `ac130_load.zone` (a Reflex load-screen FF) has asset distribution
+`1×0x07 + 3×0x06 + 1×0x20`. With CoD4 Xbox 360 enum that's `1 image + 3 techsets +
+1 rawfile` — exactly what a load screen contains. With CoD4 PC enum it would be
+`1 sound + 3 images + 1 stringtable` for a loading screen, which is implausible.
+
+IW (CoD4) kept the pixelshader slot at 0x05 even though Wii has fixed-function-ish
+graphics (TEV stages, no programmable shaders); Treyarch (WaW) cleaned up by removing
+both shader slots. Different studios, different enum decisions for the same hardware.
+
+### CoD4 Wii zone variants
+
+CoD4 Wii FFs come in three flavors per map:
+- `<mapname>_temp.ff` — rawfile-only zones (mission scripts as `.gsc`/`.csc`)
+- `<mapname>_load.ff` — load-screen FFs (image + techsets + rawfile)
+- `<mapname>_loose.ff` — texture pack indexes (`packindex` entries pointing into `.pak` files)
+
+The `_temp` FFs often have `ScriptStringCount = 0`, which means `ScriptStringsPtr` at
+0x2C is `0x00000000` (null), **not** `0xFFFFFFFF`. Detection logic accepts both
+(`FastFileInfo.IsZoneWiiInternal` checks `HasMarker(0x2C) || ScriptStringCount@0x28 == 0`).
+
+### CLI roundtrip (CoD4 Wii)
+
+```
+ffcli compress map_temp.zone map_temp.ff --game cod4 --platform wii
+```
+
+The `--game cod4 --platform wii` flags are required: the zone bytes alone can't
+distinguish CoD4 Wii from WaW Wii (rawfile=0x20 in both enums, same header layout).
+Without flags, auto-detect defaults to WaW Wii (more common modding target). The
+editor's save path knows the game/platform from the loaded FF header, so it doesn't
+need overrides.
+
 ## Known unknowns
 
-- **CoD4 Wii format** — presumed same shape (single zlib stream, BE, PC enum, 56-byte
-  header) but no samples confirmed yet.
 - **`BlockSizeTemp` computation rule** — preserved from source on edit-and-save. A
   fresh-zone Wii build would need to compute it.
 - **In-game loader strictness** — no in-game test of an edited+saved Wii FF yet.
 - **`BlockSizeIndex` semantics** — what does the engine actually use this for on Wii?
   Likely something to do with vertex/index buffers but unconfirmed.
+- **CoD4 Wii packindex (0x22) format** — observed in `_loose.ff` files. Header starts
+  with `"0KAP"` (PAK0 reversed) followed by an entry count and a list of
+  `[hash][offset]` pairs. Full struct not yet reverse-engineered.

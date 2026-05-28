@@ -573,14 +573,31 @@ public class FastFileInfo
             header[offset] == 0xFF && header[offset + 1] == 0xFF &&
             header[offset + 2] == 0xFF && header[offset + 3] == 0xFF;
 
-        // 56-byte layout (ScriptStringsPtr @ 0x2C, AssetsPtr @ 0x34): MW2 PC (LE) or WaW Wii (BE).
+        // 56-byte layout (ScriptStringsPtr @ 0x2C, AssetsPtr @ 0x34): MW2 PC (LE), WaW Wii or
+        // CoD4 Wii (BE). ScriptStringsPtr at 0x2C is 0xFFFFFFFF when ScriptStringCount > 0, but
+        // 0x00000000 when count = 0 (no script strings → null pointer). AssetsPtr at 0x34 is
+        // always FFFFFFFF since every real zone has at least one asset. So require Has(0x34)
+        // and accept Has(0x2C) OR ScriptStringCount@0x28 == 0.
+        //
         // MW2 Xbox 360's 48-byte layout *coincidentally* puts FFFFFFFF at both 0x2C (AssetsPtr)
         // AND 0x34 (first asset entry's ptr placeholder), so we additionally require that the
-        // value at 0x30 looks like an AssetCount (>0x29) rather than a small asset type id.
-        if (Has(0x2C) && Has(0x34) && Plausible56ByteAssetCount(header))
+        // value at 0x30 looks like an AssetCount (>0x29) rather than a small asset type id —
+        // see Plausible56ByteAssetCount.
+        bool scriptStringSlotOk = Has(0x2C) || FastFileConstants.ReadUInt32BigEndian(header, 0x28) == 0;
+        if (scriptStringSlotOk && Has(0x34) && Plausible56ByteAssetCount(header))
         {
             if (isLE == true) return GameVersion.MW2;
-            if (isLE == false) return GameVersion.WaW;
+            if (isLE == false)
+            {
+                // BE + 56-byte layout = Wii. Distinguish CoD4 Wii from WaW Wii by reading the
+                // first asset's type byte at 0x3B (BE): rawfile is 0x20 on both, but CoD4 Wii
+                // load FFs commonly have type 0x07 (image) or 0x06 (techset) at index 0, while
+                // WaW Wii would have those as 0x07 (sound) / 0x06 (material) — same byte, can't
+                // disambiguate from a single asset entry. The zone alone can't reliably tell
+                // CoD4 Wii from WaW Wii; return WaW as the more common case and let the
+                // caller's FF header version override when available.
+                return GameVersion.WaW;
+            }
             return GameVersion.Unknown;  // ambiguous endianness
         }
 
@@ -731,23 +748,26 @@ public class FastFileInfo
         // Wii is BE (PC is the only LE platform among the games we support).
         if (IsZonePCInternal(header, fileSize)) return false;
 
-        // Need 56-byte layout: ScriptStringsPtr @0x2C, AssetsPtr @0x34 (both 0xFFFFFFFF),
-        // and AssetCount at 0x30. The tricky part is MW2 Xbox 360's 48-byte layout
-        // *coincidentally* has 0xFFFFFFFF at 0x34 — but that's the first asset entry's
-        // ptr placeholder, not AssetsPtr; what sits at 0x30 there is the first asset's
-        // type word (BE int with low byte = type ID, e.g. `00 00 00 07` for image=0x07).
+        // Need 56-byte layout: ScriptStringsPtr @0x2C, AssetsPtr @0x34, AssetCount @0x30.
+        // ScriptStringsPtr can be 0xFFFFFFFF (when ScriptStringCount > 0, the placeholder
+        // for the inline string table) OR 0x00000000 (when count = 0, no string table
+        // exists — common in CoD4 Wii _temp/_load FFs). AssetsPtr is always 0xFFFFFFFF
+        // since every real zone has at least one asset.
         //
-        // Distinguish them by reading 0x30 as a BE int:
-        //   - Wii 56-byte: AssetCount — typically > 0x29 (any zone with more than a
-        //     handful of assets has more than the max asset-type-id of 0x29).
-        //   - MW2 Xbox 360 48-byte: first asset's type word — high 3 bytes are zero,
-        //     low byte is a small type ID (≤ 0x29).
+        // The tricky part is MW2 Xbox 360's 48-byte layout *coincidentally* has 0xFFFFFFFF
+        // at 0x34 — but that's the first asset entry's ptr placeholder, not AssetsPtr;
+        // what sits at 0x30 there is the first asset's type word (BE int with low byte =
+        // type ID, e.g. `00 00 00 07` for image=0x07). Plausible56ByteAssetCount checks
+        // for this by reading 0x30 as a BE int and requiring it look like an AssetCount
+        // rather than a small type ID.
         bool HasMarker(int offset) =>
             offset + 4 <= header.Length &&
             header[offset] == 0xFF && header[offset + 1] == 0xFF &&
             header[offset + 2] == 0xFF && header[offset + 3] == 0xFF;
 
-        if (!HasMarker(0x2C) || !HasMarker(0x34) || HasMarker(0x28)) return false;
+        if (!HasMarker(0x34) || HasMarker(0x28)) return false;
+        bool scriptStringSlotOk = HasMarker(0x2C) || FastFileConstants.ReadUInt32BigEndian(header, 0x28) == 0;
+        if (!scriptStringSlotOk) return false;
         // Same 56-byte-vs-48-byte heuristic as DetectGameByHeaderShape uses — see
         // Plausible56ByteAssetCount comments for the reasoning.
         return Plausible56ByteAssetCount(header);

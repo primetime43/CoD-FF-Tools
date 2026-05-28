@@ -87,7 +87,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 string typeName;
                 if (_fastFile.IsCod4File && _fastFile.IsPC)
                     typeName = record.AssetType_COD4_PC.ToString();
-                else if (_fastFile.IsCod4File && _fastFile.IsXbox360)
+                // CoD4 Wii uses the Xbox 360 enum, verified against retail Reflex zones.
+                else if (_fastFile.IsCod4File && (_fastFile.IsXbox360 || _fastFile.IsWii))
                     typeName = record.AssetType_COD4_Xbox360.ToString();
                 else if (_fastFile.IsCod4File)
                     typeName = record.AssetType_COD4.ToString();

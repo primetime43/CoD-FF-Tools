@@ -267,32 +267,43 @@ public static class FastFileConstants
     };
 
     /// <summary>
-    /// Platform-aware rawfile asset type ID. CoD4/WaW PC drop pixelshader+vertexshader
-    /// (so IDs shift -2 from PS3), Xbox 360 drops only vertexshader (-1 from PS3). MW2
-    /// PC instead *adds* vertexdecl (+1 from PS3, +2 from Xbox 360). Wii uses PC enum.
+    /// Platform-aware rawfile asset type ID.
+    ///   - CoD4/WaW PC drop pixelshader+vertexshader (IDs shift -2 from PS3).
+    ///   - Xbox 360 drops only vertexshader (-1 from PS3).
+    ///   - MW2 PC instead *adds* vertexdecl (+1 from PS3, +2 from Xbox 360).
+    ///   - **Wii is asymmetric**: WaW Wii uses the PC enum (no shader slots), but
+    ///     CoD4 Wii (Reflex) uses the Xbox 360 enum (drops vertexshader, keeps
+    ///     pixelshader). Verified against retail Reflex load FFs where the type
+    ///     distribution (1×0x07 image + 3×0x06 techset + 1×0x20 rawfile) only fits
+    ///     the Xbox 360 enum. IW and Treyarch made different enum-cleanup choices
+    ///     for the Wii port.
     /// </summary>
     public static byte GetRawFileAssetType(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        bool noShaderSlots = isPC || isWii;
         return version switch
         {
-            GameVersion.CoD4 => noShaderSlots ? (byte)0x1F : isXbox360 ? (byte)0x20 : (byte)0x21,
-            GameVersion.WaW  => noShaderSlots ? (byte)0x20 : isXbox360 ? (byte)0x21 : (byte)0x22,
+            // CoD4 Wii uses Xbox 360 enum (rawfile = 0x20), not PC.
+            GameVersion.CoD4 => isPC ? (byte)0x1F : (isXbox360 || isWii) ? (byte)0x20 : (byte)0x21,
+            // WaW Wii uses PC enum (rawfile = 0x20).
+            GameVersion.WaW  => (isPC || isWii) ? (byte)0x20 : isXbox360 ? (byte)0x21 : (byte)0x22,
             GameVersion.MW2  => isPC ? (byte)0x24 : isXbox360 ? (byte)0x22 : (byte)0x23,
             _ => throw new ArgumentOutOfRangeException(nameof(version))
         };
     }
 
     /// <summary>
-    /// Platform-aware localize asset type ID. Same shift rules as rawfile (see above).
+    /// Platform-aware localize asset type ID. Same Wii asymmetry as rawfile:
+    /// CoD4 Wii follows the Xbox 360 enum (localize = 0x17), WaW Wii follows the PC
+    /// enum (localize = 0x17). The IDs happen to match in this case, but the reasoning
+    /// is different — CoD4 Xbox 360 = 0x17 because vertexshader is dropped; WaW PC = 0x17
+    /// because both shader slots are dropped.
     /// </summary>
     public static byte GetLocalizeAssetType(GameVersion version, bool isXbox360, bool isPC, bool isWii = false)
     {
-        bool noShaderSlots = isPC || isWii;
         return version switch
         {
-            GameVersion.CoD4 => noShaderSlots ? (byte)0x16 : isXbox360 ? (byte)0x17 : (byte)0x18,
-            GameVersion.WaW  => noShaderSlots ? (byte)0x17 : isXbox360 ? (byte)0x18 : (byte)0x19,
+            GameVersion.CoD4 => isPC ? (byte)0x16 : (isXbox360 || isWii) ? (byte)0x17 : (byte)0x18,
+            GameVersion.WaW  => (isPC || isWii) ? (byte)0x17 : isXbox360 ? (byte)0x18 : (byte)0x19,
             GameVersion.MW2  => isPC ? (byte)0x1B : isXbox360 ? (byte)0x19 : (byte)0x1A,
             _ => throw new ArgumentOutOfRangeException(nameof(version))
         };

@@ -371,7 +371,10 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 {
                     if (_isPC)
                         record.AssetType_COD4_PC = (CoD4AssetTypePC)assetTypeInt;
-                    else if (_isXbox360)
+                    else if (_isXbox360 || _isWii)
+                        // CoD4 Wii uses the Xbox 360 asset type enum (drops vertexshader,
+                        // keeps pixelshader) — verified against retail Reflex load FFs.
+                        // Store in the Xbox 360 slot so downstream code reads the correct enum.
                         record.AssetType_COD4_Xbox360 = (CoD4AssetTypeXbox360)assetTypeInt;
                     else
                         record.AssetType_COD4 = (CoD4AssetTypePS3)assetTypeInt;

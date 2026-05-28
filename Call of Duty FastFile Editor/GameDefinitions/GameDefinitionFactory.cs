@@ -36,8 +36,13 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         private static readonly CoD5PCGameDefinition _cod5PC = new();
         private static readonly MW2GameDefinition _mw2PC = new(isXbox360: false, isPC: true);
 
-        // Wii (big-endian like PS3 but PC-style asset type IDs; 56-byte header)
+        // Wii: big-endian (PowerPC) with 56-byte zone header.
+        //   - CoD5 Wii uses the WaW PC asset type enum (no shader slots).
+        //   - CoD4 Wii (Reflex) uses the CoD4 Xbox 360 asset type enum (drops vertexshader,
+        //     keeps pixelshader). Asymmetric vs CoD5 Wii — IW and Treyarch made different
+        //     enum-cleanup choices for the Wii port.
         private static readonly CoD5WiiGameDefinition _cod5Wii = new();
+        private static readonly CoD4WiiGameDefinition _cod4Wii = new();
 
         // Ghosts (IW6) — PS3 only. Pool-listing only; per-asset content parsers
         // aren't implemented yet (see GhostsGameDefinition).
@@ -62,7 +67,8 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             {
                 if (fastFile.IsCod5File)
                     return _cod5Wii;
-                // CoD4 Wii not yet implemented; fall through to PS3 fallback.
+                if (fastFile.IsCod4File)
+                    return _cod4Wii;
             }
 
             // Check if PC platform was explicitly set
@@ -105,6 +111,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 {
                     FastFilePlatform.Xbox360 => _cod4Xbox,
                     FastFilePlatform.PC => _cod4PC,
+                    FastFilePlatform.Wii => _cod4Wii,
                     _ => _cod4Ps3
                 };
             }
@@ -115,6 +122,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 {
                     FastFilePlatform.Xbox360 => _cod5Xbox,
                     FastFilePlatform.PC => _cod5PC,
+                    FastFilePlatform.Wii => _cod5Wii,
                     _ => _cod5Ps3
                 };
             }
@@ -171,7 +179,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 {
                     FastFilePlatform.Xbox360 => _cod4Xbox,
                     FastFilePlatform.PC => _cod4PC,
-                    FastFilePlatform.Wii => _cod4Ps3, // Wii uses PS3 asset types (big-endian)
+                    FastFilePlatform.Wii => _cod4Wii,
                     _ => _cod4Ps3
                 };
             }
@@ -184,7 +192,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
                 {
                     FastFilePlatform.Xbox360 => _cod5Xbox,
                     FastFilePlatform.PC => _cod5PC,
-                    FastFilePlatform.Wii => _cod5Ps3, // Wii uses PS3 asset types (big-endian)
+                    FastFilePlatform.Wii => _cod5Wii,
                     _ => _cod5Ps3
                 };
             }

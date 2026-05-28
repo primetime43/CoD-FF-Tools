@@ -24,6 +24,16 @@ namespace Call_of_Duty_FastFile_Editor.Services
         };
 
         /// <summary>
+        /// Supported asset types for COD4 (Xbox 360 enum — also covers Wii, which uses
+        /// the same enum mapping as Xbox 360 per retail-Reflex verification).
+        /// </summary>
+        private static readonly HashSet<CoD4AssetTypeXbox360> SupportedTypesCOD4Xbox360 = new HashSet<CoD4AssetTypeXbox360>
+        {
+            CoD4AssetTypeXbox360.rawfile,
+            CoD4AssetTypeXbox360.localize
+        };
+
+        /// <summary>
         /// Supported asset types for COD5 (PS3).
         /// </summary>
         private static readonly HashSet<CoD5AssetTypePS3> SupportedTypesCOD5 = new HashSet<CoD5AssetTypePS3>
@@ -87,7 +97,13 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
             foreach (var record in zone.ZoneFileAssets.ZoneAssetRecords)
             {
-                if (fastFile.IsCod4File && !SupportedTypesCOD4.Contains(record.AssetType_COD4))
+                // CoD4 Wii stores into the Xbox 360 enum slot (same enum mapping); both
+                // are checked against SupportedTypesCOD4Xbox360.
+                if (fastFile.IsCod4File && (fastFile.IsXbox360 || fastFile.IsWii)
+                    && !SupportedTypesCOD4Xbox360.Contains(record.AssetType_COD4_Xbox360))
+                    return false;
+                if (fastFile.IsCod4File && !fastFile.IsXbox360 && !fastFile.IsWii && !fastFile.IsPC
+                    && !SupportedTypesCOD4.Contains(record.AssetType_COD4))
                     return false;
                 if (fastFile.IsCod5File && fastFile.IsPC && !SupportedTypesCOD5PC.Contains(record.AssetType_COD5_PC))
                     return false;
@@ -119,7 +135,10 @@ namespace Call_of_Duty_FastFile_Editor.Services
             {
                 bool isSupported = false;
 
-                if (fastFile.IsCod4File)
+                // CoD4 Wii uses the Xbox 360 asset type enum slot.
+                if (fastFile.IsCod4File && (fastFile.IsXbox360 || fastFile.IsWii))
+                    isSupported = SupportedTypesCOD4Xbox360.Contains(record.AssetType_COD4_Xbox360);
+                else if (fastFile.IsCod4File)
                     isSupported = SupportedTypesCOD4.Contains(record.AssetType_COD4);
                 else if (fastFile.IsCod5File && fastFile.IsPC)
                     isSupported = SupportedTypesCOD5PC.Contains(record.AssetType_COD5_PC);
@@ -156,7 +175,12 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 bool isSupported = false;
                 string typeName = "unknown";
 
-                if (fastFile.IsCod4File)
+                if (fastFile.IsCod4File && (fastFile.IsXbox360 || fastFile.IsWii))
+                {
+                    isSupported = SupportedTypesCOD4Xbox360.Contains(record.AssetType_COD4_Xbox360);
+                    typeName = record.AssetType_COD4_Xbox360.ToString();
+                }
+                else if (fastFile.IsCod4File)
                 {
                     isSupported = SupportedTypesCOD4.Contains(record.AssetType_COD4);
                     typeName = record.AssetType_COD4.ToString();
@@ -244,9 +268,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
                     bool isPC = fastFile.IsPC;
                     foreach (var record in supportedRecords)
                     {
-                        // Get asset type value based on game/platform
+                        // Get asset type value based on game/platform.
+                        // CoD4 Wii uses the Xbox 360 enum (verified against retail Reflex zones)
+                        // — store/read via AssetType_COD4_Xbox360 to get the correct rawfile=0x20.
                         int assetType;
-                        if (fastFile.IsCod4File)
+                        if (fastFile.IsCod4File && isPC)
+                            assetType = (int)record.AssetType_COD4_PC;
+                        else if (fastFile.IsCod4File && (fastFile.IsXbox360 || fastFile.IsWii))
+                            assetType = (int)record.AssetType_COD4_Xbox360;
+                        else if (fastFile.IsCod4File)
                             assetType = (int)record.AssetType_COD4;
                         else if (fastFile.IsCod5File && isPC)
                             assetType = (int)record.AssetType_COD5_PC;
