@@ -57,6 +57,16 @@ jobs:
           -p:IncludeNativeLibrariesForSelfExtract=true `
           -o ./publish-extractor
 
+    - name: Build and Publish FastFile Converter GUI
+      run: |
+        dotnet publish "FastFileConverterGUI/FastFileConverterGUI.csproj" `
+          -c Release `
+          -r win-x64 `
+          --self-contained false `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o ./publish-converter
+
     - name: Build and Publish FastFile CLI
       run: |
         dotnet publish "FastFileCLI/FastFileCLI.csproj" `
@@ -74,6 +84,7 @@ jobs:
         Move-Item "./publish/Call of Duty FastFile Editor.exe" "./publish/Call of Duty FastFile Editor-$s.exe"
         Move-Item "./publish-compiler/FastFileCompilerGUI.exe" "./publish-compiler/FastFileCompilerGUI-$s.exe"
         Move-Item "./publish-extractor/FastFileExtractor.exe" "./publish-extractor/FastFileExtractor-$s.exe"
+        Move-Item "./publish-converter/FastFileConverter.exe" "./publish-converter/FastFileConverter-$s.exe"
         Move-Item "./publish-cli/ffcli.exe" "./publish-cli/ffcli-$s.exe"
 
     - name: Upload Main Editor
@@ -97,6 +108,13 @@ jobs:
         path: ./publish-extractor/FastFileExtractor-${{ steps.ver.outputs.suffix }}.exe
         retention-days: 14
 
+    - name: Upload FastFile Converter GUI
+      uses: actions/upload-artifact@v4
+      with:
+        name: FastFileConverter-${{ steps.ver.outputs.suffix }}
+        path: ./publish-converter/FastFileConverter-${{ steps.ver.outputs.suffix }}.exe
+        retention-days: 14
+
     - name: Upload FastFile CLI
       uses: actions/upload-artifact@v4
       with:
@@ -112,5 +130,6 @@ jobs:
           ./publish/Call of Duty FastFile Editor-${{ steps.ver.outputs.suffix }}.exe
           ./publish-compiler/FastFileCompilerGUI-${{ steps.ver.outputs.suffix }}.exe
           ./publish-extractor/FastFileExtractor-${{ steps.ver.outputs.suffix }}.exe
+          ./publish-converter/FastFileConverter-${{ steps.ver.outputs.suffix }}.exe
           ./publish-cli/ffcli-${{ steps.ver.outputs.suffix }}.exe
         retention-days: 14

@@ -103,6 +103,24 @@ jobs:
         Move-Item "./publish-converter/FastFileConverter.exe" "./publish-converter/FastFileConverter-$s.exe"
         Move-Item "./publish-cli/ffcli.exe" "./publish-cli/ffcli-$s.exe"
 
+    - name: Create All-Tools bundle zip
+      shell: pwsh
+      run: |
+        $s = "${{ steps.get_version.outputs.suffix }}"
+        # Gather all 5 exes into one flat folder, then zip it. Compress-Archive flattens
+        # the input file list automatically (no parent-folder paths preserved), so the
+        # resulting zip is a single level deep — users get 5 exes side by side, not
+        # nested under publish/ publish-compiler/ etc.
+        $bundle = "./All-Tools-$s.zip"
+        Compress-Archive -Path `
+          "./publish/Call of Duty FastFile Editor-$s.exe", `
+          "./publish-compiler/FastFileCompilerGUI-$s.exe", `
+          "./publish-extractor/FastFileExtractor-$s.exe", `
+          "./publish-converter/FastFileConverter-$s.exe", `
+          "./publish-cli/ffcli-$s.exe" `
+          -DestinationPath $bundle
+        Write-Host "Bundle created: $bundle ($((Get-Item $bundle).Length) bytes)"
+
     - name: List published files
       run: |
         Write-Host "Main Editor:"
@@ -130,5 +148,6 @@ jobs:
           ./publish-extractor/FastFileExtractor-${{ steps.get_version.outputs.suffix }}.exe
           ./publish-converter/FastFileConverter-${{ steps.get_version.outputs.suffix }}.exe
           ./publish-cli/ffcli-${{ steps.get_version.outputs.suffix }}.exe
+          ./All-Tools-${{ steps.get_version.outputs.suffix }}.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
