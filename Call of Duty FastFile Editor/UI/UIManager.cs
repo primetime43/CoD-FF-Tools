@@ -41,6 +41,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                 gameString = "COD5";
             else if (fastFile.IsMW2File)
                 gameString = "MW2";
+            else if (fastFile.IsGhostsFile)
+                gameString = "Ghosts";
             else
                 gameString = "Unknown";
 

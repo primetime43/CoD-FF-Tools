@@ -617,20 +617,26 @@ namespace Call_of_Duty_FastFile_Editor
             _assetPoolStartOffset = zone.AssetPoolStartOffset;
             _assetPoolEndOffset = zone.AssetPoolEndOffset;
 
-            // Ghosts: use a dedicated rawfile scanner that walks the (already inflated)
-            // zone for the short-shape rawfile header pattern. The shared MW2-style
-            // AssetRecordProcessor doesn't recognise IW6 asset shapes, and the
-            // GhostsGameDefinition.ParseRawFile method returns null so feeding records
-            // through it would produce an empty list. The library's TryDecompressGhosts
-            // already expanded every inner zlib stream during decompression, so the
-            // rawfile body is plaintext at known offsets.
+            // Ghosts: walk the (already inflated) zone using the pool's type IDs as a
+            // schedule, striding from one header to the next with a byte-scan fallback.
+            // This pairs every pool entry with its located header so non-rawfile types
+            // (scriptfile, stringtable, weapon, image, …) get named in the asset-pool
+            // tab alongside rawfiles. The shared MW2-style AssetRecordProcessor doesn't
+            // recognise IW6 asset shapes, so we bypass it entirely.
             if (_openedFastFile.IsGhostsFile)
             {
                 _processResult = new AssetRecordCollection();
                 _menuLists = new List<MenuList>();
-                _rawFileNodes = loadRawFiles
-                    ? GhostsRawFileScanner.Scan(zone.Data, scanStart: _assetPoolEndOffset)
-                    : new List<RawFileNode>();
+
+                if (loadRawFiles && _zoneAssetRecords != null && _zoneAssetRecords.Count > 0)
+                {
+                    var walk = GhostsAssetWalker.Walk(zone.Data, _zoneAssetRecords, scanStart: _assetPoolEndOffset);
+                    _rawFileNodes = walk.RawFileNodes;
+                }
+                else
+                {
+                    _rawFileNodes = new List<RawFileNode>();
+                }
                 RawFileNode.CurrentZone = zone;
                 _localizedEntries = new List<LocalizedEntry>();
                 _techSets = new List<TechSetAsset>();
@@ -4284,6 +4290,21 @@ namespace Call_of_Duty_FastFile_Editor
                     string parseMethod = !string.IsNullOrEmpty(image.AdditionalData) ? image.AdditionalData : "Parsed";
                     status = $"{parseMethod} ({image.Resolution}, {image.FormattedSize})";
                     imageIndex++;
+                }
+
+                // Generic fallback: if no typed parser claimed this record but the
+                // walker resolved its name + body offsets (Ghosts non-rawfile types
+                // land here), surface them directly from the ZoneAssetRecord.
+                if (!isParsed && !string.IsNullOrEmpty(record.Name) && record.HeaderStartOffset > 0)
+                {
+                    isParsed = true;
+                    name = record.Name;
+                    dataStart = $"0x{record.AssetDataStartPosition:X}";
+                    dataEnd = $"0x{record.AssetDataEndOffset:X}";
+                    size = $"0x{record.Size:X}";
+                    status = !string.IsNullOrEmpty(record.AdditionalData)
+                        ? $"{record.AdditionalData} (no content parser)"
+                        : "Located, no content parser";
                 }
 
                 lvi.SubItems.Add(dataStart);
