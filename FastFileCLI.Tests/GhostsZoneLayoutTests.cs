@@ -1,3 +1,4 @@
+using System.Text;
 using FastFileLib;
 using FastFileLib.GameDefinitions;
 using Xunit;
@@ -301,5 +302,142 @@ public class GhostsZoneLayoutTests
         Assert.False(GhostsZoneLayout.IsWrappedType(GhostsAssetTypePS3.image));
         Assert.False(GhostsZoneLayout.IsWrappedType(GhostsAssetTypePS3.techset));
         Assert.False(GhostsZoneLayout.IsWrappedType(GhostsAssetTypePS3.weapon));
+    }
+
+    // =========================================================
+    // Permissive pointer convention (0x40-flagged)
+    // =========================================================
+
+    [Fact]
+    public void WalkPool_AcceptsZero40FlaggedPointer()
+    {
+        // IW6 patch_ui_mp.zone has pool entries like [40 1F DF 85][00 00 00 05]
+        // (material ptr with the 0x40000000 flag bit set). Verify they parse.
+        byte[] flaggedPtr = { 0x40, 0x1F, 0xDF, 0x85 };
+        byte[] zone = Concat(
+            Header(0, 2),
+            PoolRecord(0x05, flaggedPtr), // material with 0x40-flagged ptr
+            PoolRecord(0x09, FF4),        // image with placeholder
+            new byte[256]);
+
+        var entries = GhostsZoneLayout.ParsePool(zone, out int poolStart, out _);
+        Assert.Equal(0x38, poolStart);
+        Assert.Equal(2, entries.Count);
+        Assert.Equal(GhostsPointerKind.Resolved, entries[0].PointerKind);
+        Assert.Equal(GhostsAssetTypePS3.material, entries[0].Type);
+    }
+
+    [Fact]
+    public void WalkPool_HeaderCountCapsAtAssetCount()
+    {
+        // Make the bytes past `assetCount` entries also look like a pool entry.
+        // The header-driven cap should stop the walk at the declared count.
+        byte[] zone = Concat(
+            Header(0, 2),
+            PoolRecord(0x28, FF4),
+            PoolRecord(0x29, Zero4),
+            PoolRecord(0x05, FF4), // extra would be walkable but capped
+            new byte[256]);
+
+        var entries = GhostsZoneLayout.ParsePool(zone, out _, out _);
+        Assert.Equal(2, entries.Count);
+    }
+
+    // =========================================================
+    // Luafile scan
+    // =========================================================
+
+    private static byte[] LuaFile(string name, byte[] body)
+    {
+        var nameBytes = Encoding.ASCII.GetBytes(name);
+        var nullTerm = new byte[] { 0 };
+        var unk = Be32(0x02000000); // observed-fixed value in real zones
+        return Concat(FF4, Be32((uint)body.Length), unk, FF4, nameBytes, nullTerm, body);
+    }
+
+    private static byte[] LuaBytecode(int totalSize)
+    {
+        var b = new byte[totalSize];
+        b[0] = 0x1B; b[1] = (byte)'L'; b[2] = (byte)'u'; b[3] = (byte)'a'; b[4] = 0x51;
+        return b;
+    }
+
+    [Fact]
+    public void LocateAllLuaFiles_FindsSingleEntry()
+    {
+        byte[] zone = Concat(new byte[0x100], LuaFile("ui/main.lua", LuaBytecode(128)), new byte[256]);
+
+        var lua = GhostsZoneLayout.LocateAllLuaFiles(zone, 0x100);
+
+        Assert.Single(lua);
+        Assert.Equal("ui/main.lua", lua[0].Name);
+        Assert.Equal(128, lua[0].ByteCodeLen);
+        Assert.Equal(0x100, lua[0].HeaderOffset);
+    }
+
+    [Fact]
+    public void LocateAllLuaFiles_FindsConsecutiveEntries()
+    {
+        // Three back-to-back luafiles. Stride should walk from one to the next.
+        byte[] zone = Concat(
+            new byte[0x40],
+            LuaFile("a.lua", LuaBytecode(64)),
+            LuaFile("ui/b.lua", LuaBytecode(96)),
+            LuaFile("c.lua", LuaBytecode(48)),
+            new byte[16]);
+
+        var lua = GhostsZoneLayout.LocateAllLuaFiles(zone, 0x40);
+
+        Assert.Equal(3, lua.Count);
+        Assert.Equal("a.lua",    lua[0].Name);
+        Assert.Equal("ui/b.lua", lua[1].Name);
+        Assert.Equal("c.lua",    lua[2].Name);
+    }
+
+    [Fact]
+    public void LocateAllLuaFiles_RejectsNonLuaSuffix()
+    {
+        // The 16-byte header pattern looks like luafile but the name doesn't
+        // end in .lua, so it must be rejected (would otherwise collide with
+        // other flat-header asset types in the same zone).
+        byte[] zone = Concat(new byte[0x40], LuaFile("ui/main.txt", LuaBytecode(64)), new byte[256]);
+
+        var lua = GhostsZoneLayout.LocateAllLuaFiles(zone, 0x40);
+
+        Assert.Empty(lua);
+    }
+
+    [Fact]
+    public void LocateAllLuaFiles_RejectsMissingLuaSignature()
+    {
+        // Header + name look fine but the body doesn't start with \x1B LuaQ.
+        // The signature check is the primary defense against false positives.
+        byte[] nameBytes = Encoding.ASCII.GetBytes("ui/main.lua");
+        byte[] notLua = new byte[64]; // all zeros, no Lua magic
+        byte[] entry = Concat(FF4, Be32(64), Be32(0x02000000), FF4, nameBytes, new byte[] { 0 }, notLua);
+        byte[] zone = Concat(new byte[0x40], entry, new byte[256]);
+
+        var lua = GhostsZoneLayout.LocateAllLuaFiles(zone, 0x40);
+
+        Assert.Empty(lua);
+    }
+
+    [Fact]
+    public void LocateAllLuaFiles_SkipsPastNonMatchBytes()
+    {
+        // Pad with random bytes between two luafiles. The scan must byte-walk
+        // through the gap and recover the second entry.
+        byte[] zone = Concat(
+            new byte[0x40],
+            LuaFile("a.lua", LuaBytecode(32)),
+            new byte[] { 0xAB, 0xCD, 0xEF, 0x12, 0x34 }, // 5 bytes of junk
+            LuaFile("b.lua", LuaBytecode(48)),
+            new byte[16]);
+
+        var lua = GhostsZoneLayout.LocateAllLuaFiles(zone, 0x40);
+
+        Assert.Equal(2, lua.Count);
+        Assert.Equal("a.lua", lua[0].Name);
+        Assert.Equal("b.lua", lua[1].Name);
     }
 }

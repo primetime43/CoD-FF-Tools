@@ -67,6 +67,33 @@ public readonly struct GhostsAssetHeader
 }
 
 /// <summary>
+/// A located luafile asset inside an inflated Ghosts zone. Unlike the
+/// rawfile/scriptfile zlib-wrapped format, luafiles use a flat 16-byte
+/// header and the body is Lua bytecode (not zlib-compressed).
+/// </summary>
+public readonly struct GhostsLuaFile
+{
+    public GhostsLuaFile(int headerOffset, int bodyStart, int bodyEnd, int byteCodeLen, string name)
+    {
+        HeaderOffset = headerOffset;
+        BodyStart = bodyStart;
+        BodyEnd = bodyEnd;
+        ByteCodeLen = byteCodeLen;
+        Name = name;
+    }
+    /// <summary>Offset of the first byte of the 16-byte header.</summary>
+    public int HeaderOffset { get; }
+    /// <summary>Offset of the first byte of the Lua bytecode body (one byte past the name's null).</summary>
+    public int BodyStart { get; }
+    /// <summary>Exclusive end of the body (<c>BodyStart + ByteCodeLen</c>).</summary>
+    public int BodyEnd { get; }
+    /// <summary>Bytecode length declared in the header (and the actual length of the body).</summary>
+    public int ByteCodeLen { get; }
+    /// <summary>The asset name (null terminator excluded), e.g. <c>ui/lui/menuautonav.lua</c>.</summary>
+    public string Name { get; }
+}
+
+/// <summary>
 /// Result of pairing pool entries with located headers.
 /// </summary>
 public sealed class GhostsPoolPairing
@@ -143,6 +170,11 @@ public static class GhostsZoneLayout
     public const int LongHeaderGross  = 24; // [FF*4][comp][dec][???][FF*8]
     public const int MaxBodyLen = 32 * 1024 * 1024;
     public const int MaxNameLen = 127;
+
+    // -------- luafile (flat 16-byte header) --------
+    public const int LuaFileHeaderSize = 16; // [FF*4][size BE][unk u32][FF*4]
+    /// <summary>Lua 5.1 bytecode signature: <c>ESC + "LuaQ"</c>.</summary>
+    private static readonly byte[] LuaSignature = { 0x1B, (byte)'L', (byte)'u', (byte)'a', 0x51 };
 
     // ===================================================================
     // Pool location + walk
@@ -285,14 +317,14 @@ public static class GhostsZoneLayout
         return zone[offset + 7] <= MaxValidTypeId;
     }
 
-    private static bool IsValidPoolPointer(byte[] zone, int offset)
-    {
-        byte b0 = zone[offset], b1 = zone[offset + 1], b2 = zone[offset + 2], b3 = zone[offset + 3];
-        if (b0 == 0xFF && b1 == 0xFF && b2 == 0xFF && b3 == 0xFF) return true;
-        if (b0 == 0x00 && b1 == 0x00 && b2 == 0x00 && b3 == 0x00) return true;
-        if (b0 >= 0x80) return true;
-        return false;
-    }
+    /// <summary>
+    /// Pool entries accept any 4-byte pointer value — IW6 zones use
+    /// 0x40-flagged pointers (e.g. <c>0x401FDF85</c>) in addition to the
+    /// 0x80-flagged "resolved" form seen in earlier games. The strict
+    /// type-byte check + the header's <c>assetCount</c> cap are what
+    /// actually delimit the pool, so this method just returns true.
+    /// </summary>
+    private static bool IsValidPoolPointer(byte[] zone, int offset) => true;
 
     private static GhostsPointerKind ClassifyPointer(byte[] zone, int offset)
     {
@@ -370,6 +402,93 @@ public static class GhostsZoneLayout
             PairedCount = paired,
             UnpairedHeaders = Math.Max(0, headers.Count - hIdx),
         };
+    }
+
+    // ===================================================================
+    // Luafile scan (flat 16-byte header, no zlib wrapper)
+    // ===================================================================
+
+    /// <summary>
+    /// Scan the zone for luafile assets. Layout (verified against
+    /// <c>patch_ui_mp.zone</c>):
+    /// <code>
+    ///   [FF*4][size BE u32][unk u32 = 0x02000000][FF*4]&lt;name&gt;\0&lt;Lua bytecode&gt;
+    /// </code>
+    /// Each candidate position is confirmed by the <c>\x1B LuaQ</c> bytecode
+    /// signature at the body's first 5 bytes so dense binary regions that
+    /// happen to match the FF/size/unk/FF pattern don't yield false positives.
+    /// Strides past each hit by the declared bytecode length.
+    /// </summary>
+    public static List<GhostsLuaFile> LocateAllLuaFiles(byte[] zone, int scanStart)
+    {
+        var found = new List<GhostsLuaFile>();
+        if (zone == null) return found;
+        if (scanStart < 0) scanStart = 0;
+
+        int p = scanStart;
+        int limit = zone.Length - LuaFileHeaderSize - LuaSignature.Length - 2;
+        while (p <= limit)
+        {
+            if (!TryReadLuaFileHeader(zone, p, out int sizeBytes, out string name, out int bodyStart))
+            {
+                p++;
+                continue;
+            }
+            int bodyEnd = bodyStart + sizeBytes;
+            if (bodyEnd > zone.Length) { p++; continue; }
+
+            // Verify with Lua bytecode magic. This is what makes the scan safe
+            // against random [FF*4][int][int][FF*4] sequences that can occur
+            // anywhere in dense asset data.
+            if (!StartsWith(zone, bodyStart, LuaSignature))
+            {
+                p++;
+                continue;
+            }
+
+            found.Add(new GhostsLuaFile(
+                headerOffset: p,
+                bodyStart: bodyStart,
+                bodyEnd: bodyEnd,
+                byteCodeLen: sizeBytes,
+                name: name));
+            p = bodyEnd;
+        }
+        return found;
+    }
+
+    private static bool TryReadLuaFileHeader(byte[] zone, int off,
+        out int sizeBytes, out string name, out int bodyStart)
+    {
+        sizeBytes = 0;
+        name = string.Empty;
+        bodyStart = -1;
+        if (off + LuaFileHeaderSize >= zone.Length) return false;
+
+        // [FF*4][size BE][unk u32][FF*4]
+        if (!AllFF(zone, off, 4)) return false;
+        if (!AllFF(zone, off + 12, 4)) return false;
+
+        int size = (int)ReadBE32(zone, off + 4);
+        if (size <= 0 || size > MaxBodyLen) return false;
+
+        int nameStart = off + LuaFileHeaderSize;
+        if (!TryReadName(zone, nameStart, out string n, out int nameEnd)) return false;
+        // Restrict to ".lua" names to keep false-positive cost low.
+        if (!n.EndsWith(".lua", StringComparison.OrdinalIgnoreCase)) return false;
+
+        sizeBytes = size;
+        name = n;
+        bodyStart = nameEnd + 1;
+        return true;
+    }
+
+    private static bool StartsWith(byte[] zone, int off, byte[] sig)
+    {
+        if (off < 0 || off + sig.Length > zone.Length) return false;
+        for (int i = 0; i < sig.Length; i++)
+            if (zone[off + i] != sig[i]) return false;
+        return true;
     }
 
     /// <summary>
