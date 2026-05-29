@@ -9,7 +9,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 | CoD4: Modern Warfare | ✅ Full | ✅ Full | 🟡 Partial | ⚠️ Extract |
 | WaW: World at War | ✅ Full | ✅ Full | 🟡 Partial | 🟡 Partial |
 | MW2: Modern Warfare 2 | ✅ Full | 🔬 Full (unverified) | 🟡 Partial | ➖ |
-| Ghosts | ⚠️ Extract | ❓ Untested | ❓ Untested | ➖ |
+| Ghosts | 🟡 Partial+lua | ❓ Untested | ❓ Untested | ➖ |
 
 ### Version IDs
 
@@ -48,17 +48,19 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 - See `docs/MW2_PC_FastFile_Format.md` for the full breakdown.
 
 ### Ghosts (IW6) Notes
-- **Read-only / extract-only.** The library can decompress + inflate a Ghosts PS3 retail `.ff` to a fully-expanded `.zone` file, and the editor populates the asset-pool tab with type names from `GhostsGameDefinition` (PS3 only). Per-asset content parsers (rawfile body, weapon struct, GSC scriptfile, etc.) are not implemented — `GhostsGameDefinition.Parse*` methods all return null.
+- **Read-only.** PS3 retail `.ff` files decompress + inflate to a fully-expanded `.zone`, the asset pool walks across all sample zone types (patch / DLC / base — header-counts-driven via `FastFileLib.GhostsZoneLayout`), and content parsers exist for **rawfile** (zlib-wrapped short header), **scriptfile** (zlib-wrapped long header), and **luafile** (flat 16-byte header, Lua 5.1 bytecode body). Flat-binary types (xmodel/image/sound/techset/weapon/material/…) are listed in the asset pool with type names but their bodies aren't parsed — each would need its own struct reverse-engineering.
 - Both FF variants share the same downstream layout from `IWffS100` onwards:
   - **Patch FF** (e.g. `patch_common_mp.ff`): `IWffS100` immediately after the 36-byte outer header at file offset `0x24`.
   - **Base FF** (e.g. `common.ff`): a 12 KB index table sits between the outer header and `IWffS100` (which lands at `0x3294` for the sample). The index table's record format hasn't been reverse-engineered; it isn't needed for decompression.
 - Decompression anchors on `IWffS100`: 8 KB `DB_AuthHeader` + 48 bytes padding + 112 KB "LO" metadata region + raw-deflate block stream at `IWffS100 + 0x20000`. Each block has a 2-byte BE size header and decompresses to exactly 64 KB.
-- Inner per-asset zlib streams are expanded inline as a second pass — final `.zone` has all asset content readable directly in a hex view (0 residual `78 XX` streams in all 4 tested samples).
-- Two header shapes for per-asset entries: "long" (28 bytes, 8 trailing FFs, 3 size u32s — used by scriptfile/MPTYPE/AITYPE) and "short" (16 bytes, 4 trailing FFs, 2 size u32s — used by rawfile). The first u32 after the leading FFs is always the exact zlib stream byte count.
+- Inner per-asset zlib streams (used by rawfile + scriptfile bodies) are expanded inline as a second pass — final `.zone` has all asset content readable directly in a hex view (0 residual `78 XX` streams across all tested samples).
+- Zone layout (same shape as CoD4/WaW/MW2): fixed XFile header with **`tagCount` @ `0x28`** and **`assetCount` @ `0x30`** (both BE u32) drive navigation. Pool location: tagCount=0 → pool at `0x38`; tagCount>0 → skip tag placeholders + tag strings then probe forward 32 bytes for the first valid pool entry. Each pool entry is 8 bytes `[ptr][type BE u32 ≤ 0x35]`; pointer accepts four conventions including the IW6-specific `0x40`-flagged form (not just the WaW `0x80`-flagged form).
+- Two zlib-wrapped header shapes: "long" (24 bytes, 8 trailing FFs, 3 size u32s — scriptfile/MPTYPE/AITYPE) and "short" (16 bytes, 4 trailing FFs, 2 size u32s — rawfile). The first u32 after the leading FFs is always the exact zlib stream byte count.
+- **Luafile** uses a different layout: `[FF*4][size BE][unk u32][FF*4]<name>\0<Lua bytecode>`, no zlib wrapping. Bodies are IW6-customized Lua 5.1 bytecode (format byte `0x0D`, signature `\x1B LuaQ`). Original Lua source isn't in the FF — `FastFileLib.LuaBytecodeInspector` produces an extracted-strings summary so the editor's text viewer can show menu/widget/function/identifier names without needing a full decompiler.
 - Auth header is the same shape as MW3's `DB_AuthHeader` but with SHA-1 hashes (20 bytes + 12 zero pad in 32-byte slots) instead of SHA-256, and uses `IWffS100` (capital S) inner magic vs MW3's lowercase `IWffs100`.
 - No encryption anywhere — outer is raw deflate, inner is standard zlib.
 - No save support: re-signing the `DB_AuthHeader` requires Infinity Ward's RSA-2048 private key.
-- Only PS3 verified (4 retail samples). Xbox 360 / Wii-U / PC variants use shifted asset type IDs and aren't wired up.
+- Only PS3 verified. Xbox 360 / Wii-U / PC variants use shifted asset type IDs and aren't wired up.
 - See `docs/Ghosts_FastFile_Format.md` for the format reference and `docs/Ghosts_Extraction_Howto.md` for the extraction algorithm.
 
 ### Wii Notes

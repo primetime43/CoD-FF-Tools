@@ -1,20 +1,23 @@
 # Ghosts FastFile Format — Research Notes
 
-Verified against 4 retail PS3 samples: `ghosts_patch_common_mp.ff` (525 KB
-patch), `patch_homecoming.ff` (195 KB patch), `patch_mp_dome_ns.ff` (145 KB
-patch), `ghosts ps3 common.ff` (29.8 MB base). All Ghosts (IW6) version
-`0x22E`. No PC, Xbox 360, or Wii-U samples have been tested; layout details
-below apply to PS3 only.
+Verified against PS3 retail samples: small patch FFs (`patch_mp_prisonbreak.ff`,
+`patch_homecoming.ff`, `patch_mp_dome_ns.ff`), DLC-updated zones
+(`mp_character_room_dlc_updated.ff`), UI patches (`patch_ui_mp.ff`,
+1256 pool entries), and base zones (`ghosts ps3 common.ff`, 29.8 MB).
+All Ghosts (IW6) version `0x22E`. No PC, Xbox 360, or Wii-U samples
+have been tested; layout details below apply to PS3 only.
 
 **Current implementation status:**
 - ✅ Detect Ghosts via `IWff0100` outer magic + version `0x22E` + `IWffS100` inner magic
 - ✅ Decompress and inflate to zone in one pass (`FastFileProcessor.TryDecompressGhosts`)
   - Outer raw-deflate blocks (2-byte BE srcSize + payload, 64 KB out each)
   - Inner per-asset zlib streams expanded inline against decoded `compressedLen` from each asset header
-- 🟡 Walk the asset pool (`GhostsZoneParser`) — works for **patch FFs only**. Patches use 8-byte `[FF*4][type BE u32]` pool entries starting at `0x40`; base FFs use a different layout (a long run of pointer placeholders with type information stored elsewhere) and aren't walked correctly yet.
-- ✅ Asset pool tab populates in the editor for patch FFs (type names from `GhostsAssetTypePS3`); base FFs decompress + inflate fine but the asset-pool tab stays empty.
-- ❌ Per-asset content parsers (rawfile body, scriptfile body, weapon struct, etc.) — not implemented; all `Parse*` methods on `GhostsGameDefinition` return null
-- ❌ Recompression / re-signing — not implemented and not viable without IW's RSA-2048 private key
+- ✅ Walk the asset pool (`FastFileLib.GhostsZoneLayout`) — header-counts-driven, works for **patch FFs, DLC-updated zones, and base zones**. Reads `tagCount` @ `0x28` and `assetCount` @ `0x30` to navigate past the tag-string region; falls back to a brute scan when header counts are missing or layout is unexpected.
+- ✅ Asset pool tab populates in the editor for every tested zone type, with type names from `GhostsAssetTypePS3`.
+- ✅ Pair pool entries with asset bodies for **rawfile** (zlib-wrapped short header), **scriptfile** (zlib-wrapped long header), and **luafile** (flat 16-byte header). Editor surfaces names + offsets + body bytes for these in both the Asset Pool tab and the Raw Files tab. Flat-binary types (xmodel/image/sound/techset/weapon/material/…) are listed but not opened — they'd each need their own struct parser.
+- ✅ Luafile bodies feed `FastFileLib.LuaBytecodeInspector`, which surfaces an extracted-strings summary in the editor's text viewer (Lua source isn't in the FF — IW6 ships compiled bytecode with custom format byte `0x0D`).
+- ❌ Per-asset content parsers for other types (weapon struct, image, sound, …) — not implemented; `GhostsGameDefinition.Parse*` methods all return null.
+- ❌ Recompression / re-signing — not implemented and not viable without IW's RSA-2048 private key.
 
 ## TL;DR — IW6 PS3 vs the previous IW signed-FF design
 
@@ -162,53 +165,71 @@ trailing data that follows the last complete block.
 
 ## Zone format (after the outer deflate, before inner-zlib inflation)
 
-```
-0x000   XFile header
-0x040   Asset pool             (8 bytes per entry, terminated by pattern break)
-....    Per-asset data         (back-to-back asset entries)
-```
-
-### XFile header
-
-The first 64 bytes (`0x00..0x3F`) contain a sequence of u32 BE fields:
-zone size at `0x00`, several block-size slots at `0x08..0x2F`, then count
-+ pointer-placeholder pairs around `0x28..0x37`. The exact field layout
-has not been fully mapped; in particular the layout differs between
-patch and base zones.
-
-**Patch zones** (e.g. `patch_homecoming.zone`, `ghosts_patch_common_mp.zone`):
-the asset pool starts at `0x40` immediately after the XFile header, with
-8-byte `[ptr][type]` entries terminated by the pattern breaking. The pool
-walker (`GhostsZoneParser`) finds it by scanning the first `0x200` bytes
-for the longest contiguous run of valid
-`[FFFFFFFF][type BE u32 ≤ 0x35]` 8-byte records.
-
-**Base zones** (e.g. `common.zone`): different layout that hasn't been
-reverse-engineered. Bytes from `0x40` onwards are a long run of pointer
-placeholders (continuous `FF FF FF FF`) rather than 8-byte `[ptr][type]`
-records, suggesting the type information is stored separately (perhaps a
-parallel type array later in the zone). The current pool walker doesn't
-recognise this layout and the asset-pool tab stays empty for base zones.
-
-### Asset pool (patch zones only)
-
-In patch zones each entry is 8 bytes. Pool entries use
-**`[pointer placeholder][type ID]`** order (pointer first), matching
-MW2 PS3 — not the `[type][pointer]` order used by MW2 PC.
+Same shape as CoD4/WaW/MW2: a fixed XFile header gives counts that drive
+navigation through the tag pointer table and tag strings, then the asset
+pool follows, then asset bodies. The layout is uniform across patch / DLC /
+base zones — only the count values differ.
 
 ```
-FF FF FF FF  00 00 00 XX
-└─ pointer ┘ └─ type ─┘    (BE u32, high 3 bytes zero, low byte = type ID)
+0x00..0x27   Fixed XFile fields (zone size, block sizes, …)
+0x28..0x2B   tagCount   (BE u32)
+0x2C..0x2F   placeholder
+0x30..0x33   assetCount (BE u32)
+0x34..0x37   placeholder
+0x38..?      Either count3+placeholder (zones with tagCount > 0)
+             or first pool entry (patch FFs where tagCount == 0)
+...          Tag pointer placeholders (4 bytes × tagCount)
+...          Tag strings (tagCount null-terminated ASCII)
+...          Asset pool (8 bytes × assetCount)
+...          Asset bodies (back-to-back)
 ```
 
-The pool starts at `0x40` immediately after the XFile header. Verified
-for the 3 patch samples — `patch_homecoming.zone` (4 entries, all
-scriptfile), `patch_mp_dome_ns.zone` (4 entries — 2 rawfile + 2
-scriptfile), `ghosts_patch_common_mp.zone` (122 entries — 120
-scriptfile + 2 rawfile).
+### XFile header counts
 
-Base zones use a different layout (see XFile header section above) and
-this 8-byte `[ptr][type]` walking doesn't apply.
+| Sample | tagCount | assetCount | Pool offset |
+|---|---:|---:|---:|
+| `patch_mp_prisonbreak.zone` | 0 | 4 | `0x38` |
+| `patch_mp_dome_ns.zone` | 0 | 4 | `0x38` |
+| `patch_homecoming.zone` | 0 | 4 | `0x38` |
+| `ghosts_patch_common_mp.zone` | 0 | 122 | `0x38` |
+| `mp_character_room_dlc_updated.zone` | 212 | 1880 | `0xED5` |
+| `patch_ui_mp.zone` | 249 | 1256 | `0x1997` |
+| `ghosts ps3 common.zone` | varies | varies | varies |
+
+**Pool location rule** (implemented in `FastFileLib.GhostsZoneLayout.LocatePool`):
+
+1. **`tagCount == 0`** → pool starts at `0x38` immediately after the
+   `assetCount` placeholder. This covers most patch FFs.
+2. **`tagCount > 0`** → skip `tagCount × 4` placeholder bytes starting at
+   `0x3C`, then skip `tagCount` null-terminated tag strings; the pool
+   follows. A 32-byte probe window forward of the strings handles a
+   small trailing field (purpose unknown — verified in
+   `mp_character_room_dlc_updated.zone`: bytes `00 00 00 30` sit between
+   the last tag's null and pool[0]).
+3. **Fallback** brute-scan for the longest run of valid pool entries —
+   used when header counts are missing or layout is unexpected.
+
+### Asset pool
+
+Each entry is 8 bytes. Pool entries use **`[pointer placeholder][type ID]`**
+order (pointer first), matching MW2 PS3 — not the `[type][pointer]` order
+used by MW2 PC.
+
+```
+PP PP PP PP  00 00 00 XX
+└─ pointer ┘ └─ type ─┘    (type word: BE u32, high 3 bytes zero, low byte = type ID ≤ 0x35)
+```
+
+The pointer field has **four observed conventions** — any 4-byte value is
+accepted by the pool walker; the strict type-word structure plus the
+header's `assetCount` cap are what delimit the pool:
+
+| Pattern | Meaning |
+|---|---|
+| `FF FF FF FF` | Standard inline placeholder (most common) |
+| `00 00 00 00` | NULL — seen on the first scriptfile entry of `patch_mp_prisonbreak.zone` |
+| `80 XX XX XX` | High-bit-set resolved pointer (CoD4/WaW convention) |
+| `40 XX XX XX` | **0x40-flagged resolved pointer** — used by IW6, e.g. `40 1F DF 85` in `patch_ui_mp.zone` (material → image references). Earlier code that only accepted the `0x80`-flag form found 87 / 1256 entries in this zone. |
 
 ### Asset type IDs (IW6 PS3)
 
@@ -360,7 +381,73 @@ inline as part of decompression, so a zone produced by this codebase has
 no remaining `78 XX` streams (verified: 0 residual streams in all four
 samples after `TryDecompressGhosts` completes).
 
+### Luafile bodies (flat 16-byte header — *not* zlib-wrapped)
+
+`luafile` (type `0x32`) uses a different in-zone layout than rawfile /
+scriptfile — flat header, body is plain Lua bytecode (compiled, not
+compressed). Verified against `patch_ui_mp.zone` (85 luafile pool entries,
+86 located bodies including one trailing entry not referenced by the pool).
+
+```
+[FF*4][size BE u32][unk u32][FF*4]<name>\0<Lua 5.1 bytecode>
+```
+
+- 16 bytes header.
+- `size` is the exact byte count of the bytecode body that follows the name.
+- `unk` is consistently `0x02000000` across every observed entry. Purpose
+  unconfirmed — possibly a fixed type tag or chunk marker. The luafile
+  scanner doesn't depend on its value.
+- Name is path-style ASCII ending in `.lua`. The walker requires this
+  suffix to distinguish luafiles from any other flat-header asset types.
+
+Bodies always start with the Lua 5.1 signature `1B 4C 75 61 51` (`\x1B
+LuaQ`). The signature check is what makes the scan safe against random
+`[FF*4][u32][u32][FF*4]` byte sequences in dense asset data.
+
+Stride from one luafile to the next is `nameEnd + 1 + size`. Handled by
+`FastFileLib.GhostsZoneLayout.LocateAllLuaFiles`.
+
+### Lua bytecode (IW6 custom format byte `0x0D`)
+
+The Lua source is **not** in the FF — IW6's build pipeline compiles `.lua`
+→ bytecode and ships only the bytecode. Recovering readable source needs
+an external Lua 5.1 decompiler (e.g. `luadec`).
+
+The 12-byte Lua header is standard except for the format byte:
+
+| Offset | Value | Meaning |
+|---|---|---|
+| `0x00` | `1B` | escape |
+| `0x01..0x03` | `Lua` | signature |
+| `0x04` | `51` | Lua version 5.1 |
+| `0x05` | **`0D`** | **format byte — non-zero = IW6 custom dialect** |
+| `0x06` | `00` | endianness flag (declared BE — but length fields in the chunk body are actually LE) |
+| `0x07` | `04` | sizeof(int) |
+| `0x08` | `04` | sizeof(size_t) |
+| `0x09` | `04` | sizeof(Instruction) |
+| `0x0A` | `04` | sizeof(lua_Number) — **single-precision** (stock Lua 5.1 default is 8) |
+| `0x0B` | `00` | integral flag (floating-point lua_Number) |
+
+The chunk body past the 12-byte header doesn't follow stock Lua 5.1 chunk
+layout — IW6 uses a customized chunk format whose string-constant length
+prefix is 1 byte (not `sizeof(size_t)`) at least for the type-registry
+strings (`TNIL`, `TBOOLEAN`, `TLIGHTUSERDATA`, …) at the chunk start. Full
+chunk layout hasn't been reverse-engineered.
+
+`FastFileLib.LuaBytecodeInspector` works around the custom format by
+**not** parsing chunks: it reads the 12-byte header for metadata and then
+ASCII-scans the body for every printable null-terminated run of length
+3–256. That surfaces the useful signal (menu / widget / function /
+identifier names) without depending on chunk structure — e.g. for
+`ui/lui/mp_menus/clandetails.lua` it produces ~803 extracted strings
+including `OnCreate`, `UpdateClanDetails`, `clan_details_main`,
+`MenuBuilder`, etc., letting a reader understand what the menu does.
+
 ## How the editor handles Ghosts
+
+All Ghosts pool-layout, header-scan, pairing, and Lua-summary logic lives in
+`FastFileLib`. The editor classes are thin shims that adapt library DTOs to
+the editor's model types — same pattern as `RawFileScanner` ↔ `RawFileParser`.
 
 | Component | Behaviour |
 |---|---|
@@ -370,27 +457,54 @@ samples after `TryDecompressGhosts` completes).
 | `FastFileProcessor.Decompress` | Short-circuits to `TryDecompressGhosts` before the shared CoD4/WaW/MW2 dispatch |
 | `FastFileProcessor.TryDecompressGhosts` | Two passes: outer raw-deflate blocks → raw zone, then `InflateGhostsZoneAssets` expands inner zlib streams inline |
 | `FastFileProcessor.TryReadGhostsAssetHeader` | Recognises both "long" (8 trailing FFs) and "short" (4 trailing FFs) header shapes; reads `compLen` from the first u32 after the leading-FF block |
+| `FastFileLib.GhostsZoneLayout` | Library home for pool location (`LocatePool` + `WalkPool`), wrapped-asset header scan (`LocateAllHeaders`), luafile scan (`LocateAllLuaFiles`), and positional pool↔header pairing (`PairPoolWithHeaders`). Header-counts-driven, handles patch + DLC + base zones. |
+| `FastFileLib.LuaBytecodeInspector` | Parses Lua 5.1 header + ASCII-scans body for null-terminated printable strings. Format-agnostic to handle IW6's custom format byte `0x0D`. |
 | `ZoneFile.Load` | For Ghosts, skips `ReadHeaderFields` / `StructureBasedZoneParser` (those depend on PS3-MW2 header offsets) and runs `GhostsZoneParser` instead |
-| `GhostsZoneParser` | Searches first `0x200` bytes for the longest run of valid `[FFFFFFFF][type ≤ 0x36 BE u32]` entries, then walks until the pattern breaks |
-| `GhostsGameDefinition` | Maps the 54 IW6 PS3 asset type IDs to names. All `Parse*` content methods return null — pool listing only |
-| `MainWindowForm.OpenFastFile` | Skips the asset-selection dialog for Ghosts (no content parsers, nothing to select); otherwise runs the normal flow so the asset-pool tab populates |
-| `ZoneHexViewForm` | Uses `GhostsGameDefinition.GetAssetTypeName` for the type column; per-asset content panels stay empty |
+| `Editor: GhostsZoneParser` | Thin shim over `GhostsZoneLayout.ParsePool` — translates `GhostsPoolEntry` DTOs to `ZoneAssetRecord` and writes them onto the `ZoneFile`. |
+| `Editor: GhostsAssetWalker` | Thin shim over `GhostsZoneLayout.LocateAllHeaders` + `LocateAllLuaFiles` + `PairPoolWithHeaders`. Mutates each `ZoneAssetRecord` with resolved offsets/names; emits `RawFileNode`s for rawfile + luafile entries (the luafile's `RawFileContent` is the `LuaBytecodeInspector` summary). |
+| `GhostsGameDefinition` | Maps the 54 IW6 PS3 asset type IDs to names. All `Parse*` content methods return null — content is sourced via the walker instead. |
+| `MainWindowForm.OpenFastFile` | Skips the asset-selection dialog for Ghosts (most types still have no content parsers); otherwise runs the normal flow so the asset-pool tab populates. |
+| `UIManager.UpdateLoadedFileNameStatusStrip` | Includes `IsGhostsFile` in the `gameString` branch so the status bar shows `Ghosts: <name>` for IW6 files. |
+| `ZoneHexViewForm` | Uses `GhostsGameDefinition.GetAssetTypeName` for the type column; per-asset content panels stay empty for non-wrapped/non-lua types |
 
 ## Known unknowns
 
-- **XFile header structure.** Block-size fields, `AssetCount` location, and any
-  additional metadata fields between the XFile header and the asset pool are
-  not mapped. The pool walker works around this by pattern-matching pool entries.
+- **XFile header field semantics.** Counts at `0x28` and `0x30` are mapped
+  (tagCount + assetCount); other u32s in `0x00..0x27` are zone size + block
+  size slots but exact roles unconfirmed. The pool walker doesn't need them.
+- **Trailing field between tag strings and pool.** DLC zones have 4 bytes
+  between the last tag string's null and pool[0] (`00 00 00 30` in
+  `mp_character_room_dlc_updated.zone`). Purpose unconfirmed — `LocatePool`
+  probes a 32-byte forward window to skip past it.
+- **Asset pool trailing entry.** Header `assetCount` is consistently one
+  greater than the count my walker locates (1879 vs 1880 in DLC zone, 1255
+  vs 1256 in patch_ui_mp, 122 vs 122 in ghosts_patch_common_mp where they
+  match). The last "entry" doesn't have a valid type byte and reads like a
+  sentinel; impact is cosmetic.
 - **Base FF index table.** The 12 KB table between the outer header and
   `IWffS100` in base FFs has a clear repeating structure (offset pairs +
   markers) but its record format and purpose are not reverse-engineered.
+  It's not needed for decompression.
 - **"LO" region.** Bit-7 is deliberately zero across all 112 KB but the
   encoding/meaning of the remaining 7-bit-per-byte payload is unknown.
 - **Per-asset header's third u32 (long shape).** Not a size. Values seen
   range from less than `decLen` (3 vs 6) to several times `decLen` (12459
   vs 3031). Interpretation unconfirmed.
-- **Asset-content layouts.** No internal struct parsing for any asset type
-  on Ghosts. `GhostsGameDefinition.Parse*` all return null.
+- **Luafile `unk` field.** Consistently `0x02000000`. Possibly a fixed
+  chunk-type tag or flag word. Treated as opaque metadata.
+- **IW6 Lua bytecode chunk format.** Custom format byte `0x0D`. Past the
+  12-byte header, chunk layout doesn't follow stock Lua 5.1 — string
+  constants use a 1-byte length prefix in the type-registry preamble at
+  least. Full chunk layout not reverse-engineered;
+  `LuaBytecodeInspector` works around this with an ASCII-run scan.
+- **Asset-content layouts for non-wrapped types.** No internal struct
+  parsing for xmodel / image / sound / weapon / techset / material /
+  stringtable / etc. Each would need its own struct reverse-engineering.
+- **Pointer flag bits.** Pool pointers use both `0x80......` (CoD4/WaW
+  high-bit convention) and `0x40......` (IW6-specific). Meaning of the
+  flag bits — whether they're heap region tags, alignment hints, or
+  something else — isn't confirmed; the masked-off offset value usually
+  lands inside the zone so they're probably both runtime address tags.
 - **Non-PS3 platforms.** Xbox 360, Wii-U, and PC variants of IW6 use shifted
   asset type IDs (Xbox 360 has no `vertexshader`; PC adds `computeshader`,
   `hullshader`, `domainshader`, `vertexdecl`; Wii-U has `fonticon` at `0x1A`).
@@ -400,12 +514,15 @@ samples after `TryDecompressGhosts` completes).
 
 ## Reference samples
 
-| Sample | Size | Variant | Block count | Inflated zone |
-|---|---|---|---|---|
-| `patch_mp_dome_ns.ff` | 145,493 B | patch | 1 | 153,118 B |
-| `patch_homecoming.ff` | 194,709 B | patch | 2 | 179,579 B |
-| `ghosts_patch_common_mp.ff` | 525,354 B | patch | 9 | 799,277 B |
-| `ghosts ps3 common.ff` | 29,796,135 B | base | 717 | 47,689,203 B |
+| Sample | Size | Variant | Pool entries | Notable |
+|---|---|---|---:|---|
+| `patch_mp_prisonbreak.ff` | small | patch | 4 | 1 scriptfile + 3 rawfile. First scriptfile uses NULL pointer in pool entry |
+| `patch_mp_dome_ns.ff` | 145 KB | patch | 4 | 2 rawfile + 2 scriptfile |
+| `patch_homecoming.ff` | 195 KB | patch | 4 | all scriptfile |
+| `ghosts_patch_common_mp.ff` | 525 KB | patch | 122 | 120 scriptfile + 2 rawfile |
+| `patch_ui_mp.ff` | 31 MB | DLC patch | 1256 | tagCount=249, mixed types (510 image + 476 material + 85 luafile + 68 rawfile + 57 techset + …). First sample to exercise `0x40`-flagged pool pointers |
+| `mp_character_room_dlc_updated.ff` | 26 MB | DLC updated | 1880 | tagCount=212, mostly xmodel (1846) + techset (29) + xanim (3) + rawfile (1). First sample with non-zero `tagCount` |
+| `ghosts ps3 common.ff` | 29.8 MB | base | varies | full character / weapon / vfx pool |
 
-All four are PS3 retail. All four produce 0 residual zlib streams after
+All PS3 retail. All produce 0 residual zlib streams after
 `FastFileProcessor.TryDecompress` completes.
