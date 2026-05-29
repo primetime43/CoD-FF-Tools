@@ -137,10 +137,16 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
         {
             byte[] body = new byte[lua.ByteCodeLen];
             Buffer.BlockCopy(zone, lua.BodyStart, body, 0, lua.ByteCodeLen);
-            // The body is Lua 5.1 bytecode (compiled, not source). Surface a
-            // header + extracted-strings summary in the text viewer so the
-            // user gets useful signal about each file's content; the original
-            // .lua source isn't recoverable without a decompiler.
+            // IW6 HavokScript bytecode. The original Lua source isn't shipped —
+            // IW6 ships only compiled bytecode in a non-standard custom format
+            // (format byte 0x0D) whose chunk layout isn't fully reverse-engineered.
+            // Show the format-agnostic extracted-strings summary so the user
+            // still gets useful signal (menu/widget/function names) without
+            // depending on a working disassembler.
+            //
+            // FastFileLib's IW6LuaBytecodeReader / IW6LuaDisassembler hold the
+            // partial format work for future investigation; they don't drive
+            // the viewer until the format is mapped end-to-end.
             var summary = LuaBytecodeInspector.Inspect(body);
             string content = LuaBytecodeInspector.FormatSummaryText(lua.Name, summary);
             return new RawFileNode
@@ -153,7 +159,7 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 IsCompressed      = false,
                 RawFileBytes      = body,
                 RawFileContent    = content,
-                AdditionalData    = "Ghosts luafile (Lua 5.1 bytecode)",
+                AdditionalData    = "Ghosts luafile (Lua 5.1 HavokScript bytecode)",
             };
         }
 

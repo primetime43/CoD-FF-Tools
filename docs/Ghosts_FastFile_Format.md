@@ -16,6 +16,7 @@ have been tested; layout details below apply to PS3 only.
 - ✅ Asset pool tab populates in the editor for every tested zone type, with type names from `GhostsAssetTypePS3`.
 - ✅ Pair pool entries with asset bodies for **rawfile** (zlib-wrapped short header), **scriptfile** (zlib-wrapped long header), and **luafile** (flat 16-byte header). Editor surfaces names + offsets + body bytes for these in both the Asset Pool tab and the Raw Files tab. Flat-binary types (xmodel/image/sound/techset/weapon/material/…) are listed but not opened — they'd each need their own struct parser.
 - ✅ Luafile bodies feed `FastFileLib.LuaBytecodeInspector`, which surfaces an extracted-strings summary in the editor's text viewer (Lua source isn't in the FF — IW6 ships compiled bytecode with custom format byte `0x0D`).
+- 🟡 Full Lua decompilation (IW6 HavokScript → readable `.lua` source) — **open**. Partial format work in `FastFileLib.IW6LuaBytecodeReader` / `IW6LuaDisassembler` is preserved but not wired to the editor; the format wrinkles past the file header aren't fully mapped (see "Lua bytecode" section below for the open work).
 - ❌ Per-asset content parsers for other types (weapon struct, image, sound, …) — not implemented; `GhostsGameDefinition.Parse*` methods all return null.
 - ❌ Recompression / re-signing — not implemented and not viable without IW's RSA-2048 private key.
 
@@ -411,7 +412,7 @@ Stride from one luafile to the next is `nameEnd + 1 + size`. Handled by
 
 The Lua source is **not** in the FF — IW6's build pipeline compiles `.lua`
 → bytecode and ships only the bytecode. Recovering readable source needs
-an external Lua 5.1 decompiler (e.g. `luadec`).
+a working Lua 5.1 decompiler.
 
 The 12-byte Lua header is standard except for the format byte:
 
@@ -421,27 +422,55 @@ The 12-byte Lua header is standard except for the format byte:
 | `0x01..0x03` | `Lua` | signature |
 | `0x04` | `51` | Lua version 5.1 |
 | `0x05` | **`0D`** | **format byte — non-zero = IW6 custom dialect** |
-| `0x06` | `00` | endianness flag (declared BE — but length fields in the chunk body are actually LE) |
+| `0x06` | `00` | endianness flag (declared BE) |
 | `0x07` | `04` | sizeof(int) |
 | `0x08` | `04` | sizeof(size_t) |
 | `0x09` | `04` | sizeof(Instruction) |
 | `0x0A` | `04` | sizeof(lua_Number) — **single-precision** (stock Lua 5.1 default is 8) |
 | `0x0B` | `00` | integral flag (floating-point lua_Number) |
 
-The chunk body past the 12-byte header doesn't follow stock Lua 5.1 chunk
-layout — IW6 uses a customized chunk format whose string-constant length
-prefix is 1 byte (not `sizeof(size_t)`) at least for the type-registry
-strings (`TNIL`, `TBOOLEAN`, `TLIGHTUSERDATA`, …) at the chunk start. Full
-chunk layout hasn't been reverse-engineered.
+Past the 12-byte header the chunk layout diverges from stock Lua 5.1 in
+ways that aren't fully reverse-engineered.
 
-`FastFileLib.LuaBytecodeInspector` works around the custom format by
-**not** parsing chunks: it reads the 12-byte header for metadata and then
-ASCII-scans the body for every printable null-terminated run of length
-3–256. That surfaces the useful signal (menu / widget / function /
-identifier names) without depending on chunk structure — e.g. for
-`ui/lui/mp_menus/clandetails.lua` it produces ~803 extracted strings
-including `OnCreate`, `UpdateClanDetails`, `clan_details_main`,
-`MenuBuilder`, etc., letting a reader understand what the menu does.
+**What works in the editor today**: `FastFileLib.LuaBytecodeInspector`
+reads the 12-byte header for metadata and ASCII-scans the body for every
+printable null-terminated run of length 3–256. That surfaces the useful
+signal (menu / widget / function / identifier names) without depending on
+the chunk structure — e.g. for `ui/lui/mp_menus/clandetails.lua` it
+produces ~803 extracted strings including `OnCreate`, `UpdateClanDetails`,
+`clan_details_main`, `MenuBuilder`, etc. The editor's luafile viewer uses
+this summary as its content.
+
+**What doesn't work yet** (status as of this writing):
+
+- `FastFileLib.IW6LuaBytecodeReader` and `IW6LuaDisassembler` exist as
+  partial format work but the operand values they produce are **not
+  trustworthy** (see those types' XML doc-comments). The editor doesn't
+  use them.
+- JariK's [CoDLuaDecompiler](https://github.com/JariKCoding/CoDLuaDecompiler)
+  lists Ghosts as supported but **crashes immediately on retail FF
+  luafiles** — its `HavokLuaFile.ReadConstants` reads `ConstantTypeCount`
+  as little-endian (default `BinaryReader.ReadInt32`), which decodes IW6's
+  big-endian count as 218 million and overruns. Verified with the 2.4.2
+  release binary against `squadprepartylobby.luac` extracted from
+  `patch_ui_mp.ff`.
+- A trial fork patching the LE → BE reads got past the file-header parse
+  but then hit further format wrinkles (the constants-pool encoding
+  doesn't walk cleanly with stock `[type byte][length BE u32][content]`
+  layout). The fork attempt is rolled back; the work to land a working
+  decompiler is days-to-weeks of careful byte-tracing against compiled
+  samples, not a quick patch.
+
+**Open work for a future decompiler**:
+
+1. Compile a known small Lua source with IW6's actual toolchain (if
+   obtainable) to get a reference bytecode whose layout can be diffed
+   field-by-field.
+2. Or compare retail luafiles whose source can be guessed from constant
+   strings (e.g. menu setup boilerplate) and bisect the format from there.
+3. Once function-header field positions and the constants-pool encoding
+   are nailed, the upstream JariK pipeline (IR / CFG / source emit)
+   becomes reachable via a fork.
 
 ## How the editor handles Ghosts
 
