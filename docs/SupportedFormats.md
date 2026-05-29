@@ -6,8 +6,8 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 
 | Game | PS3 | Xbox 360 | PC | Wii |
 |------|-----|----------|-----|-----|
-| CoD4: Modern Warfare | ✅ Full | ✅ Full | 🟡 Partial | ⚠️ Extract |
-| WaW: World at War | ✅ Full | ✅ Full | 🟡 Partial | 🟡 Partial |
+| CoD4: Modern Warfare | ✅ Full | ✅ Full | 🟡 Partial | 🟡 Partial ✅ |
+| WaW: World at War | ✅ Full | ✅ Full | 🟡 Partial | 🟡 Partial ✅ |
 | MW2: Modern Warfare 2 | ✅ Full | 🔬 Full (unverified) | 🟡 Partial | ➖ |
 | Ghosts | 🟡 Partial+lua | ❓ Untested | ❓ Untested | ➖ |
 
@@ -22,7 +22,9 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 
 ### Legend
 - ✅ **Full** - Decompress, parse assets, edit, and recompress
-- 🟡 **Partial** - Decompress, parse + edit rawfile/localize, recompress (round-trip verified, in-game test pending). Other asset types currently skipped.
+- 🟡 **Partial** - Decompress, parse + edit rawfile/localize, recompress (round-trip verified). Other asset types currently skipped.
+- 🟡 **Partial ✅** - Same scope as Partial, **plus in-game load verified on real hardware**.
+- 🟡 **Partial+lua** (Ghosts PS3) - Decompress + zone walk + name resolution for rawfile / scriptfile / luafile; no recompress.
 - 📖 **Read-only** - Decompress, parse rawfile/localize, but **no recompress yet**. Opens both unsigned and signed retail files.
 - 🔬 **Full (unverified)** - Implementation feature-parity with the verified platform; no hardware load test yet
 - ⚠️ **Extract** - Decompress to zone file only (no asset editing/recompress)
@@ -66,9 +68,9 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 ### Wii Notes
 - WaW Wii uses a **single zlib stream** like PC (not block format), but the zone is **big-endian** like PS3.
 - Zone header is **56 bytes** (8 blockSize slots — has an extra `BlockSizeIndex` slot that PS3 doesn't).
-- Asset entries use the **PC-style enum** (no `pixelshader` or `vertexshader` types), so the same enum mapping `CoD5AssetTypePC` is used for both PC and Wii — just with BE byte order on Wii.
 - Editable asset types on Wii: **rawfile** and **localize** (same scope as PC).
-- Save support has the same engine as PC's single-zlib-stream path; round-trip not yet verified against an actual Wii in-game test.
+- **Both CoD4 Wii (Reflex Edition) and WaW Wii have been verified in-game on real Wii hardware** — edited rawfiles (mods) round-trip through the editor, recompress into a loadable FF, and the modded behaviour shows up in actual gameplay. End-to-end verification, not just "the FF parses".
+- **Asset type enum is asymmetric across Wii**: WaW Wii uses the **WaW PC enum** (`CoD5AssetTypePC`, drops both pixelshader+vertexshader); CoD4 Wii (Reflex Edition) uses the **CoD4 Xbox 360 enum** (`CoD4AssetTypeXbox360`, drops vertexshader only, keeps `pixelshader` at `0x05`). Verified against retail Reflex load FFs (`ac130_load.ff`: 1×0x07 image + 3×0x06 techset + 1×0x20 rawfile fits only the Xbox 360 enum). `FastFileConstants.GetRawFileAssetType` / `GetLocalizeAssetType` branch on `(isXbox360 || isWii)` for CoD4 → `0x20`/`0x17`, but on `(isPC || isWii)` for WaW → `0x20`/`0x17`. CoD4 Wii also extends the enum with `packindex = 0x22` for `.pak` texture archives.
 
 ### Xbox 360 Notes
 - Xbox 360 requires a **patched XEX** to load modified FastFiles
@@ -92,7 +94,7 @@ This document lists what the FastFile Tools can currently parse, edit, and rebui
 | WaW | Block (raw deflate) | Block (raw deflate) | Single stream (zlib) | Single stream (zlib) |
 | MW2 | Block (raw deflate) | Single stream (zlib) | Single stream (unsigned) / **Authed chunks (signed)** ² | ➖ |
 
-¹ Verified directly for WaW PC and WaW Wii against retail samples; CoD4 PC/Wii presumed same shape but no samples available to confirm.
+¹ Verified directly for WaW PC, WaW Wii, and CoD4 Wii (Reflex Edition) against retail samples and in-game loads. CoD4 PC presumed same shape but no samples available to confirm.
 
 ² MW2 PC ships in two flavors: unsigned SP files use a plain single zlib stream at file offset `0x15`; signed multiplayer/patch files use Infinity Ward's "authed chunks" format with 8KB chunks in groups of 257 (1 hash chunk skipped + 256 data chunks fed to one zlib stream).
 

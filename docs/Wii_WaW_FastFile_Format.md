@@ -13,7 +13,10 @@ Verified from real WaW Wii samples (`credits.ff`, `see1.ff`, `ber1.ff`, load fil
   Verified round-trip on retail `ber1.ff`: original zone bytes byte-identical after
   compress → decompress. Differs from original only in zlib compression level
   (`78 9C` Optimal vs retail's `78 01` lowest); both are valid loadable variants.
-- 🔄 In-game verification pending (no real WaW-Wii hardware/emulator test yet)
+- ✅ **End-to-end modding verified on real Wii hardware** — for both CoD4 Reflex
+  Edition and WaW Wii: edit a rawfile in the editor → recompress → load on the
+  device → the modded behaviour shows up in actual gameplay. Confirms the full
+  pipeline, not just header parsing.
 - ❌ weapon / menufile / xanim / stringtable / material / techset / image — listed in
   asset pool but not yet parsed on Wii (same scope as PC)
 
