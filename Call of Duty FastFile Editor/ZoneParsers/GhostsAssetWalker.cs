@@ -76,7 +76,14 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 record.AdditionalData         = $"Ghosts pool-walked ({(h.IsLong ? "long" : "short")} header)";
                 records[i] = record;
 
-                if (record.AssetType_Ghosts == GhostsAssetTypePS3.rawfile)
+                // Emit a RawFileNode for any wrapped body the editor can
+                // surface to the user. rawfile entries are the obvious case;
+                // image entries paired by name-aware pairing (JPGs etc.) also
+                // become RawFileNodes so the Raw Files tab + image viewer
+                // pick them up. scriptfile / mptype / aitype bodies are left
+                // metadata-only — the editor doesn't currently expose them.
+                if (record.AssetType_Ghosts == GhostsAssetTypePS3.rawfile
+                    || record.AssetType_Ghosts == GhostsAssetTypePS3.image)
                     result.RawFileNodes.Add(BuildWrappedNode(zoneData, h));
             }
 
@@ -106,7 +113,35 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
                 result.RawFileNodes.Add(BuildLuaFileNode(zoneData, lua));
             }
 
-            result.Resolved        = pairing.PairedCount + luaPaired;
+            // Pair image pool entries with scanned GfxImage structs — flat-binary
+            // bodies that have no signature, so the scanner finds them by their
+            // inline name preceded by a FFFFFFFF NamePtr placeholder. Image
+            // entries already paired with a zlib-wrapped JPG body (by the
+            // name-aware wrapped-header pairing) keep that pairing; the GfxImage
+            // pass only fills in image records that are still unresolved.
+            var gfxImages = IW6GfxImageScanner.Locate(zoneData);
+            int gfxIdx = 0, gfxPaired = 0;
+            for (int i = 0; i < records.Count && gfxIdx < gfxImages.Count; i++)
+            {
+                if (records[i].AssetType_Ghosts != GhostsAssetTypePS3.image) continue;
+                if (!string.IsNullOrEmpty(records[i].Name)) continue; // already paired (JPG)
+                var img = gfxImages[gfxIdx++];
+
+                var record = records[i];
+                record.HeaderStartOffset      = img.StructOffset;
+                record.HeaderEndOffset        = img.NameOffset;
+                record.AssetDataStartPosition = img.StructOffset;
+                record.AssetDataEndOffset     = img.NameOffset + img.Name.Length;
+                record.AssetRecordEndOffset   = img.NameOffset + img.Name.Length;
+                record.Name                   = img.Name;
+                record.Size                   = IW6GfxImageScanner.StructSize;
+                record.AdditionalData         =
+                    $"GfxImage {img.Width}×{img.Height} ({IW6GfxImageScanner.SemanticName(img.Semantic)} / {IW6GfxImageScanner.MapTypeName(img.MapType)})";
+                records[i] = record;
+                gfxPaired++;
+            }
+
+            result.Resolved        = pairing.PairedCount + luaPaired + gfxPaired;
             result.Unresolved      = Math.Max(0, records.Count - result.Resolved);
             result.UnpairedHeaders = pairing.UnpairedHeaders + Math.Max(0, luaFiles.Count - luaIdx);
 

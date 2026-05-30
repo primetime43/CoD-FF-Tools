@@ -276,8 +276,8 @@ public class GhostsZoneLayoutTests
         };
         var headers = new[]
         {
-            new GhostsAssetHeader(100, 120, 130, 5, 10, "asset_one", isLong: false),
-            new GhostsAssetHeader(200, 220, 230, 6, 10, "asset_two", isLong: true),
+            new GhostsAssetHeader(100, 120, 130, 5, 10, "asset_one.txt", isLong: false),
+            new GhostsAssetHeader(200, 220, 230, 6, 10, "asset_two.txt", isLong: true),
         };
 
         var pairing = GhostsZoneLayout.PairPoolWithHeaders(pool, headers);
@@ -288,6 +288,63 @@ public class GhostsZoneLayoutTests
         Assert.Equal(0,  pairing.PoolToHeader[1]); // rawfile → asset_one
         Assert.Equal(-1, pairing.PoolToHeader[2]); // techset skipped
         Assert.Equal(1,  pairing.PoolToHeader[3]); // scriptfile → asset_two
+    }
+
+    [Fact]
+    public void PairPoolWithHeaders_ImageNamedHeadersGoToImagePool()
+    {
+        // Pool: rawfile, image, rawfile, image (in pool order).
+        // Headers (in zone order): foo.txt (rawfile-ish), bar.jpg (image-ish),
+        //                          baz.lua (rawfile-ish), qux.png (image-ish).
+        // Without name-awareness: foo→rawfile[0], bar→rawfile[2], image entries blank.
+        // With name-awareness: foo→rawfile[0], bar→image[1], baz→rawfile[2], qux→image[3].
+        var pool = new[]
+        {
+            new GhostsPoolEntry(0,  GhostsAssetTypePS3.rawfile, GhostsPointerKind.Placeholder),
+            new GhostsPoolEntry(8,  GhostsAssetTypePS3.image,   GhostsPointerKind.Placeholder),
+            new GhostsPoolEntry(16, GhostsAssetTypePS3.rawfile, GhostsPointerKind.Placeholder),
+            new GhostsPoolEntry(24, GhostsAssetTypePS3.image,   GhostsPointerKind.Placeholder),
+        };
+        var headers = new[]
+        {
+            new GhostsAssetHeader(100, 110, 120, 5, 10, "vision/foo.vision", isLong: false),
+            new GhostsAssetHeader(200, 210, 220, 5, 10, "ui_mp/ingamestore/img_bar.jpg", isLong: false),
+            new GhostsAssetHeader(300, 310, 320, 5, 10, "scripts/baz.gsc", isLong: false),
+            new GhostsAssetHeader(400, 410, 420, 5, 10, "ui_mp/qux.png", isLong: false),
+        };
+
+        var pairing = GhostsZoneLayout.PairPoolWithHeaders(pool, headers);
+
+        Assert.Equal(4, pairing.PairedCount);
+        Assert.Equal(0, pairing.UnpairedHeaders);
+        Assert.Equal(0, pairing.PoolToHeader[0]); // rawfile[0] → foo.vision
+        Assert.Equal(1, pairing.PoolToHeader[1]); // image[1]   → img_bar.jpg
+        Assert.Equal(2, pairing.PoolToHeader[2]); // rawfile[2] → baz.gsc
+        Assert.Equal(3, pairing.PoolToHeader[3]); // image[3]   → qux.png
+    }
+
+    [Fact]
+    public void PairPoolWithHeaders_SpillsToOtherBucketWhenPrimaryExhausted()
+    {
+        // Pool has only rawfile entries but headers include a JPG. The JPG
+        // should spill to a rawfile slot rather than getting stranded.
+        var pool = new[]
+        {
+            new GhostsPoolEntry(0, GhostsAssetTypePS3.rawfile, GhostsPointerKind.Placeholder),
+            new GhostsPoolEntry(8, GhostsAssetTypePS3.rawfile, GhostsPointerKind.Placeholder),
+        };
+        var headers = new[]
+        {
+            new GhostsAssetHeader(100, 110, 120, 5, 10, "foo.txt", isLong: false),
+            new GhostsAssetHeader(200, 210, 220, 5, 10, "img.jpg", isLong: false),
+        };
+
+        var pairing = GhostsZoneLayout.PairPoolWithHeaders(pool, headers);
+
+        Assert.Equal(2, pairing.PairedCount);
+        Assert.Equal(0, pairing.UnpairedHeaders);
+        Assert.Equal(0, pairing.PoolToHeader[0]); // rawfile → foo.txt
+        Assert.Equal(1, pairing.PoolToHeader[1]); // rawfile (spill) → img.jpg
     }
 
     [Fact]

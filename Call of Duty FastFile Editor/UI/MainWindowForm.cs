@@ -1002,15 +1002,35 @@ namespace Call_of_Duty_FastFile_Editor
         }
 
         /// <summary>
+        /// Double-clicking an image-extension raw file (jpg/png/bmp/gif/tiff/ico)
+        /// opens it in a modal image viewer. Non-image files fall through —
+        /// the text editor on the right is the normal view for those.
+        /// </summary>
+        private void filesTreeView_NodeMouseDoubleClick(object? sender, TreeNodeMouseClickEventArgs e)
+        {
+            if (e.Node?.Tag is not RawFileNode node) return;
+            if (!RawFileImageViewerForm.IsImageRawFile(node.FileName)) return;
+            using var viewer = new RawFileImageViewerForm(node);
+            viewer.ShowDialog(this);
+        }
+
+        /// <summary>
         /// Handles actions after selecting a new TreeView node, loading the corresponding file content.
         /// </summary>
         private void filesTreeView_AfterSelect(object sender, TreeViewEventArgs e)
         {
             if (e.Node?.Tag is RawFileNode selectedNode)
             {
-                // Load the file content into the editor without retriggering TextChanged
+                // Load the file content into the editor without retriggering TextChanged.
+                // For image-extension raw files with no text content, show a hint so the
+                // user knows to double-click for the modal viewer (rather than seeing
+                // a blank panel and assuming nothing's there).
+                string display = selectedNode.RawFileContent ?? string.Empty;
+                if (string.IsNullOrEmpty(display) && RawFileImageViewerForm.IsImageRawFile(selectedNode.FileName))
+                    display = $"-- {selectedNode.FileName}{Environment.NewLine}-- Image file ({selectedNode.MaxSize:N0} bytes). Double-click in the tree to open the image viewer.";
+
                 textEditorControlEx1.TextChanged -= textEditorControlEx1_TextChanged;
-                textEditorControlEx1.SetTextAndRefresh(selectedNode.RawFileContent ?? string.Empty);
+                textEditorControlEx1.SetTextAndRefresh(display);
                 textEditorControlEx1.TextChanged += textEditorControlEx1_TextChanged;
 
                 // Update UI
@@ -4178,10 +4198,26 @@ namespace Call_of_Duty_FastFile_Editor
                 string dataStart = "-";
                 string dataEnd = "-";
                 string size = "-";
-                // Determine appropriate status message based on asset type
+                // Determine appropriate status message based on asset type.
+                // For Ghosts (IW6), the older games' "External reference (data in
+                // another zone)" default is misleading: tracing patch_ui_mp.ff
+                // showed 472/510 image-typed entries have FFFFFFFF pointer
+                // placeholders, meaning the engine expects their bodies inline
+                // in *this* zone — they're flat-binary GfxImage structs +
+                // texture data, not external references. We just don't have a
+                // parser for the IW6 image struct yet.
                 string status;
                 bool isSupportedType = isRawFile || isLocalize || isMenuFile || isTechSet || isXAnim || isStringTable || isWeapon || isImage;
-                if (isSupportedType)
+                bool isGhosts = _openedFastFile.IsGhostsFile;
+                if (isGhosts && isImage)
+                {
+                    status = "Flat-binary GfxImage (IW6 image parser not implemented)";
+                }
+                else if (isGhosts && isSupportedType)
+                {
+                    status = "Flat-binary asset (IW6 content parser not implemented)";
+                }
+                else if (isSupportedType)
                 {
                     status = "External reference (data in another zone)";
                 }
@@ -4294,7 +4330,9 @@ namespace Call_of_Duty_FastFile_Editor
 
                 // Generic fallback: if no typed parser claimed this record but the
                 // walker resolved its name + body offsets (Ghosts non-rawfile types
-                // land here), surface them directly from the ZoneAssetRecord.
+                // land here), surface them directly from the ZoneAssetRecord. The
+                // walker sets AdditionalData to a descriptive string ("GfxImage
+                // 256×256 (color / 2D)" etc.) — use it verbatim as the status.
                 if (!isParsed && !string.IsNullOrEmpty(record.Name) && record.HeaderStartOffset > 0)
                 {
                     isParsed = true;
@@ -4303,8 +4341,8 @@ namespace Call_of_Duty_FastFile_Editor
                     dataEnd = $"0x{record.AssetDataEndOffset:X}";
                     size = $"0x{record.Size:X}";
                     status = !string.IsNullOrEmpty(record.AdditionalData)
-                        ? $"{record.AdditionalData} (no content parser)"
-                        : "Located, no content parser";
+                        ? record.AdditionalData
+                        : "Located";
                 }
 
                 lvi.SubItems.Add(dataStart);

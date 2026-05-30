@@ -373,10 +373,20 @@ public static class GhostsZoneLayout
     }
 
     /// <summary>
-    /// Pair pool entries with located headers, filtering to only the
-    /// zlib-wrapped pool types (<see cref="IsWrappedType"/>). Non-wrapped pool
-    /// entries (xmodel / image / sound / techset / …) don't have a wrapper in
-    /// the zone body and would skew positional pairing if not skipped.
+    /// Pair pool entries with located headers. Pairing is <b>name-aware</b>:
+    /// a header whose name has an image-file extension
+    /// (<c>.jpg/.jpeg/.png/.bmp/.gif/.tif/.tiff/.dds</c>) goes to the next
+    /// unpaired <c>image</c>-typed pool entry, anything else goes to the next
+    /// unpaired type in <see cref="IsWrappedType"/> (rawfile / scriptfile /
+    /// mptype / aitype).
+    ///
+    /// Without this split, IW6 UI zones like <c>patch_ui_mp.zone</c> attribute
+    /// every <c>ui_mp/ingamestore/img_store_*.jpg</c> body to a rawfile pool
+    /// slot in pool order (because both image and rawfile bodies use the same
+    /// zlib-wrapped short header), so the actual <c>image</c>-typed pool entries
+    /// show as "External reference" while rawfile rows get the JPG names.
+    /// Non-wrapped pool entries (xmodel / sound / techset / …) and image
+    /// entries whose body is flat-binary DDS still stay unpaired.
     /// </summary>
     public static GhostsPoolPairing PairPoolWithHeaders(
         IReadOnlyList<GhostsPoolEntry> poolEntries,
@@ -385,13 +395,35 @@ public static class GhostsZoneLayout
         var poolToHeader = new int[poolEntries.Count];
         for (int i = 0; i < poolToHeader.Length; i++) poolToHeader[i] = -1;
 
-        int paired = 0;
-        int hIdx = 0;
-        for (int i = 0; i < poolEntries.Count && hIdx < headers.Count; i++)
+        var imageSlots = new Queue<int>();
+        var wrappedSlots = new Queue<int>();
+        for (int i = 0; i < poolEntries.Count; i++)
         {
-            if (!IsWrappedType(poolEntries[i].Type)) continue;
-            poolToHeader[i] = hIdx++;
-            paired++;
+            var t = poolEntries[i].Type;
+            if (t == GhostsAssetTypePS3.image) imageSlots.Enqueue(i);
+            else if (IsWrappedType(t)) wrappedSlots.Enqueue(i);
+        }
+
+        int paired = 0;
+        int unpairedHeaders = 0;
+        for (int hIdx = 0; hIdx < headers.Count; hIdx++)
+        {
+            var h = headers[hIdx];
+            Queue<int> primary = HasImageExtension(h.Name) ? imageSlots : wrappedSlots;
+            Queue<int> fallback = HasImageExtension(h.Name) ? wrappedSlots : imageSlots;
+            // Spill to the other queue if the primary is exhausted so we
+            // don't leave headers stranded when one bucket runs out.
+            int? targetIdx = primary.Count > 0 ? primary.Dequeue() :
+                              fallback.Count > 0 ? fallback.Dequeue() : (int?)null;
+            if (targetIdx is int idx)
+            {
+                poolToHeader[idx] = hIdx;
+                paired++;
+            }
+            else
+            {
+                unpairedHeaders++;
+            }
         }
 
         return new GhostsPoolPairing
@@ -400,8 +432,21 @@ public static class GhostsZoneLayout
             Headers = new List<GhostsAssetHeader>(headers),
             PoolToHeader = poolToHeader,
             PairedCount = paired,
-            UnpairedHeaders = Math.Max(0, headers.Count - hIdx),
+            UnpairedHeaders = unpairedHeaders,
         };
+    }
+
+    /// <summary>Extensions for which the wrapped body should pair with an
+    /// <c>image</c>-typed pool entry rather than a rawfile/scriptfile one.</summary>
+    private static readonly string[] ImageExtensions =
+        { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff", ".dds" };
+
+    private static bool HasImageExtension(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        foreach (var ext in ImageExtensions)
+            if (name.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     // ===================================================================

@@ -172,9 +172,10 @@ namespace Call_of_Duty_FastFile_Editor
             filesTreeView.Name = "filesTreeView";
             filesTreeView.Size = new Size(330, 743);
             filesTreeView.TabIndex = 0;
-            filesTreeToolTip.SetToolTip(filesTreeView, "Right click for more options.");
+            filesTreeToolTip.SetToolTip(filesTreeView, "Right click for more options. Double-click image files (.jpg/.png/.bmp/…) to preview.");
             filesTreeView.BeforeSelect += filesTreeView_BeforeSelect;
             filesTreeView.AfterSelect += filesTreeView_AfterSelect;
+            filesTreeView.NodeMouseDoubleClick += filesTreeView_NodeMouseDoubleClick;
             // 
             // contextMenuStripRawFiles
             // 
