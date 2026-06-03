@@ -64,7 +64,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
             // Game name
             string gameName = _fastFile.IsCod4File ? "CoD4" :
                               _fastFile.IsCod5File ? "WaW" :
-                              _fastFile.IsMW2File ? "MW2" : "Unknown";
+                              _fastFile.IsMW2File ? "MW2" :
+                              _fastFile.IsGhostsFile ? "Ghosts" : "Unknown";
             gameLabel.Text = $"Game: {gameName}";
 
             // Platform - use FastFile's detected platform (handles PC detection)
@@ -105,6 +106,8 @@ namespace Call_of_Duty_FastFile_Editor.UI
                     typeName = record.AssetType_MW2_Xbox360.ToString();
                 else if (_fastFile.IsMW2File)
                     typeName = record.AssetType_MW2.ToString();
+                else if (_fastFile.IsGhostsFile)
+                    typeName = record.AssetType_Ghosts.ToString();
                 else
                     typeName = "unknown";
 
@@ -183,16 +186,41 @@ namespace Call_of_Duty_FastFile_Editor.UI
                                $"Supported: {supportedCount} | Unsupported: {unsupportedCount}";
         }
 
+        // Ghosts viewable types all route through the same GhostsAssetWalker -> RawFiles tab,
+        // which is gated by a single LoadRawFiles flag (no per-type Ghosts load path yet).
+        private static readonly HashSet<string> GhostsRawFileTabTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "rawfile",
+            "scriptfile",
+            "luafile"
+        };
+
         private void okButton_Click(object sender, EventArgs e)
         {
-            // Get user selections
+            // Sync each row's IsSelected with its checkbox.
             foreach (ListViewItem item in assetListView.Items)
             {
                 if (item.Tag is AssetTypeInfo asset)
-                {
                     asset.IsSelected = item.Checked;
+            }
 
-                    // Update load flags based on asset type
+            if (_fastFile.IsGhostsFile)
+            {
+                // rawfile / scriptfile / luafile are the only loadable Ghosts categories,
+                // and they share one walker. Load it when any of them is checked.
+                LoadRawFiles = assetListView.Items.Cast<ListViewItem>()
+                    .Any(i => i.Checked && i.Tag is AssetTypeInfo a && GhostsRawFileTabTypes.Contains(a.TypeName));
+                LoadLocalizedEntries = false;
+                LoadTags = false;
+                LoadMenuFiles = false;
+            }
+            else
+            {
+                // Update load flags based on asset type.
+                foreach (ListViewItem item in assetListView.Items)
+                {
+                    if (item.Tag is not AssetTypeInfo asset)
+                        continue;
                     switch (asset.TypeName)
                     {
                         case "rawfile":

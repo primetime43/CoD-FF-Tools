@@ -346,18 +346,18 @@ namespace Call_of_Duty_FastFile_Editor
                 // Load & parse that zone in one go
                 _openedFastFile.LoadZone();
 
-                // Asset selection dialog: ask which categories to load. Skipped for
-                // Ghosts (IW6) because per-asset content parsers aren't implemented —
-                // every category would come back empty anyway, so there's nothing to
-                // choose between. The asset-pool listing still populates from the
-                // GhostsZoneParser output.
+                // Asset selection dialog: ask which categories to load. Ghosts (IW6) is
+                // included too — it lists every IW6 asset type with counts and lets the
+                // user toggle the viewable rawfile/scriptfile/luafile content. Ghosts has
+                // no script-string parser, so no tags row is surfaced for it.
                 bool loadRawFiles = true;
                 bool loadLocalizedEntries = true;
                 bool loadTags = true;
 
-                if (!_openedFastFile.IsGhostsFile)
                 {
-                    int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
+                    int tagCount = _openedFastFile.IsGhostsFile
+                        ? 0
+                        : TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
                     using (var assetDialog = new AssetSelectionDialog(
                         _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
                         _openedFastFile,
@@ -483,19 +483,20 @@ namespace Call_of_Duty_FastFile_Editor
                     _openedFastFile.LoadZone();
                 });
 
-                // Asset selection dialog: skipped for Ghosts (IW6) because per-asset
-                // content parsers aren't implemented yet — every category would come
-                // back empty anyway. The asset-pool listing still populates.
+                // Asset selection dialog: shown for every game including Ghosts (IW6).
+                // For Ghosts it lists all IW6 asset types with counts and lets the user
+                // toggle the viewable rawfile/scriptfile/luafile content; no tags row is
+                // surfaced because IW6 script strings aren't parsed.
                 bool loadRawFiles = true;
                 bool loadLocalizedEntries = true;
                 bool loadTags = true;
 
-                if (!_openedFastFile.IsGhostsFile)
                 {
                     int tagCount = 0;
                     RunOnUIThread(() =>
                     {
-                        tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
+                        if (!_openedFastFile.IsGhostsFile)
+                            tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
                         HideLoading();
                     });
 
@@ -513,10 +514,6 @@ namespace Call_of_Duty_FastFile_Editor
                         loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
                         loadTags = assetDialog.LoadTags;
                     }
-                }
-                else
-                {
-                    RunOnUIThread(() => HideLoading());
                 }
 
                 // Show loading indicator while parsing assets
@@ -5465,8 +5462,10 @@ namespace Call_of_Duty_FastFile_Editor
                     // Load & parse the zone directly (no decompression needed)
                     _openedFastFile.LoadZone();
 
-                    // Get tag count for the dialog
-                    int tagCount = TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
+                    // Get tag count for the dialog (Ghosts has no script-string parser).
+                    int tagCount = _openedFastFile.IsGhostsFile
+                        ? 0
+                        : TagOperations.GetTagCount(_openedFastFile.OpenedFastFileZone);
 
                     // Show asset selection dialog
                     bool loadRawFiles = true;

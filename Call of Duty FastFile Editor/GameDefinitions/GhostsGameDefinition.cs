@@ -44,6 +44,21 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override bool IsMaterialType(int assetType) => assetType == (int)GhostsAssetTypePS3.material;
         public override bool IsTechSetType(int assetType) => assetType == (int)GhostsAssetTypePS3.techset;
 
+        /// <summary>
+        /// IW6 supports a different set than CoD4/WaW/MW2: only the zlib-wrapped rawfile,
+        /// scriptfile, and flat luafile bodies are located + viewable (read-only via the
+        /// RawFiles tab). Everything else (localize, weapon, image, stringtable, …) is
+        /// flat-binary and not parsed, so it must read as unsupported in the asset dialog.
+        /// </summary>
+        private static readonly HashSet<string> GhostsSupportedTypeNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "rawfile",
+            "scriptfile",
+            "luafile"
+        };
+
+        public override bool IsSupportedAssetTypeName(string typeName) => GhostsSupportedTypeNames.Contains(typeName);
+
         public override string GetAssetTypeName(int assetType)
         {
             if (Enum.IsDefined(typeof(GhostsAssetTypePS3), assetType))
