@@ -125,6 +125,8 @@ namespace Call_of_Duty_FastFile_Editor
             stringTablesListView = new ListView();
             zoneFileTabPage = new TabPage();
             zoneInfoDataGridView = new DataGridView();
+            zoneHeaderSummaryPanel = new Panel();
+            zoneHeaderSummaryLabel = new Label();
             logsTabPage = new TabPage();
             logsTabContent = new LogsTabPage();
             bindingSource1 = new BindingSource(components);
@@ -1066,6 +1068,7 @@ namespace Call_of_Duty_FastFile_Editor
             // zoneFileTabPage
             //
             zoneFileTabPage.Controls.Add(zoneInfoDataGridView);
+            zoneFileTabPage.Controls.Add(zoneHeaderSummaryPanel);
             zoneFileTabPage.Location = new Point(4, 24);
             zoneFileTabPage.Name = "zoneFileTabPage";
             zoneFileTabPage.Padding = new Padding(3);
@@ -1073,14 +1076,39 @@ namespace Call_of_Duty_FastFile_Editor
             zoneFileTabPage.TabIndex = 1;
             zoneFileTabPage.Text = "Zone Header";
             zoneFileTabPage.UseVisualStyleBackColor = true;
-            // 
+            //
+            // zoneHeaderSummaryPanel
+            //
+            zoneHeaderSummaryPanel.Controls.Add(zoneHeaderSummaryLabel);
+            zoneHeaderSummaryPanel.Dock = DockStyle.Top;
+            zoneHeaderSummaryPanel.Name = "zoneHeaderSummaryPanel";
+            zoneHeaderSummaryPanel.Padding = new Padding(12, 8, 12, 8);
+            zoneHeaderSummaryPanel.Size = new Size(1436, 70);
+            zoneHeaderSummaryPanel.TabIndex = 1;
+            //
+            // zoneHeaderSummaryLabel
+            //
+            zoneHeaderSummaryLabel.Dock = DockStyle.Fill;
+            zoneHeaderSummaryLabel.Name = "zoneHeaderSummaryLabel";
+            zoneHeaderSummaryLabel.TabIndex = 0;
+            zoneHeaderSummaryLabel.UseMnemonic = false;
+            //
             // zoneInfoDataGridView
-            // 
-            zoneInfoDataGridView.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
+            //
+            zoneInfoDataGridView.AllowUserToAddRows = false;
+            zoneInfoDataGridView.AllowUserToDeleteRows = false;
+            zoneInfoDataGridView.AllowUserToResizeRows = false;
+            zoneInfoDataGridView.AutoGenerateColumns = false;
+            zoneInfoDataGridView.BackgroundColor = SystemColors.Window;
+            zoneInfoDataGridView.BorderStyle = BorderStyle.None;
+            zoneInfoDataGridView.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
             zoneInfoDataGridView.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            zoneInfoDataGridView.Location = new Point(-4, 0);
+            zoneInfoDataGridView.Dock = DockStyle.Fill;
+            zoneInfoDataGridView.EditMode = DataGridViewEditMode.EditProgrammatically;
             zoneInfoDataGridView.Name = "zoneInfoDataGridView";
-            zoneInfoDataGridView.Size = new Size(493, 432);
+            zoneInfoDataGridView.ReadOnly = true;
+            zoneInfoDataGridView.RowHeadersVisible = false;
+            zoneInfoDataGridView.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             zoneInfoDataGridView.TabIndex = 0;
             zoneInfoDataGridView.MouseDown += dataGrid_MouseDownCopy;
             //
@@ -1203,6 +1231,8 @@ namespace Call_of_Duty_FastFile_Editor
         private TabPage rawFilesPage;
         private TabPage zoneFileTabPage;
         private DataGridView zoneInfoDataGridView;
+        private Panel zoneHeaderSummaryPanel;
+        private Label zoneHeaderSummaryLabel;
         private TabPage logsTabPage;
         private LogsTabPage logsTabContent;
         private BindingSource bindingSource1;

@@ -1836,8 +1836,16 @@ namespace Call_of_Duty_FastFile_Editor
             ReloadAllRawFileNodesAndUI();
         }
 
+        // Row tint colours for the Zone Header grid, keyed off field severity.
+        private static readonly Color ZoneSectionBack = Color.FromArgb(225, 231, 239);
+        private static readonly Color ZoneGoodBack = Color.FromArgb(231, 247, 231);
+        private static readonly Color ZoneWarnBack = Color.FromArgb(255, 247, 224);
+        private static readonly Color ZoneCriticalBack = Color.FromArgb(253, 231, 231);
+
         /// <summary>
-        /// Populates the DataGridView with Zone decimal values.
+        /// Renders the zone header as a sectioned, validated report: a health banner at the top
+        /// and one annotated row per field, with the crash-critical fields (MemAlloc values, asset
+        /// count, pointer placeholders) highlighted when their values are wrong.
         /// </summary>
         private void LoadZoneHeaderValues(ZoneFile zone)
         {
@@ -1846,17 +1854,94 @@ namespace Call_of_Duty_FastFile_Editor
                 _openedFastFile.OpenedFastFileZone.ReadHeaderFields();
             }
 
-            // Convert the dictionary to a list of objects with matching property names
-            var dataSource = zone.HeaderFieldValues.Select(kvp => new
-            {
-                ZoneName = kvp.Key,
-                ZoneDecValue = kvp.Value,
-                ZoneHexValue = Utilities.ConvertToBigEndianHex(kvp.Value),
-                ZoneOffset = _openedFastFile.OpenedFastFileZone.GetZoneOffset(kvp.Key)
-            }).ToList();
+            zone ??= _openedFastFile.OpenedFastFileZone;
+            int parsedAssetCount = zone?.ZoneFileAssets?.ZoneAssetRecords?.Count ?? 0;
+            var report = ZoneHeaderInspector.Build(
+                zone?.Data,
+                _openedFastFile.GameVersionEnum,
+                _openedFastFile.IsXbox360,
+                _openedFastFile.IsPC,
+                _openedFastFile.IsWii,
+                _openedFastFile.IsGhostsFile,
+                zone?.Data?.LongLength ?? 0,
+                parsedAssetCount);
 
-            // Assign the data source to the DataGridView
-            zoneInfoDataGridView.DataSource = dataSource;
+            // --- Health banner ---
+            string glyph = report.OverallSeverity switch
+            {
+                ZoneFieldSeverity.Good => "✓  ",
+                ZoneFieldSeverity.Warning => "⚠  ",
+                ZoneFieldSeverity.Critical => "✕  ",
+                _ => ""
+            };
+            zoneHeaderSummaryLabel.Font = new Font("Segoe UI", 9.75f, FontStyle.Regular);
+            zoneHeaderSummaryLabel.Text = report.Headline + Environment.NewLine + glyph + report.Health;
+            (zoneHeaderSummaryPanel.BackColor, zoneHeaderSummaryLabel.ForeColor) = report.OverallSeverity switch
+            {
+                ZoneFieldSeverity.Good => (ZoneGoodBack, Color.FromArgb(27, 94, 32)),
+                ZoneFieldSeverity.Warning => (ZoneWarnBack, Color.FromArgb(124, 89, 0)),
+                ZoneFieldSeverity.Critical => (ZoneCriticalBack, Color.FromArgb(155, 28, 28)),
+                _ => (SystemColors.Control, SystemColors.ControlText)
+            };
+
+            // --- Grid columns (built once) ---
+            if (zoneInfoDataGridView.Columns.Count == 0)
+            {
+                void AddCol(string name, string header, int width, DataGridViewAutoSizeColumnMode mode = DataGridViewAutoSizeColumnMode.None)
+                {
+                    var col = new DataGridViewTextBoxColumn
+                    {
+                        Name = name,
+                        HeaderText = header,
+                        Width = width,
+                        AutoSizeMode = mode,
+                        SortMode = DataGridViewColumnSortMode.NotSortable,
+                        Resizable = DataGridViewTriState.True
+                    };
+                    zoneInfoDataGridView.Columns.Add(col);
+                }
+
+                AddCol("Field", "Field", 165);
+                AddCol("Decimal", "Decimal", 120);
+                AddCol("Hex", "Hex", 110);
+                AddCol("Offset", "Offset", 70);
+                AddCol("Meaning", "Meaning", 0, DataGridViewAutoSizeColumnMode.Fill);
+                AddCol("Status", "Status", 300);
+
+                zoneInfoDataGridView.Columns["Decimal"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+                zoneInfoDataGridView.Columns["Hex"].DefaultCellStyle.Font = new Font("Consolas", 9f);
+                zoneInfoDataGridView.Columns["Meaning"].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
+                zoneInfoDataGridView.Columns["Status"].DefaultCellStyle.WrapMode = DataGridViewTriState.True;
+                zoneInfoDataGridView.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+                zoneInfoDataGridView.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.AllCells;
+            }
+
+            // --- Rows ---
+            zoneInfoDataGridView.Rows.Clear();
+            foreach (var field in report.Fields)
+            {
+                int index = zoneInfoDataGridView.Rows.Add(
+                    field.Name, field.Decimal, field.Hex, field.Offset, field.Meaning, field.Status);
+                var row = zoneInfoDataGridView.Rows[index];
+
+                switch (field.Severity)
+                {
+                    case ZoneFieldSeverity.Section:
+                        row.DefaultCellStyle.BackColor = ZoneSectionBack;
+                        row.DefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+                        break;
+                    case ZoneFieldSeverity.Good:
+                        row.DefaultCellStyle.BackColor = ZoneGoodBack;
+                        break;
+                    case ZoneFieldSeverity.Warning:
+                        row.DefaultCellStyle.BackColor = ZoneWarnBack;
+                        break;
+                    case ZoneFieldSeverity.Critical:
+                        row.DefaultCellStyle.BackColor = ZoneCriticalBack;
+                        row.DefaultCellStyle.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+                        break;
+                }
+            }
         }
 
         /// <summary>

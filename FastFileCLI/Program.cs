@@ -70,6 +70,7 @@ class Program
             return command switch
             {
                 "info"                       => InfoCommand(args.Skip(1).ToArray()),
+                "zoneheader" or "zh"         => ZoneHeaderCommand(args.Skip(1).ToArray()),
                 "report" or "r"              => ReportCommand(args.Skip(1).ToArray()),
                 "decompress" or "d"          => DecompressCommand(args.Skip(1).ToArray()),
                 "compress"   or "c"          => CompressCommand(args.Skip(1).ToArray()),
@@ -113,6 +114,7 @@ class Program
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  info <file.ff> [--json]                Print FastFile header info");
+        Console.WriteLine("  zoneheader, zh <file.ff|.zone> [--json] Validate the zone header (MemAlloc, counts)");
         Console.WriteLine("  report, r <file.ff>                    Full diagnostic report (for bug reports)");
         Console.WriteLine("  decompress, d <file.ff> [out.zone]     Decompress to a zone file");
         Console.WriteLine("  compress, c <file.zone> <out.ff>       Compress a zone into a FastFile");
@@ -141,6 +143,18 @@ class Program
                 Console.WriteLine("Prints header info: magic, version, game, platform, signed status, file size.");
                 Console.WriteLine("--json emits a machine-readable object (array if multiple files).");
                 Console.WriteLine("File argument accepts globs: ffcli info *.ff");
+                break;
+
+            case "zoneheader":
+            case "zh":
+                Console.WriteLine("Usage: ffcli zoneheader <file.ff|.zone> [--json]");
+                Console.WriteLine();
+                Console.WriteLine("Validates the decompressed zone's XFile / XAssetList header and flags the");
+                Console.WriteLine("fields that black-screen the game when wrong:");
+                Console.WriteLine("  - MemAlloc magic values (BlockSizeTemp / BlockSizeVertex)");
+                Console.WriteLine("  - AssetCount and the asset/script pointer placeholders");
+                Console.WriteLine("Each field is marked [ OK ] / [WARN] / [CRIT]. --json emits a machine-readable");
+                Console.WriteLine("object (array if multiple files). File argument accepts globs.");
                 break;
 
             case "report":
@@ -288,6 +302,129 @@ class Program
         Console.WriteLine($"Studio:    {info.Studio}");
         Console.WriteLine($"Signed:    {(info.IsSigned ? "Yes" : "No")}");
     }
+
+    // -----------------------------------------------------------------
+    //  zoneheader — validate the decompressed zone header
+    // -----------------------------------------------------------------
+
+    static int ZoneHeaderCommand(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.Error.WriteLine("Usage: ffcli zoneheader <file.ff|.zone> [--json]");
+            return 1;
+        }
+
+        bool json = args.Any(a => a == "--json");
+        var paths = ExpandFileArgs(args.Where(a => !a.StartsWith("--")));
+        if (paths.Count == 0)
+        {
+            Console.Error.WriteLine("No files matched.");
+            return 1;
+        }
+
+        var jsonResults = new List<object>();
+        bool first = true;
+        foreach (var path in paths)
+        {
+            var report = BuildZoneHeaderReport(path);
+            if (json) { jsonResults.Add(BuildZoneHeaderJson(path, report)); continue; }
+
+            if (!first) Console.WriteLine();
+            first = false;
+            Console.WriteLine($"File: {Path.GetFileName(path)}");
+            PrintZoneHeaderReport(report);
+        }
+
+        if (json)
+        {
+            object output = jsonResults.Count == 1 ? jsonResults[0] : jsonResults;
+            Console.WriteLine(JsonSerializer.Serialize(output, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Decompresses (if needed), detects game/platform, and runs the shared
+    /// <see cref="ZoneHeaderInspector"/>. parsedAssetCount is null because the CLI has no
+    /// independent pool walker — AssetCount is reported as declared-only, not cross-checked.
+    /// </summary>
+    static ZoneHeaderReport BuildZoneHeaderReport(string path)
+    {
+        string ext = Path.GetExtension(path).ToLowerInvariant();
+        byte[] data;
+        GameVersion gv;
+        bool isPC, isWii, isXbox360;
+
+        if (ext == ".ff" || ext == ".ffm")
+        {
+            var info = FastFileInfo.FromFile(path);
+            data = DecompressFf(path);
+            gv = info.GameVersion;
+            isPC = info.IsPC;
+            isWii = info.IsWii;
+            isXbox360 = info.Platform == "Xbox 360";
+        }
+        else
+        {
+            data = File.ReadAllBytes(path);
+            gv = FastFileInfo.DetectGameFromZoneData(data);
+            isPC = FastFileInfo.IsZoneDataPC(data);
+            isWii = FastFileInfo.IsZoneDataWii(data);
+            isXbox360 = FastFileInfo.IsZoneDataXbox360(data);
+        }
+
+        bool isGhosts = gv == GameVersion.Ghosts;
+        return ZoneHeaderInspector.Build(data, gv, isXbox360, isPC, isWii, isGhosts, data.LongLength, parsedAssetCount: null);
+    }
+
+    static string SeverityMarker(ZoneFieldSeverity sev) => sev switch
+    {
+        ZoneFieldSeverity.Good => "[ OK ]",
+        ZoneFieldSeverity.Warning => "[WARN]",
+        ZoneFieldSeverity.Critical => "[CRIT]",
+        _ => "      "
+    };
+
+    static void PrintZoneHeaderReport(ZoneHeaderReport report)
+    {
+        Console.WriteLine(report.Headline);
+        Console.WriteLine($"{SeverityMarker(report.OverallSeverity)} {report.Health}");
+        Console.WriteLine();
+        foreach (var f in report.Fields)
+        {
+            if (f.Severity == ZoneFieldSeverity.Section)
+            {
+                Console.WriteLine(f.Name);
+                continue;
+            }
+            string line = $"  {SeverityMarker(f.Severity)} {f.Offset,-5} {f.Name,-18} {f.Hex,-12} {f.Decimal,15}";
+            if (!string.IsNullOrWhiteSpace(f.Status))
+                line += $"  {f.Status}";
+            Console.WriteLine(line);
+        }
+    }
+
+    static object BuildZoneHeaderJson(string path, ZoneHeaderReport report) => new
+    {
+        file = Path.GetFileName(path),
+        headline = report.Headline,
+        severity = report.OverallSeverity.ToString(),
+        health = report.Health,
+        fields = report.Fields
+            .Where(f => f.Severity != ZoneFieldSeverity.Section)
+            .Select(f => new
+            {
+                name = f.Name,
+                hex = f.Hex,
+                dec = f.Decimal,
+                offset = f.Offset,
+                meaning = f.Meaning,
+                status = f.Status,
+                severity = f.Severity.ToString()
+            })
+            .ToList()
+    };
 
     // -----------------------------------------------------------------
     //  report — the bug-report-friendly diagnostic dump

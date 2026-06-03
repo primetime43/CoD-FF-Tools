@@ -424,49 +424,62 @@ namespace Call_of_Duty_FastFile_Editor.UI
         {
             var zone = _fastFile.OpenedFastFileZone;
             int hdrSize = FastFileConstants.GetZoneHeaderSize(
-                _fastFile.IsCod4File ? GameVersion.CoD4 :
-                _fastFile.IsCod5File ? GameVersion.WaW :
-                _fastFile.IsMW2File ? GameVersion.MW2 : GameVersion.Unknown,
-                _isXbox360, _isPC);
+                _fastFile.GameVersionEnum, _isXbox360, _isPC, _fastFile.IsWii);
 
+            int parsedAssetCount = zone?.ZoneFileAssets?.ZoneAssetRecords?.Count ?? 0;
+            var report = ZoneHeaderInspector.Build(
+                _zoneBytes,
+                _fastFile.GameVersionEnum,
+                _isXbox360, _isPC, _fastFile.IsWii, _fastFile.IsGhostsFile,
+                _zoneBytes.LongLength,
+                parsedAssetCount);
+
+            // One validated line per field, e.g. "[CRIT] 0x08  BlockSizeTemp : 0x.. (12,345) — expected 0x.."
             var fields = new StringBuilder();
-            fields.AppendLine("XFile (memory block allocation):");
-            fields.AppendLine($"  0x00  ZoneSize         : 0x{zone.ZoneSize:X8} ({zone.ZoneSize:N0})");
-            fields.AppendLine($"  0x04  ExternalSize     : 0x{zone.ExternalSize:X8}");
-            fields.AppendLine($"  0x08  BlockSizeTemp    : 0x{zone.BlockSizeTemp:X8}");
-            fields.AppendLine($"  0x0C  BlockSizePhysical: 0x{zone.BlockSizePhysical:X8}");
-            fields.AppendLine($"  0x10  BlockSizeRuntime : 0x{zone.BlockSizeRuntime:X8}");
-            fields.AppendLine($"  0x14  BlockSizeVirtual : 0x{zone.BlockSizeVirtual:X8}");
-            fields.AppendLine($"  0x18  BlockSizeLarge   : 0x{zone.BlockSizeLarge:X8}");
-            fields.AppendLine($"  0x1C  BlockSizeCallback: 0x{zone.BlockSizeCallback:X8}");
-            if (hdrSize >= 0x34)
-                fields.AppendLine($"  0x20  BlockSizeVertex  : 0x{zone.BlockSizeVertex:X8}");
-            fields.AppendLine();
-            fields.AppendLine("XAssetList:");
-            int slOffset = FastFileConstants.GetScriptStringCountOffset(
-                _fastFile.IsCod4File ? GameVersion.CoD4 :
-                _fastFile.IsCod5File ? GameVersion.WaW :
-                _fastFile.IsMW2File ? GameVersion.MW2 : GameVersion.Unknown,
-                _isXbox360, _isPC);
-            fields.AppendLine($"  0x{slOffset:X2}  ScriptStringCount: {zone.ScriptStringCount}");
-            fields.AppendLine($"  0x{slOffset + 4:X2}  ScriptStringsPtr : 0x{zone.ScriptStringsPtr:X8}");
-            fields.AppendLine($"  0x{slOffset + 8:X2}  AssetCount       : {zone.AssetCount}");
-            fields.AppendLine($"  0x{slOffset + 12:X2}  AssetsPtr        : 0x{zone.AssetsPtr:X8}");
+            foreach (var f in report.Fields)
+            {
+                if (f.Severity == ZoneFieldSeverity.Section)
+                {
+                    fields.AppendLine();
+                    fields.AppendLine(f.Name);
+                    continue;
+                }
+
+                string marker = f.Severity switch
+                {
+                    ZoneFieldSeverity.Good => "[ OK ]",
+                    ZoneFieldSeverity.Warning => "[WARN]",
+                    ZoneFieldSeverity.Critical => "[CRIT]",
+                    _ => "      "
+                };
+                fields.Append($"  {marker} {f.Offset,-5} {f.Name,-18}: {f.Hex} ({f.Decimal})");
+                if (!string.IsNullOrWhiteSpace(f.Status))
+                    fields.Append($"  — {f.Status}");
+                fields.AppendLine();
+            }
 
             var summary = new StringBuilder();
-            summary.AppendLine($"Zone header size: {hdrSize} bytes (0x{hdrSize:X})");
-            summary.AppendLine($"Asset count: {zone.AssetCount}");
-            summary.AppendLine($"Script string count: {zone.ScriptStringCount}");
+            summary.AppendLine(report.Headline);
+            summary.AppendLine();
+            string banner = report.OverallSeverity switch
+            {
+                ZoneFieldSeverity.Good => "OK: ",
+                ZoneFieldSeverity.Warning => "WARNING: ",
+                ZoneFieldSeverity.Critical => "CRITICAL: ",
+                _ => ""
+            };
+            summary.AppendLine(banner + report.Health);
 
-            // MemAlloc validation
-            uint expectedMemAlloc1 = _fastFile.IsCod4File ? CoD4Definition.MemAlloc1Value
-                                   : _fastFile.IsCod5File ? (_isXbox360 ? CoD5Definition.Xbox360MemAlloc1Value : CoD5Definition.MemAlloc1Value)
-                                   : _fastFile.IsMW2File ? MW2Definition.MemAlloc1Value
-                                   : 0;
-            if (expectedMemAlloc1 != 0 && zone.BlockSizeTemp != expectedMemAlloc1)
+            // List the fields that need attention so the right-hand pane is actionable.
+            var flagged = report.Fields
+                .Where(f => f.Severity == ZoneFieldSeverity.Warning || f.Severity == ZoneFieldSeverity.Critical)
+                .ToList();
+            if (flagged.Count > 0)
             {
                 summary.AppendLine();
-                summary.AppendLine($"WARNING: BlockSizeTemp 0x{zone.BlockSizeTemp:X} != expected 0x{expectedMemAlloc1:X}");
+                summary.AppendLine("Issues:");
+                foreach (var f in flagged)
+                    summary.AppendLine($"  - {f.Name}: {f.Status}");
             }
 
             return new Section
