@@ -3548,7 +3548,7 @@ namespace Call_of_Duty_FastFile_Editor
                     if (!_hasUnsavedChanges)
                     {
                         System.Diagnostics.Debug.WriteLine("[DEBUG] No unsaved changes, closing without saving");
-                        if (deleteZoneFile)
+                        if (deleteZoneFile && !_openedFastFile.IsFromZoneFile)
                         {
                             try { File.Delete(_openedFastFile.ZoneFilePath); }
                             catch { }
@@ -3619,7 +3619,7 @@ namespace Call_of_Duty_FastFile_Editor
                     _hasUnsavedChanges = false;
                     ResetAllViews();
 
-                    if (deleteZoneFile)
+                    if (deleteZoneFile && !_openedFastFile.IsFromZoneFile)
                     {
                         try { File.Delete(_openedFastFile.ZoneFilePath); }
                         catch { }
@@ -4671,9 +4671,11 @@ namespace Call_of_Duty_FastFile_Editor
                     // if No, proceed and discard unsaved changes
                 }
 
-                // Clean up the temp zone file (unless user wants to keep it)
+                // Clean up the temp zone file (unless user wants to keep it, or it was
+                // loaded directly as a .zone rather than extracted from an .ff)
                 if (!keepZoneFileToolStripMenuItem.Checked &&
-                    _openedFastFile != null && File.Exists(_openedFastFile.ZoneFilePath))
+                    _openedFastFile != null && !_openedFastFile.IsFromZoneFile &&
+                    File.Exists(_openedFastFile.ZoneFilePath))
                 {
                     try
                     {
@@ -4771,8 +4773,9 @@ namespace Call_of_Duty_FastFile_Editor
                         RefreshZoneData();
                         ReloadAllRawFileNodesAndUI();
 
-                        // Clean up zone file if keep option is not checked
-                        if (!keepZoneFileToolStripMenuItem.Checked && File.Exists(_openedFastFile.ZoneFilePath))
+                        // Clean up zone file if keep option is not checked (skip when the
+                        // zone was loaded directly rather than extracted from an .ff)
+                        if (!keepZoneFileToolStripMenuItem.Checked && !_openedFastFile.IsFromZoneFile && File.Exists(_openedFastFile.ZoneFilePath))
                         {
                             try { File.Delete(_openedFastFile.ZoneFilePath); } catch { }
                         }
@@ -4880,8 +4883,9 @@ namespace Call_of_Duty_FastFile_Editor
                         RefreshZoneData();
                         ReloadAllRawFileNodesAndUI();
 
-                        // Clean up zone file if keep option is not checked
-                        if (!keepZoneFileToolStripMenuItem.Checked && File.Exists(_openedFastFile.ZoneFilePath))
+                        // Clean up zone file if keep option is not checked (skip when the
+                        // zone was loaded directly rather than extracted from an .ff)
+                        if (!keepZoneFileToolStripMenuItem.Checked && !_openedFastFile.IsFromZoneFile && File.Exists(_openedFastFile.ZoneFilePath))
                         {
                             try { File.Delete(_openedFastFile.ZoneFilePath); } catch { }
                         }
@@ -5263,8 +5267,9 @@ namespace Call_of_Duty_FastFile_Editor
                 // Reload to ensure everything is in sync
                 ReloadAllRawFileNodesAndUI();
 
-                // Clean up zone file if keep option is not checked
-                if (!keepZoneFileToolStripMenuItem.Checked && File.Exists(_openedFastFile.ZoneFilePath))
+                // Clean up zone file if keep option is not checked (skip when the
+                // zone was loaded directly rather than extracted from an .ff)
+                if (!keepZoneFileToolStripMenuItem.Checked && !_openedFastFile.IsFromZoneFile && File.Exists(_openedFastFile.ZoneFilePath))
                 {
                     try { File.Delete(_openedFastFile.ZoneFilePath); } catch { }
                 }
