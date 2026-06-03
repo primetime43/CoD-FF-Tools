@@ -195,7 +195,7 @@ IDs shift **+1** from PS3 for types ≥ `0x09` because PC has both `vertexshader
 | Asset Type | ID | Support |
 |------------|-----|---------|
 | menufile | `0x19` | 📖 Read |
-| localize | `0x1A` | 🟡 Partial |
+| localize | `0x1B` | 🟡 Partial |
 | weapon | `0x1C` | 📖 Read (pattern-matched; alignment may be off) |
 | rawfile | `0x24` | 🟡 Partial |
 | stringtable | `0x25` | 👁️ Detected (not parsed) |

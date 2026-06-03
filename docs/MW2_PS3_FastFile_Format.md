@@ -110,7 +110,7 @@ MW2 PS3 uses an extended header format with additional fields beyond CoD4/WaW.
 
 The decompressed zone file has a specific structure that differs from CoD4/WaW.
 
-### Zone Header (48 bytes for MW2 PS3)
+### Zone Header (52 bytes for MW2 PS3)
 
 | Offset | Size | Field | Description |
 |--------|------|-------|-------------|
@@ -124,10 +124,21 @@ The decompressed zone file has a specific structure that differs from CoD4/WaW.
 | 0x1C | 4 | blockSizeCallback | Usually 0 |
 | 0x20 | 4 | blockSizeVertex | `0x00001000` for MW2 |
 | 0x24 | 4 | scriptStringCount | Usually 0 |
-| 0x28 | 4 | scriptStringsPtr | Usually 0 |
+| 0x28 | 4 | scriptStringsPtr | `0xFFFFFFFF` placeholder |
 | 0x2C | 4 | assetCount | Number of assets |
+| 0x30 | 4 | assetsPtr | `0xFFFFFFFF` placeholder |
 
-**Important**: MW2 PS3 zone header is **48 bytes** (0x30), NOT 52 bytes like CoD4/WaW. There is NO trailing `0xFFFFFFFF` marker at the end of the header - that byte sequence is the first asset table entry.
+**Important**: MW2 PS3 uses the **same 52-byte (`0x34`) header as CoD4/WaW** — the full
+XFile + XAssetList layout, with `assetsPtr` at `0x30` and the asset pool starting at
+`0x34`. (`FastFileConstants.GetZoneHeaderSize` returns `ZoneHeaderSize_PS3 = 0x34` for
+MW2 PS3; only MW2 **Xbox 360** is 48 bytes, because it drops `blockSizeVertex`.)
+
+> **Correction:** Earlier revisions of this doc described the MW2 PS3 header as 48 bytes
+> with the pool starting at `0x30`. That counted the `assetsPtr` placeholder at `0x30` as
+> the first asset entry — an off-by-one-field reading. The pool locator scans forward and
+> tolerates either alignment, so a 48-byte-built mod still loads, but the canonical
+> engine layout (and what the library models) is 52 bytes. The genuinely MW2-specific,
+> mod-verified finding below — the `[ptr][type]` asset-entry **order** — is unaffected.
 
 ### Size Field Calculations
 
@@ -137,7 +148,7 @@ totalSize2 = headerSize + assetTableSize + rawFilesSize + localizedSize + footer
 ```
 
 Where:
-- `headerSize` = 48 bytes for MW2 PS3
+- `headerSize` = 52 bytes for MW2 PS3 (same as CoD4/WaW; 48 for MW2 Xbox 360, 56 for MW2 PC)
 - `assetTableSize` = `assetCount * 8` bytes
 - `rawFilesSize` = sum of all raw file entries (headers + names + data)
 - `localizedSize` = sum of all localized entries
@@ -149,7 +160,7 @@ Where:
 
 The asset table follows the zone header and any script strings.
 
-**Note**: For mod files without script strings, the asset table starts immediately after the 48-byte header at offset `0x30`. The first `FFFFFFFF` at offset `0x30` is part of the first asset entry, NOT a header marker.
+**Note**: For mod files without script strings, the asset table starts immediately after the 52-byte header at offset `0x34`. Offset `0x30` holds the `assetsPtr` placeholder (`0xFFFFFFFF`), which is the last header field — not the first asset entry.
 
 ### Entry Format (8 bytes per entry)
 
@@ -161,7 +172,7 @@ The asset table follows the zone header and any script strings.
 | 0x04 | 4 | type | `0x000000XX` (asset type ID, big-endian) |
 
 ```
-Example at offset 0x30:  FF FF FF FF 00 00 00 23  (rawfile type 0x23)
+Example at offset 0x34:  FF FF FF FF 00 00 00 23  (rawfile type 0x23)
 ```
 
 **Verified**: This `[ptr][type]` format has been confirmed working by comparing a functional mod's zone file against a broken one. The working mod used `FF FF FF FF 00 00 00 23` format.
@@ -261,8 +272,7 @@ The `totalSize1` field in the zone header points to offset `0x00` of this footer
 
 | Feature | CoD4/WaW | MW2 PS3 |
 |---------|----------|---------|
-| Zone header size | 52 bytes | 48 bytes |
-| Header has trailing FFFFFFFF | Yes | No (FFFFFFFF is first asset entry) |
+| Zone header size | 52 bytes | 52 bytes (Xbox 360: 48, PC: 56) |
 | Asset table entry order | `[ptr][type]` | `[ptr][type]` |
 | Raw file asset type ID | 0x21 (CoD4), 0x22 (WaW) | 0x23 |
 | Localize asset type ID | 0x18 (CoD4), 0x19 (WaW) | 0x1A |
@@ -284,8 +294,8 @@ These are bugs that were discovered during development that caused game crashes:
 **Correct**: Raw files are packed tightly with no separators
 
 ### 2. Using Wrong Zone Header Size
-**Wrong**: 52-byte header with trailing `0xFFFFFFFF`
-**Correct**: 48-byte header (the FFFFFFFF is part of asset table)
+**Wrong**: Treating MW2 PS3 as a 48-byte header (pool starting at `0x30`)
+**Correct**: 52-byte header — `assetsPtr` placeholder at `0x30`, asset pool at `0x34` (48 bytes is the MW2 Xbox 360 variant)
 
 ### 3. Including Zlib Header in FF Blocks
 **Wrong**: Keeping `0x78 0x9C` in FF-level compressed blocks
@@ -303,7 +313,7 @@ These are bugs that were discovered during development that caused game crashes:
 **Wrong**: Using `[type][ptr]` format (`00 00 00 23 FF FF FF FF`)
 **Correct**: Use `[ptr][type]` format (`FF FF FF FF 00 00 00 23`)
 
-This was verified by comparing a working mod zone against a broken one. The working mod had `FF FF FF FF 00 00 00 23` at offset `0x30`.
+This was verified by comparing a working mod zone against a broken one. The working mod had `FF FF FF FF 00 00 00 23` at the start of the asset pool.
 
 ---
 

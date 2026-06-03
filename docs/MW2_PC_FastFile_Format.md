@@ -191,7 +191,7 @@ PS3 has only `vertexshader`.
 | Asset Type | MW2 PS3 | MW2 Xbox 360 | **MW2 PC** |
 |---|---|---|---|
 | rawfile | `0x23` | `0x22` | `0x24` |
-| localize | `0x1A` | `0x19` | `0x1A` (Xbox 360 differs) |
+| localize | `0x1A` | `0x19` | `0x1B` |
 | menufile | `0x19` | `0x18` | `0x19` |
 | weapon | `0x1B` | `0x1A` | `0x1C` |
 | stringtable | `0x24` | `0x23` | `0x25` |
