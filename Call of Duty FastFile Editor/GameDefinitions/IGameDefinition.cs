@@ -154,6 +154,11 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         bool IsStringTableType(int assetType);
 
         /// <summary>
+        /// Checks if the given asset type value is a structureddatadef.
+        /// </summary>
+        bool IsStructuredDataDefType(int assetType);
+
+        /// <summary>
         /// Parses a material asset from the zone data at the given offset.
         /// </summary>
         /// <param name="zoneData">The zone file data.</param>

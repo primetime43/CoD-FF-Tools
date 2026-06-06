@@ -81,6 +81,11 @@ namespace Call_of_Duty_FastFile_Editor
         private List<StringTable> _stringTables;
 
         /// <summary>
+        /// List of StructuredDataDef (MW2 / IW4) layout dumps extracted from the zone file.
+        /// </summary>
+        private List<StructuredDataDefAsset> _structuredDataDefs = new();
+
+        /// <summary>
         /// List of tags extracted from the zone file.
         /// </summary>
         private TagCollection? _tags;
@@ -666,6 +671,7 @@ namespace Call_of_Duty_FastFile_Editor
                 _weapons = new List<WeaponAsset>();
                 _images = new List<ImageAsset>();
                 _stringTables = new List<StringTable>();
+                _structuredDataDefs = new List<StructuredDataDefAsset>();
                 _hasUnsupportedAssets = true;       // IW6 has many types we don't parse
                 _originalLocalizeCount = 0;
                 _hasUnsavedChanges = false;
@@ -696,6 +702,7 @@ namespace Call_of_Duty_FastFile_Editor
             _weapons = loadWeapons ? (_processResult.Weapons ?? new List<WeaponAsset>()) : new List<WeaponAsset>();
             _images = loadImages ? (_processResult.Images ?? new List<ImageAsset>()) : new List<ImageAsset>();
             _stringTables = loadStringTables ? (_processResult.StringTables ?? new List<StringTable>()) : new List<StringTable>();
+            _structuredDataDefs = new List<StructuredDataDefAsset>(); // only the IW4 walk (MW2 PS3) produces these
 
             // MW2 PS3: prefer the IW4 pointer-following reader over pattern matching for every asset
             // type it walks (rawfile, localize, stringtable, weapon, techset), but only when the full
@@ -728,6 +735,7 @@ namespace Call_of_Duty_FastFile_Editor
                         _techSets = iw4.TechSets;
                     if (loadMenuFiles && iw4.MenuLists.Count > 0)
                         _menuLists = iw4.MenuLists;
+                    _structuredDataDefs = iw4.StructuredDataDefs;
                 }
             }
 
@@ -770,6 +778,7 @@ namespace Call_of_Duty_FastFile_Editor
             PopulateWeapons();
             PopulateImages();
             PopulateStringTables();
+            PopulateStructuredDataDefs();
             PopulateCollision_Map_Asset_StringData();
 
             // Handle tags tab based on loadTags flag (set by LoadAssetRecordsData)
@@ -3012,6 +3021,70 @@ namespace Call_of_Duty_FastFile_Editor
             }
         }
 
+        // Code-built "Struct Data" tab (StructuredDataDef layout dumps). Built lazily so it only
+        // appears for zones that actually have structureddatadef assets (MW2 PS3, via the IW4 walk).
+        private TabPage? _structDataTabPage;
+        private ListView? _structDataListView;
+
+        /// <summary>
+        /// Populates the Struct Data tab with the parsed StructuredDataDef layout dumps. Each row is a
+        /// DefSet; double-click opens the full layout dump (enums / structs / arrays / root type).
+        /// </summary>
+        private void PopulateStructuredDataDefs()
+        {
+            if (_structuredDataDefs == null || _structuredDataDefs.Count == 0)
+            {
+                if (_structDataTabPage != null && mainTabControl.TabPages.Contains(_structDataTabPage))
+                    mainTabControl.TabPages.Remove(_structDataTabPage);
+                return;
+            }
+
+            if (_structDataTabPage == null)
+            {
+                _structDataTabPage = new TabPage("Struct Data");
+                _structDataListView = new ListView
+                {
+                    Dock = DockStyle.Fill,
+                    View = View.Details,
+                    FullRowSelect = true,
+                    GridLines = true,
+                };
+                _structDataListView.Columns.Add("Name", 340);
+                _structDataListView.Columns.Add("Defs", 60);
+                _structDataListView.Columns.Add("Enums", 70);
+                _structDataListView.Columns.Add("Structs", 70);
+                _structDataListView.Columns.Add("Offset", 100);
+                _structDataListView.DoubleClick += structDataListView_DoubleClick;
+                _structDataTabPage.Controls.Add(_structDataListView);
+            }
+
+            if (!mainTabControl.TabPages.Contains(_structDataTabPage))
+                mainTabControl.TabPages.Add(_structDataTabPage);
+
+            _structDataListView!.Items.Clear();
+            foreach (var def in _structuredDataDefs)
+            {
+                var lvi = new ListViewItem(def.Name);
+                lvi.SubItems.Add(def.DefCount.ToString());
+                lvi.SubItems.Add(def.EnumCount.ToString());
+                lvi.SubItems.Add(def.StructCount.ToString());
+                lvi.SubItems.Add($"0x{def.Offset:X}");
+                lvi.Tag = def;
+                _structDataListView.Items.Add(lvi);
+            }
+        }
+
+        private void structDataListView_DoubleClick(object? sender, EventArgs e)
+        {
+            if (_structDataListView == null || _structDataListView.SelectedItems.Count == 0)
+                return;
+            if (_structDataListView.SelectedItems[0].Tag is StructuredDataDefAsset def)
+            {
+                using var viewer = new StructuredDataDefViewerForm(def);
+                viewer.ShowDialog(this);
+            }
+        }
+
         /// <summary>
         /// Stores the parsed collision map data for the viewer.
         /// </summary>
@@ -4380,6 +4453,7 @@ namespace Call_of_Duty_FastFile_Editor
             int techSetIndex = 0;
             int xanimIndex = 0;
             int stringTableIndex = 0;
+            int structDataIndex = 0;
             int weaponIndex = 0;
             int imageIndex = 0;
 
@@ -4399,6 +4473,7 @@ namespace Call_of_Duty_FastFile_Editor
                 bool isStringTable = gameDefinition.IsStringTableType(assetTypeValue);
                 bool isWeapon = gameDefinition.IsWeaponType(assetTypeValue);
                 bool isImage = gameDefinition.IsImageType(assetTypeValue);
+                bool isStructuredData = gameDefinition.IsStructuredDataDefType(assetTypeValue);
 
                 var lvi = new ListViewItem((i + 1).ToString());
                 lvi.SubItems.Add(assetTypeName);
@@ -4419,7 +4494,7 @@ namespace Call_of_Duty_FastFile_Editor
                 // texture data, not external references. We just don't have a
                 // parser for the IW6 image struct yet.
                 string status;
-                bool isSupportedType = isRawFile || isLocalize || isMenuFile || isTechSet || isXAnim || isStringTable || isWeapon || isImage;
+                bool isSupportedType = isRawFile || isLocalize || isMenuFile || isTechSet || isXAnim || isStringTable || isWeapon || isImage || isStructuredData;
                 bool isGhosts = _openedFastFile.IsGhostsFile;
                 if (isGhosts && isImage)
                 {
@@ -4538,6 +4613,15 @@ namespace Call_of_Duty_FastFile_Editor
                     string parseMethod = !string.IsNullOrEmpty(image.AdditionalData) ? image.AdditionalData : "Parsed";
                     status = $"{parseMethod} ({image.Resolution}, {image.FormattedSize})";
                     imageIndex++;
+                }
+                else if (isStructuredData && _structuredDataDefs != null && structDataIndex < _structuredDataDefs.Count)
+                {
+                    var sdd = _structuredDataDefs[structDataIndex];
+                    isParsed = true;
+                    name = string.IsNullOrEmpty(sdd.Name) ? "-" : sdd.Name;
+                    dataStart = $"0x{sdd.Offset:X}";
+                    status = $"IW4 pointer-walk ({sdd.DefCount} defs, {sdd.EnumCount} enums, {sdd.StructCount} structs)";
+                    structDataIndex++;
                 }
 
                 // Generic fallback: if no typed parser claimed this record but the

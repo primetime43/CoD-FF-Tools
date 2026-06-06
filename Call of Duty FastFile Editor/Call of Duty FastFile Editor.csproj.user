@@ -37,6 +37,9 @@
     <Compile Update="UI\StringTableViewerForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="UI\StructuredDataDefViewerForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="UI\SupportedFormatsForm.cs">
       <SubType>Form</SubType>
     </Compile>

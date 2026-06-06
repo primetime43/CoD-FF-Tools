@@ -87,6 +87,19 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         /// </summary>
         public override bool IsTechSetType(int assetType) => assetType == TechSetAssetType;
 
+        /// <summary>
+        /// MW2 StructuredDataDef asset type ID. PS3 = 0x26, Xbox 360 = 0x25, PC = 0x27.
+        /// </summary>
+        public byte StructuredDataDefAssetType => IsPC
+            ? (byte)MW2AssetTypePC.structureddatadef
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.structureddatadef : (byte)MW2AssetTypePS3.structureddatadef);
+
+        /// <summary>
+        /// Recognise structureddatadef records so the Asset Pool view names them. For MW2 PS3 the
+        /// def layout is dumped from the IW4 pointer-walk; other platforms have no parser yet.
+        /// </summary>
+        public override bool IsStructuredDataDefType(int assetType) => assetType == StructuredDataDefAssetType;
+
         public override string GetAssetTypeName(int assetType)
         {
             if (IsPC)

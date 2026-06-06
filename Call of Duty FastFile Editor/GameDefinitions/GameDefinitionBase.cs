@@ -28,6 +28,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             "stringtable",
             "weapon",
             "image",
+            "structureddatadef",
             "col_map_sp",
             "col_map_mp"
         };
@@ -55,6 +56,7 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public virtual bool IsXAnimType(int assetType) => assetType == XAnimAssetType;
         public virtual bool IsMaterialType(int assetType) => false; // Override in game-specific definitions
         public virtual bool IsTechSetType(int assetType) => false; // Override in game-specific definitions
+        public virtual bool IsStructuredDataDefType(int assetType) => false; // Override in game-specific definitions
         public virtual bool IsStringTableType(int assetType) => assetType == StringTableAssetType;
         public virtual bool IsWeaponType(int assetType) => WeaponAssetType != 0 && assetType == WeaponAssetType;
         public virtual bool IsImageType(int assetType) => ImageAssetType != 0 && assetType == ImageAssetType;

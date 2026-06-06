@@ -15,6 +15,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
         public List<WeaponAsset> Weapons { get; } = new();
         public List<TechSetAsset> TechSets { get; } = new();
         public List<MenuList> MenuLists { get; } = new();
+        public List<StructuredDataDefAsset> StructuredDataDefs { get; } = new();
     }
 
     /// <summary>
@@ -96,6 +97,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         break;
                     case FastFileLib.Iw4.MenuList ml:
                         iw4MenuLists.Add(ml);
+                        break;
+                    case FastFileLib.Iw4.StructuredDataDefSet sd:
+                        result.StructuredDataDefs.Add(ToStructuredDataDef(sd));
                         break;
                 }
             }
@@ -443,6 +447,112 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 EndOffset = 0,
                 AdditionalData = "IW4 pointer-walk",
             };
+        }
+
+        // ---- StructuredDataDef (IW4 raw/mp/*.def layout dump) ----
+
+        private static StructuredDataDefAsset ToStructuredDataDef(FastFileLib.Iw4.StructuredDataDefSet sd)
+        {
+            var defs = sd.DefsPtr is { IsResolved: true, Result: not null }
+                ? sd.DefsPtr.Result
+                : Array.Empty<FastFileLib.Iw4.StructuredDataDef>();
+
+            return new StructuredDataDefAsset
+            {
+                Name = sd.Name,
+                Offset = sd.Offset,
+                DefCount = sd.DefCount,
+                EnumCount = defs.Sum(d => d.EnumCount),
+                StructCount = defs.Sum(d => d.StructCount),
+                DumpText = RenderStructuredDataDump(sd, defs),
+            };
+        }
+
+        /// <summary>Renders a StructuredDataType (the spec's tagged union) to a readable type string.</summary>
+        private static string TypeString(FastFileLib.Iw4.StructuredDataType? t)
+        {
+            if (t == null) return "?";
+            return t.Type switch
+            {
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataInt => "int",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataByte => "byte",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataBool => "bool",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataString => $"string[{t.UnionValue}]",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataEnum => $"enum[{t.UnionValue}]",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataStruct => $"struct[{t.UnionValue}]",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataIndexedArray => $"indexedArray[{t.UnionValue}]",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataEnumArray => $"enumArray[{t.UnionValue}]",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataFloat => "float",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataShort => "short",
+                FastFileLib.Iw4.StructuredDataTypeCategory.DataCount => "count",
+                _ => $"type{(int)t.Type}",
+            };
+        }
+
+        private static T[] Resolve<T>(FastFileLib.Iw4.ZonePointer<T[]>? p)
+            => p is { IsResolved: true, Result: not null } ? p.Result : Array.Empty<T>();
+
+        private static string RenderStructuredDataDump(
+            FastFileLib.Iw4.StructuredDataDefSet sd, FastFileLib.Iw4.StructuredDataDef[] defs)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"// {sd.Name}");
+            sb.AppendLine($"// StructuredDataDefSet  —  defCount = {sd.DefCount}");
+            sb.AppendLine();
+
+            for (int di = 0; di < defs.Length; di++)
+            {
+                var def = defs[di];
+                sb.AppendLine($"def #{di}   version={def.Version}   formatChecksum=0x{def.FormatChecksum:X8}   size={def.Size}");
+
+                var enums = Resolve(def.EnumsPtr);
+                sb.AppendLine($"  enums ({enums.Length}):");
+                for (int ei = 0; ei < enums.Length; ei++)
+                {
+                    var entries = Resolve(enums[ei].EntriesPtr);
+                    sb.AppendLine($"    enum[{ei}]  ({entries.Length} entries):");
+                    foreach (var entry in entries)
+                        sb.AppendLine($"      {S(entry.StringPtr)} = {entry.Index}");
+                }
+
+                var structs = Resolve(def.StructsPtr);
+                sb.AppendLine($"  structs ({structs.Length}):");
+                for (int si = 0; si < structs.Length; si++)
+                {
+                    var st = structs[si];
+                    var props = Resolve(st.PropertiesPtr);
+                    sb.AppendLine($"    struct[{si}]  size={st.Size}  bitOffset={st.BitOffset}  ({props.Length} properties):");
+                    foreach (var prop in props)
+                        sb.AppendLine($"      +0x{prop.Offset:X}  {S(prop.NamePtr)} : {TypeString(prop.Type)}");
+                }
+
+                var indexedArrays = Resolve(def.IndexedArraysPtr);
+                if (indexedArrays.Length > 0)
+                {
+                    sb.AppendLine($"  indexedArrays ({indexedArrays.Length}):");
+                    for (int k = 0; k < indexedArrays.Length; k++)
+                    {
+                        var ia = indexedArrays[k];
+                        sb.AppendLine($"    indexedArray[{k}]  size={ia.ArraySize}  element={TypeString(ia.ElementType)}  elementSize={ia.ElementSize}");
+                    }
+                }
+
+                var enumedArrays = Resolve(def.EnumedArraysPtr);
+                if (enumedArrays.Length > 0)
+                {
+                    sb.AppendLine($"  enumedArrays ({enumedArrays.Length}):");
+                    for (int k = 0; k < enumedArrays.Length; k++)
+                    {
+                        var ea = enumedArrays[k];
+                        sb.AppendLine($"    enumArray[{k}]  enum={ea.EnumIndex}  element={TypeString(ea.ElementType)}  elementSize={ea.ElementSize}");
+                    }
+                }
+
+                sb.AppendLine($"  rootType: {TypeString(def.RootType)}");
+                sb.AppendLine();
+            }
+
+            return sb.ToString();
         }
     }
 }
