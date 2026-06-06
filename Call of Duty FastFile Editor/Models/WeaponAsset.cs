@@ -141,10 +141,29 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public string AdditionalData { get; set; } = string.Empty;
 
         /// <summary>
+        /// True when this weapon was read by the IW4 pointer-walk (MW2 PS3) rather than the
+        /// WaW-tuned pattern parser. In that case the classic weapType/weapClass enums aren't
+        /// recovered (they live in opaque field blocks), the rich structure is exposed via
+        /// <see cref="DetailFields"/> instead, and the byte-offset editor must NOT be used (it
+        /// would write WaW offsets into an IW4 layout and corrupt the zone).
+        /// </summary>
+        public bool IsStructuredView { get; set; }
+
+        /// <summary>
+        /// Ordered (label, value) pairs of the parsed weapon structure, for the read-only detail
+        /// view. Populated for <see cref="IsStructuredView"/> weapons from the IW4 WeaponVariantDef
+        /// + WeaponDef (clip/fire/ADS, arcs, ranges, accuracy, turn speeds, hint/script strings,
+        /// boolean flags). A blank label denotes a section header.
+        /// </summary>
+        public List<(string Label, string Value)> DetailFields { get; set; } = new();
+
+        /// <summary>
         /// Gets a summary of the weapon properties.
         /// </summary>
         public string GetSummary()
         {
+            if (IsStructuredView)
+                return $"clip {ClipSize}, fire {FireTime}ms, adsFov {AdsZoomFov:0.#}";
             return $"{WeapClass} ({WeapType}), DMG: {Damage}-{MinDamage}, Clip: {ClipSize}, Fire: {FireType}";
         }
     }

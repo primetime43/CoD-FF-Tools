@@ -507,7 +507,16 @@ namespace Call_of_Duty_FastFile_Editor.ZoneParsers
 
         /// <summary>True if <paramref name="v"/> is a value a zone-serialized pointer can hold:
         /// null (0), inline-placeholder (0xFFFFFFFF), or a post-link resolved pointer
-        /// (high bit set + low-31-bits in-bounds for the zone).</summary>
+        /// (high bit set + low-31-bits in-bounds for the zone).
+        ///
+        /// NOTE: this is a WaW (T5) menu-scanning *validation heuristic*, NOT the real IW4
+        /// pointer fixup. The IW4/MW2 decode is block index = top nibble (v &gt;&gt; 28),
+        /// offset = low 28 bits (v &amp; 0x0FFFFFFF) resolved against a per-block base — see
+        /// FastFileLib.ZonePointer / ZoneBlockLayout (ported from Jacob Schroeder's FastFile,
+        /// https://github.com/jacob-schroeder/FastFile). The 0x7FFFFFFF mask below is deliberately
+        /// loose (it only needs to accept/reject candidates while byte-scanning for menuDefs);
+        /// do NOT reuse it to actually dereference IW4 pointers, and whether WaW genuinely uses
+        /// a different encoding than IW4 is still unverified against a WaW sample.</summary>
         private static bool IsValidZonePointer(uint v, int zoneLength)
         {
             if (v == 0) return true;

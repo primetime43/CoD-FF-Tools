@@ -72,6 +72,21 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
             ? (byte)MW2AssetTypePC.image
             : (IsXbox360 ? (byte)MW2AssetTypeXbox360.image : (byte)MW2AssetTypePS3.image);
 
+        /// <summary>
+        /// MW2 MaterialTechniqueSet (techset) asset type ID. PS3 = 0x08, Xbox 360 = 0x07
+        /// (no vertexshader slot), PC = 0x09 (extra vertexdecl slot).
+        /// </summary>
+        public byte TechSetAssetType => IsPC
+            ? (byte)MW2AssetTypePC.techset
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.techset : (byte)MW2AssetTypePS3.techset);
+
+        /// <summary>
+        /// Recognise techset records so the Asset Pool view and per-type counts name them.
+        /// For MW2 PS3 the techset bodies come from the IW4 pointer-walk; other platforms use
+        /// the pattern-scan fallback (same as the other view-only types).
+        /// </summary>
+        public override bool IsTechSetType(int assetType) => assetType == TechSetAssetType;
+
         public override string GetAssetTypeName(int assetType)
         {
             if (IsPC)

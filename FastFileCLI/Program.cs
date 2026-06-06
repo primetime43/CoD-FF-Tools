@@ -71,6 +71,7 @@ class Program
             {
                 "info"                       => InfoCommand(args.Skip(1).ToArray()),
                 "zoneheader" or "zh"         => ZoneHeaderCommand(args.Skip(1).ToArray()),
+                "assets"                     => AssetsCommand(args.Skip(1).ToArray()),
                 "report" or "r"              => ReportCommand(args.Skip(1).ToArray()),
                 "decompress" or "d"          => DecompressCommand(args.Skip(1).ToArray()),
                 "compress"   or "c"          => CompressCommand(args.Skip(1).ToArray()),
@@ -115,6 +116,7 @@ class Program
         Console.WriteLine("Commands:");
         Console.WriteLine("  info <file.ff> [--json]                Print FastFile header info");
         Console.WriteLine("  zoneheader, zh <file.ff|.zone> [--json] Validate the zone header (MemAlloc, counts)");
+        Console.WriteLine("  assets <file.ff|.zone>                 Walk the IW4/MW2 PS3 asset pool (types, script strings)");
         Console.WriteLine("  report, r <file.ff>                    Full diagnostic report (for bug reports)");
         Console.WriteLine("  decompress, d <file.ff> [out.zone]     Decompress to a zone file");
         Console.WriteLine("  compress, c <file.zone> <out.ff>       Compress a zone into a FastFile");
@@ -143,6 +145,17 @@ class Program
                 Console.WriteLine("Prints header info: magic, version, game, platform, signed status, file size.");
                 Console.WriteLine("--json emits a machine-readable object (array if multiple files).");
                 Console.WriteLine("File argument accepts globs: ffcli info *.ff");
+                break;
+
+            case "assets":
+                Console.WriteLine("Usage: ffcli assets <file.ff|.zone>");
+                Console.WriteLine();
+                Console.WriteLine("Walks an IW4 (MW2 PS3) zone the engine's way — following the IW pointer");
+                Console.WriteLine("conventions instead of pattern-scanning. Prints the XFile header, script");
+                Console.WriteLine("strings, and the full asset-pool type counts. Asset *bodies* are read in");
+                Console.WriteLine("pool order until the first type without a ported body reader (rawfile and");
+                Console.WriteLine("localize are implemented). Ported from Jacob Schroeder's FastFile.");
+                Console.WriteLine("MW2 PS3 only.");
                 break;
 
             case "zoneheader":
@@ -301,6 +314,81 @@ class Program
         Console.WriteLine($"Platform:  {info.Platform}");
         Console.WriteLine($"Studio:    {info.Studio}");
         Console.WriteLine($"Signed:    {(info.IsSigned ? "Yes" : "No")}");
+    }
+
+    // -----------------------------------------------------------------
+    //  assets — walk the IW4 (MW2 PS3) asset pool the engine's way
+    // -----------------------------------------------------------------
+
+    static int AssetsCommand(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.Error.WriteLine("Usage: ffcli assets <file.ff|.zone>");
+            return 1;
+        }
+
+        var paths = ExpandFileArgs(args.Where(a => !a.StartsWith("--")));
+        if (paths.Count == 0)
+        {
+            Console.Error.WriteLine("No files matched.");
+            return 1;
+        }
+
+        bool first = true;
+        foreach (var path in paths)
+        {
+            if (!first) Console.WriteLine();
+            first = false;
+
+            var (data, gv, _) = LoadZoneContext(path);
+            Console.WriteLine($"File: {Path.GetFileName(path)}");
+            if (gv != GameVersion.MW2)
+            {
+                Console.WriteLine($"  The IW4 zone reader is MW2 PS3 only (detected {gv}). Skipping.");
+                continue;
+            }
+
+            var result = new FastFileLib.Iw4.Iw4ZoneReader(data).Read();
+            PrintAssets(result);
+        }
+        return 0;
+    }
+
+    static void PrintAssets(FastFileLib.Iw4.Iw4ZoneReadResult r)
+    {
+        var assets = r.AssetList.Assets;
+        var scriptStrings = r.AssetList.ScriptStrings.Where(s => s != null).ToList();
+
+        Console.WriteLine($"  XFile.Size: {r.Header.Size:N0}   LARGE block base: {(r.Layout?.BaseOf(FastFileLib.ZoneStreamBlock.Large) ?? -1):N0}");
+        Console.WriteLine($"  Script strings: {scriptStrings.Count}" +
+                          (scriptStrings.Count > 0 ? $"  (e.g. {string.Join(", ", scriptStrings.Take(4))})" : ""));
+        Console.WriteLine($"  Assets: {assets.Length}");
+
+        var bodies = assets.Where(a => a.XAssetPtr is { IsResolved: true, Result: not null }).ToList();
+        Console.WriteLine($"  Bodies walked: {bodies.Count} / {assets.Length}");
+
+        // Per-type: count + a couple of sample names from the parsed bodies.
+        var counts = assets
+            .GroupBy(a => a.Type)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key.ToString());
+        foreach (var g in counts)
+        {
+            var samples = g
+                .Where(a => a.XAssetPtr is { IsResolved: true, Result: not null })
+                .Select(a => a.XAssetPtr!.Result!.GetDisplayName)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Take(2)
+                .ToList();
+            string sample = samples.Count > 0 ? "  e.g. " + string.Join(", ", samples) : "";
+            Console.WriteLine($"    {g.Key,-18} {g.Count(),5}{sample}");
+        }
+
+        if (r.Error != null)
+            Console.WriteLine($"  Body walk error: {r.Error}");
+        if (r.StoppedAtType is { } stopped)
+            Console.WriteLine($"  Body walk stopped at asset #{r.StoppedAtIndex} ({stopped}) — no body reader ported for it yet.");
     }
 
     // -----------------------------------------------------------------

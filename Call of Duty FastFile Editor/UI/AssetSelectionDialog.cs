@@ -40,6 +40,26 @@ namespace Call_of_Duty_FastFile_Editor.UI
         public bool LoadMenuFiles { get; private set; } = true;
 
         /// <summary>
+        /// Gets whether to load string tables.
+        /// </summary>
+        public bool LoadStringTables { get; private set; } = true;
+
+        /// <summary>
+        /// Gets whether to load weapons.
+        /// </summary>
+        public bool LoadWeapons { get; private set; } = true;
+
+        /// <summary>
+        /// Gets whether to load images.
+        /// </summary>
+        public bool LoadImages { get; private set; } = true;
+
+        /// <summary>
+        /// Gets whether to load techsets.
+        /// </summary>
+        public bool LoadTechSets { get; private set; } = true;
+
+        /// <summary>
         /// Creates a new AssetSelectionDialog.
         /// </summary>
         /// <param name="zoneAssetRecords">The asset records from the zone.</param>
@@ -234,6 +254,18 @@ namespace Call_of_Duty_FastFile_Editor.UI
                             break;
                         case "menufile":
                             LoadMenuFiles = item.Checked;
+                            break;
+                        case "stringtable":
+                            LoadStringTables = item.Checked;
+                            break;
+                        case "weapon":
+                            LoadWeapons = item.Checked;
+                            break;
+                        case "image":
+                            LoadImages = item.Checked;
+                            break;
+                        case "techset":
+                            LoadTechSets = item.Checked;
                             break;
                     }
                 }

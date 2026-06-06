@@ -40,6 +40,9 @@
     <Compile Update="UI\SupportedFormatsForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="UI\WeaponDetailForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="UI\WeaponEditorForm.cs">
       <SubType>Form</SubType>
     </Compile>

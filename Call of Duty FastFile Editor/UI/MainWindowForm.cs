@@ -353,6 +353,11 @@ namespace Call_of_Duty_FastFile_Editor
                 bool loadRawFiles = true;
                 bool loadLocalizedEntries = true;
                 bool loadTags = true;
+                bool loadMenuFiles = true;
+                bool loadStringTables = true;
+                bool loadWeapons = true;
+                bool loadImages = true;
+                bool loadTechSets = true;
 
                 {
                     int tagCount = _openedFastFile.IsGhostsFile
@@ -371,6 +376,11 @@ namespace Call_of_Duty_FastFile_Editor
                         loadRawFiles = assetDialog.LoadRawFiles;
                         loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
                         loadTags = assetDialog.LoadTags;
+                        loadMenuFiles = assetDialog.LoadMenuFiles;
+                        loadStringTables = assetDialog.LoadStringTables;
+                        loadWeapons = assetDialog.LoadWeapons;
+                        loadImages = assetDialog.LoadImages;
+                        loadTechSets = assetDialog.LoadTechSets;
                     }
                 }
 
@@ -381,7 +391,9 @@ namespace Call_of_Duty_FastFile_Editor
                 // For Ghosts, GhostsGameDefinition returns null from all Parse* methods, so the
                 // parsed-content lists (rawfile/localize/menu/etc.) come back empty — but the
                 // asset-pool listing still works.
-                LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
+                LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags,
+                        loadMenuFiles: loadMenuFiles, loadStringTables: loadStringTables, loadWeapons: loadWeapons,
+                        loadImages: loadImages, loadTechSets: loadTechSets);
             }
             catch (Exception ex)
             {
@@ -490,6 +502,11 @@ namespace Call_of_Duty_FastFile_Editor
                 bool loadRawFiles = true;
                 bool loadLocalizedEntries = true;
                 bool loadTags = true;
+                bool loadMenuFiles = true;
+                bool loadStringTables = true;
+                bool loadWeapons = true;
+                bool loadImages = true;
+                bool loadTechSets = true;
 
                 {
                     int tagCount = 0;
@@ -513,6 +530,11 @@ namespace Call_of_Duty_FastFile_Editor
                         loadRawFiles = assetDialog.LoadRawFiles;
                         loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
                         loadTags = assetDialog.LoadTags;
+                        loadMenuFiles = assetDialog.LoadMenuFiles;
+                        loadStringTables = assetDialog.LoadStringTables;
+                        loadWeapons = assetDialog.LoadWeapons;
+                        loadImages = assetDialog.LoadImages;
+                        loadTechSets = assetDialog.LoadTechSets;
                     }
                 }
 
@@ -522,7 +544,9 @@ namespace Call_of_Duty_FastFile_Editor
                 // Parse asset records on a background thread
                 await Task.Run(() =>
                 {
-                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
+                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags,
+                        loadMenuFiles: loadMenuFiles, loadStringTables: loadStringTables, loadWeapons: loadWeapons,
+                        loadImages: loadImages, loadTechSets: loadTechSets);
                 });
             }
             catch (Exception ex)
@@ -603,7 +627,8 @@ namespace Call_of_Duty_FastFile_Editor
         /// <summary>
         /// Parses and processes the asset records from the opened Fast File's zone.
         /// </summary>
-        private void LoadAssetRecordsData(bool forcePatternMatching = false, bool loadRawFiles = true, bool loadLocalizedEntries = true, bool loadTags = true)
+        private void LoadAssetRecordsData(bool forcePatternMatching = false, bool loadRawFiles = true, bool loadLocalizedEntries = true, bool loadTags = true,
+            bool loadMenuFiles = true, bool loadStringTables = true, bool loadWeapons = true, bool loadImages = true, bool loadTechSets = true)
         {
             var zone = _openedFastFile.OpenedFastFileZone;
 
@@ -653,20 +678,58 @@ namespace Call_of_Duty_FastFile_Editor
             _processResult = AssetRecordProcessor.ProcessAssetRecords(_openedFastFile, _zoneAssetRecords, forcePatternMatching);
 
             // store the typed lists based on user selection
-            _menuLists = _processResult.MenuLists ?? new List<MenuList>();
+            _menuLists = loadMenuFiles ? (_processResult.MenuLists ?? new List<MenuList>()) : new List<MenuList>();
 
-            // Filter out rawfiles that are actually MenuList names (they have same .txt name but are menu data)
-            var menuListNames = new HashSet<string>(_menuLists.Select(m => m.Name), StringComparer.OrdinalIgnoreCase);
+            // Filter out rawfiles that are actually MenuList names (they have same .txt name but are menu
+            // data). Compute the filter set from the processor's full menu list regardless of the
+            // load-menus toggle, so de-selecting menus doesn't leak menu-named entries into the raw files.
+            var menuListNames = new HashSet<string>(
+                (_processResult.MenuLists ?? new List<MenuList>()).Select(m => m.Name),
+                StringComparer.OrdinalIgnoreCase);
             _rawFileNodes = loadRawFiles
                 ? _processResult.RawFileNodes.Where(r => !menuListNames.Contains(r.FileName)).ToList()
                 : new List<RawFileNode>();
             RawFileNode.CurrentZone = zone;
             _localizedEntries = loadLocalizedEntries ? _processResult.LocalizedEntries : new List<LocalizedEntry>();
-            _techSets = _processResult.TechSets ?? new List<TechSetAsset>();
+            _techSets = loadTechSets ? (_processResult.TechSets ?? new List<TechSetAsset>()) : new List<TechSetAsset>();
             _xanims = _processResult.XAnims ?? new List<XAnimParts>();
-            _weapons = _processResult.Weapons ?? new List<WeaponAsset>();
-            _images = _processResult.Images ?? new List<ImageAsset>();
-            _stringTables = _processResult.StringTables ?? new List<StringTable>();
+            _weapons = loadWeapons ? (_processResult.Weapons ?? new List<WeaponAsset>()) : new List<WeaponAsset>();
+            _images = loadImages ? (_processResult.Images ?? new List<ImageAsset>()) : new List<ImageAsset>();
+            _stringTables = loadStringTables ? (_processResult.StringTables ?? new List<StringTable>()) : new List<StringTable>();
+
+            // MW2 PS3: prefer the IW4 pointer-following reader over pattern matching for every asset
+            // type it walks (rawfile, localize, stringtable, weapon, techset), but only when the full
+            // IW4 walk succeeds (a partial walk would miss assets). The walk returns assets in pool
+            // order, so each list lines up with the asset-pool records of that type.
+            // The IW4 reader classifies .csv files as stringtables rather than rawfiles, so any scanner
+            // rawfile the IW4 walk didn't produce (e.g. the .csv tables) is kept from the scanner so it
+            // stays editable in the Raw Files tab.
+            if (_openedFastFile.IsMW2File && !_openedFastFile.IsPC && !_openedFastFile.IsXbox360)
+            {
+                var iw4 = Iw4AssetBridge.TryRead(zone);
+                if (iw4 != null)
+                {
+                    if (loadRawFiles)
+                    {
+                        var iw4Names = new HashSet<string>(iw4.RawFileNodes.Select(n => n.FileName), StringComparer.OrdinalIgnoreCase);
+                        var scannerOnly = _rawFileNodes.Where(n => !iw4Names.Contains(n.FileName)).ToList();
+                        _rawFileNodes = iw4.RawFileNodes
+                            .Where(r => !menuListNames.Contains(r.FileName))
+                            .Concat(scannerOnly)
+                            .ToList();
+                    }
+                    if (loadLocalizedEntries)
+                        _localizedEntries = iw4.LocalizedEntries;
+                    if (loadStringTables)
+                        _stringTables = iw4.StringTables;
+                    if (loadWeapons)
+                        _weapons = iw4.Weapons;
+                    if (loadTechSets)
+                        _techSets = iw4.TechSets;
+                    if (loadMenuFiles && iw4.MenuLists.Count > 0)
+                        _menuLists = iw4.MenuLists;
+                }
+            }
 
             // Track unsupported assets and original counts for safe save detection
             _hasUnsupportedAssets = !ZoneFileBuilder.ContainsOnlySupportedAssets(zone, _openedFastFile);
@@ -2113,6 +2176,7 @@ namespace Call_of_Duty_FastFile_Editor
                     var menu = menuList.Menus[0];
                     string suffix = menu.ItemCount > 0 ? $" [{menu.ItemCount} items]" : "";
                     var node = new TreeNode($"{menuList.Name}{suffix}") { Tag = menu };
+                    AddMenuItemNodes(node, menu);
                     menuFilesTreeView.Nodes.Add(node);
                 }
                 else if (isSingleMenu)
@@ -2135,7 +2199,9 @@ namespace Call_of_Duty_FastFile_Editor
                             : menu.Name;
                         if (menu.ItemCount > 0)
                             label += $" [{menu.ItemCount} items]";
-                        parentNode.Nodes.Add(new TreeNode(label) { Tag = menu });
+                        var menuNode = new TreeNode(label) { Tag = menu };
+                        AddMenuItemNodes(menuNode, menu);
+                        parentNode.Nodes.Add(menuNode);
                     }
 
                     // If the asset pool declared more menus than we located, surface that gap
@@ -2150,13 +2216,59 @@ namespace Call_of_Duty_FastFile_Editor
                 }
             }
 
-            // Expand all nodes
+            // Expand the menulist/menu structure, then collapse each menu's parsed-item list so long
+            // item lists don't flood the tree (the user expands a menu to see its items).
             menuFilesTreeView.ExpandAll();
+            CollapseMenuItemContainers(menuFilesTreeView.Nodes);
 
             // Select first item if available
             if (menuFilesTreeView.Nodes.Count > 0)
             {
                 menuFilesTreeView.SelectedNode = menuFilesTreeView.Nodes[0];
+            }
+        }
+
+        /// <summary>
+        /// Adds one child node per parsed menu item (type / text / dvar), for menus whose items were
+        /// walked by the IW4 reader. The node Tag points at the parent <see cref="MenuDef"/> so
+        /// selecting an item still shows the menu's decompiled content. No-op when items weren't parsed.
+        /// </summary>
+        private static void AddMenuItemNodes(TreeNode menuNode, MenuDef menu)
+        {
+            if (menu?.Items == null || menu.Items.Count == 0)
+                return;
+
+            foreach (var item in menu.Items)
+            {
+                string typeName = Enum.IsDefined(typeof(ItemType), item.Type)
+                    ? ((ItemType)item.Type).ToString()
+                    : $"type {item.Type}";
+
+                string label = $"item: {typeName}";
+                if (!string.IsNullOrEmpty(item.Text))
+                    label += $" \"{item.Text}\"";
+                else if (!string.IsNullOrEmpty(item.Window?.Name))
+                    label += $" ({item.Window!.Name})";
+                if (!string.IsNullOrEmpty(item.Dvar))
+                    label += $"  [dvar: {item.Dvar}]";
+
+                menuNode.Nodes.Add(new TreeNode(label) { Tag = menu, Name = MenuItemNodeName });
+            }
+        }
+
+        private const string MenuItemNodeName = "menuitem";
+
+        /// <summary>
+        /// Collapses any node that directly contains parsed-item child nodes, so the menu/menulist
+        /// structure stays visible while each menu's (potentially long) item list starts collapsed.
+        /// </summary>
+        private static void CollapseMenuItemContainers(TreeNodeCollection nodes)
+        {
+            foreach (TreeNode n in nodes)
+            {
+                CollapseMenuItemContainers(n.Nodes);
+                if (n.Nodes.Count > 0 && n.Nodes[0].Name == MenuItemNodeName)
+                    n.Collapse();
             }
         }
 
@@ -2704,6 +2816,15 @@ namespace Call_of_Duty_FastFile_Editor
                 return;
             }
 
+            // IW4 pointer-walk weapons (MW2 PS3) are read-only — the WaW-tuned editor uses the wrong
+            // byte layout. Show the structure detail view instead of the offset editor.
+            if (weapon.IsStructuredView)
+            {
+                using (var detail = new WeaponDetailForm(weapon))
+                    detail.ShowDialog(this);
+                return;
+            }
+
             // Open the advanced weapon editor dialog
             byte[] zoneData = _openedFastFile.OpenedFastFileZone.Data;
             var gameDefinition = GameDefinitions.GameDefinitionFactory.GetDefinition(_openedFastFile);
@@ -2754,6 +2875,15 @@ namespace Call_of_Duty_FastFile_Editor
             {
                 MessageBox.Show("Could not get weapon data.", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // IW4 pointer-walk weapons (MW2 PS3): the WaW-tuned byte-offset editor would write the
+            // wrong layout and corrupt the zone, so show the read-only structure view instead.
+            if (weapon.IsStructuredView)
+            {
+                using (var detail = new WeaponDetailForm(weapon))
+                    detail.ShowDialog(this);
                 return;
             }
 
@@ -5471,6 +5601,11 @@ namespace Call_of_Duty_FastFile_Editor
                     bool loadRawFiles = true;
                     bool loadLocalizedEntries = true;
                     bool loadTags = true;
+                    bool loadMenuFiles = true;
+                    bool loadStringTables = true;
+                    bool loadWeapons = true;
+                    bool loadImages = true;
+                    bool loadTechSets = true;
 
                     using (var assetDialog = new AssetSelectionDialog(
                         _openedFastFile.OpenedFastFileZone.ZoneFileAssets.ZoneAssetRecords,
@@ -5485,10 +5620,17 @@ namespace Call_of_Duty_FastFile_Editor
                         loadRawFiles = assetDialog.LoadRawFiles;
                         loadLocalizedEntries = assetDialog.LoadLocalizedEntries;
                         loadTags = assetDialog.LoadTags;
+                        loadMenuFiles = assetDialog.LoadMenuFiles;
+                        loadStringTables = assetDialog.LoadStringTables;
+                        loadWeapons = assetDialog.LoadWeapons;
+                        loadImages = assetDialog.LoadImages;
+                        loadTechSets = assetDialog.LoadTechSets;
                     }
 
                     // Parse asset records from the zone
-                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags);
+                    LoadAssetRecordsData(loadRawFiles: loadRawFiles, loadLocalizedEntries: loadLocalizedEntries, loadTags: loadTags,
+                        loadMenuFiles: loadMenuFiles, loadStringTables: loadStringTables, loadWeapons: loadWeapons,
+                        loadImages: loadImages, loadTechSets: loadTechSets);
                 }
                 catch (Exception ex)
                 {
