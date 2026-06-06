@@ -323,6 +323,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 ? (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]
                 : -1;
 
+        /// <summary>Big-endian (PS3) float read; returns 0 if out of range.</summary>
+        private static float ReadBEFloat(byte[] data, int offset)
+        {
+            int bits = ReadBE(data, offset);
+            return bits == -1 && !(data != null && offset >= 0 && offset + 4 <= data.Length)
+                ? 0f
+                : BitConverter.Int32BitsToSingle(bits);
+        }
+
         // Authoritative IW4 enum value lists (weapType_t / weapClass_t from OpenAssetTools; the
         // rest are the standard IW4 lineage enums). The WeaponDef's enum cluster is the 8-int block
         // the reader stores as PlayerAnimTypeThroughStance: [0]=playerAnimType, [1]=weapType,
@@ -352,6 +361,11 @@ namespace Call_of_Duty_FastFile_Editor.Services
         private const int WeaponDefDamage = 0x230;
         private const int WeaponDefPlayerDamage = 0x234;
         private const int WeaponDefMeleeDamage = 0x238;
+        // Damage falloff (offsets need typed struct sizing — shorts/bools shift the later region).
+        private const int WeaponDefMinDamage = 0x598;
+        private const int WeaponDefMinPlayerDamage = 0x59C;
+        private const int WeaponDefMaxDamageRange = 0x5A0;
+        private const int WeaponDefMinDamageRange = 0x5A4;
 
         private static WeaponAsset ToWeaponAsset(FastFileLib.Iw4.WeaponVariantDef wp, byte[] zoneData)
         {
@@ -363,6 +377,8 @@ namespace Call_of_Duty_FastFile_Editor.Services
             var def = wp.WeaponDefPtr is { IsResolved: true } ? wp.WeaponDefPtr.Result : null;
 
             int damage = -1, maxAmmo = -1, startAmmo = -1, shotCount = -1, playerDamage = -1, meleeDamage = -1;
+            int minDamage = -1, minPlayerDamage = -1;
+            float maxDamageRange = 0, minDamageRange = 0;
             if (def != null)
             {
                 int b = def.Offset;
@@ -372,6 +388,10 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 maxAmmo = ReadBE(zoneData, b + WeaponDefIMaxAmmo);
                 startAmmo = ReadBE(zoneData, b + WeaponDefIStartAmmo);
                 shotCount = ReadBE(zoneData, b + WeaponDefShotCount);
+                minDamage = ReadBE(zoneData, b + WeaponDefMinDamage);
+                minPlayerDamage = ReadBE(zoneData, b + WeaponDefMinPlayerDamage);
+                maxDamageRange = ReadBEFloat(zoneData, b + WeaponDefMaxDamageRange);
+                minDamageRange = ReadBEFloat(zoneData, b + WeaponDefMinDamageRange);
             }
 
             var weapon = new WeaponAsset
@@ -383,7 +403,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 AdsTransInTime = wp.iAdsTransInTime,
                 AdsZoomFov = wp.fAdsZoomFov,
                 Damage = damage,
-                MinDamage = -1,
+                MinDamage = minDamage,
                 MaxAmmo = maxAmmo,
                 StartOffset = wp.Offset,
                 EndOffset = 0,
@@ -420,8 +440,12 @@ namespace Call_of_Duty_FastFile_Editor.Services
             d.Add(("inventoryType", weapon.InventoryName));
             if (def != null)
             {
-                d.Add(("damage", damage.ToString()));
-                d.Add(("playerDamage", playerDamage.ToString()));
+                d.Add(("damage (max)", damage.ToString()));
+                d.Add(("minDamage", minDamage.ToString()));
+                d.Add(("playerDamage (max)", playerDamage.ToString()));
+                d.Add(("minPlayerDamage", minPlayerDamage.ToString()));
+                d.Add(("maxDamageRange", maxDamageRange.ToString("0.#")));
+                d.Add(("minDamageRange", minDamageRange.ToString("0.#")));
                 d.Add(("meleeDamage", meleeDamage.ToString()));
                 d.Add(("shotCount", shotCount.ToString()));
                 d.Add(("startAmmo", startAmmo.ToString()));
