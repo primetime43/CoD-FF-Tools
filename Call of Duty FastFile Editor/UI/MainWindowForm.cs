@@ -122,6 +122,11 @@ namespace Call_of_Duty_FastFile_Editor
         /// </summary>
         private MenuDef? _selectedMenuDef;
 
+        // Visual menu UI (replaces the old text decompiler dump): a layout preview + a properties grid.
+        private UI.MenuPreviewControl? _menuPreview;
+        private DataGridView? _menuPropsGrid;
+        private bool _menuPreviewUiBuilt;
+
         /// <summary>
         /// Loading panel shown during file parsing.
         /// </summary>
@@ -2135,210 +2140,223 @@ namespace Call_of_Duty_FastFile_Editor
                 mainTabControl.TabPages.Add(menuFilesTabPage);
             }
 
-            // Clear existing items
+            // Build the visual preview + properties UI (once), then (re)wire the tree.
+            BuildMenuPreviewUI();
             menuFilesTreeView.Nodes.Clear();
-            menuFilesTextEditor.Text = string.Empty;
             _selectedMenuList = null;
-
-            // Add selection handler if not already added
+            _selectedMenuDef = null;
             menuFilesTreeView.AfterSelect -= MenuFilesTreeView_AfterSelect;
             menuFilesTreeView.AfterSelect += MenuFilesTreeView_AfterSelect;
 
-            // Add text change handler for saving modifications
-            menuFilesTextEditor.TextChanged -= MenuFilesTextEditor_TextChanged;
-            menuFilesTextEditor.TextChanged += MenuFilesTextEditor_TextChanged;
-
-            // Endianness must match the zone's actual byte order — PC zones are little-endian,
-            // PS3/Xbox/Wii are big-endian. Hardcoding BE here used to mis-read every float/int
-            // on PC zones, so MenuValue.Offset ended up pointing at the wrong bytes and the
-            // matching write in ApplyMenuFileChangesToZone corrupted random parts of the zone
-            // (caused "unsupported compression method" errors when reopening the saved FF).
-            var decompiler = new ZoneParsers.MenuDecompiler(
-                _openedFastFile.OpenedFastFileZone.Data,
-                isBigEndian: !_openedFastFile.IsPC);
-
-            // Tree layout:
-            //   - menufile contains exactly 1 menu, parser found it    → flat row "name [N items]"
-            //   - menufile contains exactly 1 menu, parser failed      → flat row "name [1 menu (parse failed)]"
-            //   - menufile contains N > 1 menus                        → "name (N menus)" parent +
-            //                                                            one child per parsed menu
-            //
-            // Single-menu files flatten because the wrapper file and the menu are conceptually the
-            // same thing. Multi-menu files keep a tree level so each menu is independently selectable.
+            // Tree layout (menus only — items are shown in the visual preview, not as nodes):
+            //   - 1 menu, parsed       → flat row "name [N items]"
+            //   - 1 menu, parse failed → flat row "name [1 menu (parse failed)]"
+            //   - N > 1 menus          → "name (N menus)" parent + one child per parsed menu
             foreach (var menuList in _menuLists)
             {
-                // Decompile any menus we successfully parsed
-                foreach (var menu in menuList.Menus)
-                {
-                    var (formattedText, strings) = decompiler.DecompileMenuDef(menu);
-                    menu.ExtractedStrings = strings;
-                    menu.StringContent = formattedText;
-                }
-
                 bool isSingleMenu = menuList.MenuCount == 1;
                 bool firstParsed = menuList.Menus.Count > 0;
                 bool firstHasParseFailureName = firstParsed && MenuHasParserPlaceholderName(menuList.Menus[0]);
 
                 if (isSingleMenu && firstParsed && !firstHasParseFailureName)
                 {
-                    // Flat row — the menufile IS effectively the menu for single-menu cases.
                     var menu = menuList.Menus[0];
                     string suffix = menu.ItemCount > 0 ? $" [{menu.ItemCount} items]" : "";
-                    var node = new TreeNode($"{menuList.Name}{suffix}") { Tag = menu };
-                    AddMenuItemNodes(node, menu);
-                    menuFilesTreeView.Nodes.Add(node);
+                    menuFilesTreeView.Nodes.Add(new TreeNode($"{menuList.Name}{suffix}") { Tag = menu });
                 }
                 else if (isSingleMenu)
                 {
-                    // Single-menu file but parser couldn't get useful data.
-                    var node = new TreeNode($"{menuList.Name} [1 menu (parse failed)]") { Tag = menuList };
-                    menuFilesTreeView.Nodes.Add(node);
+                    menuFilesTreeView.Nodes.Add(new TreeNode($"{menuList.Name} [1 menu (parse failed)]") { Tag = menuList });
                 }
                 else
                 {
-                    // Multi-menu file. Show parent + one child per parsed menu so each is
-                    // independently selectable and editable.
                     var parentNode = new TreeNode($"{menuList.Name} ({menuList.MenuCount} menus)") { Tag = menuList };
-
                     for (int i = 0; i < menuList.Menus.Count; i++)
                     {
                         var menu = menuList.Menus[i];
-                        string label = MenuHasParserPlaceholderName(menu)
-                            ? $"menu #{i}"
-                            : menu.Name;
+                        string label = MenuHasParserPlaceholderName(menu) ? $"menu #{i}" : menu.Name;
                         if (menu.ItemCount > 0)
                             label += $" [{menu.ItemCount} items]";
-                        var menuNode = new TreeNode(label) { Tag = menu };
-                        AddMenuItemNodes(menuNode, menu);
-                        parentNode.Nodes.Add(menuNode);
+                        parentNode.Nodes.Add(new TreeNode(label) { Tag = menu });
                     }
-
-                    // If the asset pool declared more menus than we located, surface that gap
-                    // so users know parsing dropped some entries rather than silently hiding them.
                     int missing = menuList.MenuCount - menuList.Menus.Count;
                     if (missing > 0)
-                    {
                         parentNode.Nodes.Add(new TreeNode($"+{missing} menu(s) not located") { Tag = menuList });
-                    }
-
                     menuFilesTreeView.Nodes.Add(parentNode);
                 }
             }
 
-            // Expand the menulist/menu structure, then collapse each menu's parsed-item list so long
-            // item lists don't flood the tree (the user expands a menu to see its items).
             menuFilesTreeView.ExpandAll();
-            CollapseMenuItemContainers(menuFilesTreeView.Nodes);
-
-            // Select first item if available
             if (menuFilesTreeView.Nodes.Count > 0)
-            {
                 menuFilesTreeView.SelectedNode = menuFilesTreeView.Nodes[0];
-            }
         }
 
         /// <summary>
-        /// Adds one child node per parsed menu item (type / text / dvar), for menus whose items were
-        /// walked by the IW4 reader. The node Tag points at the parent <see cref="MenuDef"/> so
-        /// selecting an item still shows the menu's decompiled content. No-op when items weren't parsed.
+        /// Builds the right-hand menu UI once: replaces the old text-decompiler editor with a visual
+        /// layout preview (<see cref="MenuPreviewControl"/>) on top and a properties grid below.
         /// </summary>
-        private static void AddMenuItemNodes(TreeNode menuNode, MenuDef menu)
+        private void BuildMenuPreviewUI()
         {
-            if (menu?.Items == null || menu.Items.Count == 0)
+            if (_menuPreviewUiBuilt)
                 return;
 
-            foreach (var item in menu.Items)
+            // Drop the legacy text editor from the right pane.
+            menuFilesSplitContainer.Panel2.Controls.Clear();
+
+            var rightSplit = new SplitContainer
             {
-                string typeName = Enum.IsDefined(typeof(ItemType), item.Type)
-                    ? ((ItemType)item.Type).ToString()
-                    : $"type {item.Type}";
+                Dock = DockStyle.Fill,
+                Orientation = Orientation.Horizontal,
+                SplitterWidth = 6,
+            };
 
-                string label = $"item: {typeName}";
-                if (!string.IsNullOrEmpty(item.Text))
-                    label += $" \"{item.Text}\"";
-                else if (!string.IsNullOrEmpty(item.Window?.Name))
-                    label += $" ({item.Window!.Name})";
-                if (!string.IsNullOrEmpty(item.Dvar))
-                    label += $"  [dvar: {item.Dvar}]";
+            _menuPreview = new UI.MenuPreviewControl { Dock = DockStyle.Fill };
+            _menuPreview.SelectionChanged += MenuPreview_SelectionChanged;
+            rightSplit.Panel1.Controls.Add(_menuPreview);
 
-                menuNode.Nodes.Add(new TreeNode(label) { Tag = menu, Name = MenuItemNodeName });
-            }
-        }
-
-        private const string MenuItemNodeName = "menuitem";
-
-        /// <summary>
-        /// Collapses any node that directly contains parsed-item child nodes, so the menu/menulist
-        /// structure stays visible while each menu's (potentially long) item list starts collapsed.
-        /// </summary>
-        private static void CollapseMenuItemContainers(TreeNodeCollection nodes)
-        {
-            foreach (TreeNode n in nodes)
+            _menuPropsGrid = new DataGridView
             {
-                CollapseMenuItemContainers(n.Nodes);
-                if (n.Nodes.Count > 0 && n.Nodes[0].Name == MenuItemNodeName)
-                    n.Collapse();
+                Dock = DockStyle.Fill,
+                ReadOnly = true,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                AllowUserToResizeRows = false,
+                RowHeadersVisible = false,
+                ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                BackgroundColor = SystemColors.Window,
+            };
+            _menuPropsGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Property", FillWeight = 32, SortMode = DataGridViewColumnSortMode.NotSortable });
+            _menuPropsGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Value", FillWeight = 68, SortMode = DataGridViewColumnSortMode.NotSortable });
+            rightSplit.Panel2.Controls.Add(_menuPropsGrid);
+
+            menuFilesSplitContainer.Panel2.Controls.Add(rightSplit);
+            // Give the preview the larger share once the control has a real height.
+            void SetSplit(object? s, EventArgs e)
+            {
+                if (rightSplit.Height > 60)
+                {
+                    rightSplit.SplitterDistance = (int)(rightSplit.Height * 0.62);
+                    rightSplit.SizeChanged -= SetSplit;
+                }
             }
+            rightSplit.SizeChanged += SetSplit;
+
+            _menuPreviewUiBuilt = true;
         }
 
         private void MenuFilesTreeView_AfterSelect(object? sender, TreeViewEventArgs e)
         {
-            // Save current menu content before switching
-            if (_selectedMenuDef != null && _selectedMenuDef.HasUnsavedChanges)
-            {
-                _selectedMenuDef.StringContent = menuFilesTextEditor.Text;
-            }
-
-            if (e.Node?.Tag == null)
-            {
-                menuFilesTextEditor.TextChanged -= MenuFilesTextEditor_TextChanged;
-                menuFilesTextEditor.Text = string.Empty;
-                menuFilesTextEditor.TextChanged += MenuFilesTextEditor_TextChanged;
-                _selectedMenuList = null;
-                _selectedMenuDef = null;
+            if (_menuPreview == null)
                 return;
+
+            if (e.Node?.Tag is MenuDef menu)
+            {
+                if (e.Node.Parent?.Tag is MenuList parentList)
+                    _selectedMenuList = parentList;
+                _selectedMenuDef = menu;
+
+                _menuPreview.Menu = menu;
+                PopulateMenuProps(menu);
+
+                selectedItemStatusLabel.Text = $"Menu: {menu.Name}";
+                selectedItemStatusLabel.Visible = true;
+                selectedFileMaxSizeStatusLabel.Text = $"Items: {menu.Items?.Count ?? 0}";
+                selectedFileMaxSizeStatusLabel.Visible = true;
             }
-
-            // Detach handler while loading text
-            menuFilesTextEditor.TextChanged -= MenuFilesTextEditor_TextChanged;
-
-            if (e.Node.Tag is MenuList menuList)
+            else if (e.Node?.Tag is MenuList menuList)
             {
                 _selectedMenuList = menuList;
                 _selectedMenuDef = null;
+                _menuPreview.Menu = null;
 
-                // For MenuList, show info about selecting a menu
-                menuFilesTextEditor.Text = $"// {menuList.Name}\n// Select a menu from the list to view and edit its code.\n//\n// Menus in this file:\n" +
-                    string.Join("\n", menuList.Menus.Select(m => $"//   - {m.Name}"));
+                _menuPropsGrid!.Rows.Clear();
+                AddPropRow("Menu File", menuList.Name);
+                AddPropRow("Menus", menuList.MenuCount.ToString());
+                AddPropRow("", "Select a menu to preview its layout.");
 
-                // Update status bar
                 selectedItemStatusLabel.Text = $"MenuList: {menuList.Name}";
                 selectedItemStatusLabel.Visible = true;
                 selectedFileMaxSizeStatusLabel.Text = $"Menus: {menuList.Menus.Count}";
                 selectedFileMaxSizeStatusLabel.Visible = true;
             }
-            else if (e.Node.Tag is MenuDef menu)
+            else
             {
-                // Find the parent MenuList
-                if (e.Node.Parent?.Tag is MenuList parentList)
-                {
-                    _selectedMenuList = parentList;
-                }
-
-                _selectedMenuDef = menu;
-
-                // Load only this menu's code
-                menuFilesTextEditor.Text = menu.StringContent;
-
-                // Update status bar
-                selectedItemStatusLabel.Text = $"Menu: {menu.Name}";
-                selectedItemStatusLabel.Visible = true;
-                selectedFileMaxSizeStatusLabel.Text = $"Strings: {menu.ExtractedStrings?.Count ?? 0}";
-                selectedFileMaxSizeStatusLabel.Visible = true;
+                _selectedMenuList = null;
+                _selectedMenuDef = null;
+                _menuPreview.Menu = null;
+                _menuPropsGrid?.Rows.Clear();
             }
+        }
 
-            // Reattach handler
-            menuFilesTextEditor.TextChanged += MenuFilesTextEditor_TextChanged;
+        private void MenuPreview_SelectionChanged(object? sender, EventArgs e)
+        {
+            // Clicking an item box shows that item's properties; clicking empty space returns to the menu.
+            if (_menuPreview?.SelectedItem is ItemDef item)
+                PopulateItemProps(item);
+            else if (_selectedMenuDef != null)
+                PopulateMenuProps(_selectedMenuDef);
+        }
+
+        private void AddPropRow(string prop, string value, Color? swatch = null)
+        {
+            int i = _menuPropsGrid!.Rows.Add(prop, value);
+            if (swatch.HasValue)
+            {
+                _menuPropsGrid.Rows[i].Cells[1].Style.BackColor = swatch.Value;
+                // Pick a readable foreground for the swatch.
+                double lum = 0.299 * swatch.Value.R + 0.587 * swatch.Value.G + 0.114 * swatch.Value.B;
+                _menuPropsGrid.Rows[i].Cells[1].Style.ForeColor = lum < 110 ? Color.White : Color.Black;
+            }
+        }
+
+        private void PopulateMenuProps(MenuDef menu)
+        {
+            if (_menuPropsGrid == null) return;
+            _menuPropsGrid.Rows.Clear();
+            AddPropRow("name", string.IsNullOrEmpty(menu.Name) ? "(unnamed)" : menu.Name);
+            AddPropRow("itemCount", menu.ItemCount.ToString());
+            if (menu.Window?.Rect is RectDef r)
+                AddPropRow("rect", $"{r.X:0.#}, {r.Y:0.#}, {r.W:0.#}, {r.H:0.#}");
+            AddPropRow("offset", $"0x{menu.StartOffset:X}");
+
+            // EditableValues carry the menu's rect + 5 colors (parsed with their zone offsets). Show the
+            // colors as swatches so the layout reads visually.
+            if (menu.EditableValues != null)
+            {
+                foreach (var v in menu.EditableValues)
+                {
+                    if (v.Type == MenuValueType.Color)
+                        AddPropRow(v.Name, v.GetDisplayValue(), ColorFromFloats(v.FloatValues));
+                    else if (v.Type != MenuValueType.Rect) // rect already shown above
+                        AddPropRow(v.Name, v.GetDisplayValue());
+                }
+            }
+        }
+
+        private void PopulateItemProps(ItemDef item)
+        {
+            if (_menuPropsGrid == null) return;
+            _menuPropsGrid.Rows.Clear();
+            string typeName = Enum.IsDefined(typeof(ItemType), item.Type) ? ((ItemType)item.Type).ToString() : $"type {item.Type}";
+            AddPropRow("(item)", typeName);
+            if (!string.IsNullOrEmpty(item.Window?.Name)) AddPropRow("name", item.Window!.Name);
+            if (!string.IsNullOrEmpty(item.Text)) AddPropRow("text", item.Text);
+            if (!string.IsNullOrEmpty(item.Dvar)) AddPropRow("dvar", item.Dvar);
+            if (!string.IsNullOrEmpty(item.DvarTest)) AddPropRow("dvarTest", item.DvarTest);
+            if (!string.IsNullOrEmpty(item.EnableDvar)) AddPropRow("enableDvar", item.EnableDvar);
+            if (item.Window?.Rect is RectDef r)
+                AddPropRow("rect", $"{r.X:0.#}, {r.Y:0.#}, {r.W:0.#}, {r.H:0.#}");
+        }
+
+        private static Color ColorFromFloats(float[]? c)
+        {
+            if (c == null || c.Length < 3) return Color.Gray;
+            int R = (int)Math.Clamp(c[0] * 255f, 0, 255);
+            int G = (int)Math.Clamp(c[1] * 255f, 0, 255);
+            int B = (int)Math.Clamp(c[2] * 255f, 0, 255);
+            return Color.FromArgb(R, G, B);
         }
 
         /// <summary>

@@ -143,7 +143,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 int end = NextBoundary(boundaries, d.Offset, zoneEnd);
                 var menu = new MenuDef
                 {
-                    Window = new WindowDef { Name = d.Window?.Name ?? string.Empty },
+                    Window = new WindowDef { Name = d.Window?.Name ?? string.Empty, Rect = ToRect(d.Window?.Rect) },
                     ItemCount = d.ItemCount,
                     StartOffset = d.Offset,
                     EndOffset = end,
@@ -212,8 +212,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
         // editor writes them back in the same order, so editing round-trips.
         private static float[] ColorToFloats(FastFileLib.Iw4.Vec4 c) => new[] { c.A, c.R, c.G, c.B };
 
+        private static RectDef? ToRect(FastFileLib.Iw4.RectangleDef? r)
+            => r == null ? null : new RectDef
+            {
+                X = r.X, Y = r.Y, W = r.W, H = r.H,
+                HorzAlign = r.HorzAlign, VertAlign = r.VertAlign,
+            };
+
         // Map the IW4-parsed itemDefs (the menuReader fully walks items[]) into the editor's MenuDef.Items
-        // so the Menus tab can list each item's type / text / dvar. Read-only — for display only.
+        // so the Menus tab can list each item's type / text / dvar / rect. Read-only — for display only.
         private static void AddItems(MenuDef menu, FastFileLib.Iw4.MenuDef d)
         {
             if (d.Items is not { IsResolved: true, Result: not null })
@@ -227,7 +234,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
 
                 menu.Items.Add(new ItemDef
                 {
-                    Window = new WindowDef { Name = it.Window?.Name ?? string.Empty },
+                    Window = new WindowDef { Name = it.Window?.Name ?? string.Empty, Rect = ToRect(it.Window?.Rect) },
                     Type = it.Type,
                     DataType = it.DataType,
                     Text = S(it.Text),
