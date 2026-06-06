@@ -90,7 +90,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         result.StringTables.Add(ToStringTable(st));
                         break;
                     case FastFileLib.Iw4.WeaponVariantDef wp:
-                        result.Weapons.Add(ToWeaponAsset(wp));
+                        result.Weapons.Add(ToWeaponAsset(wp, zone.Data));
                         break;
                     case FastFileLib.Iw4.MaterialTechniqueSet ts:
                         result.TechSets.Add(ToTechSet(ts));
@@ -317,13 +317,62 @@ namespace Call_of_Duty_FastFile_Editor.Services
         private static string S(FastFileLib.Iw4.ZonePointer<string>? p)
             => p is { IsResolved: true } ? p.Result ?? string.Empty : string.Empty;
 
-        private static WeaponAsset ToWeaponAsset(FastFileLib.Iw4.WeaponVariantDef wp)
+        /// <summary>Big-endian (PS3) int32 read with bounds checking; returns -1 if out of range.</summary>
+        private static int ReadBE(byte[] data, int offset)
+            => (data != null && offset >= 0 && offset + 4 <= data.Length)
+                ? (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3]
+                : -1;
+
+        // Authoritative IW4 enum value lists (weapType_t / weapClass_t from OpenAssetTools; the
+        // rest are the standard IW4 lineage enums). The WeaponDef's enum cluster is the 8-int block
+        // the reader stores as PlayerAnimTypeThroughStance: [0]=playerAnimType, [1]=weapType,
+        // [2]=weapClass, [3]=penetrateType, [4]=impactType(default), [5]=inventoryType, [6]=fireType,
+        // [7]=clipType. Validated against patch_mp.ff (model1887 → bullet/spread shotgun; airdrop
+        // marker → grenade/grenade/item). Impact for display uses the per-variant impactType override.
+        private static readonly string[] Iw4WeapType = { "bullet", "grenade", "projectile", "riotshield" };
+        private static readonly string[] Iw4WeapClass =
+            { "rifle", "sniper", "mg", "smg", "spread (shotgun)", "pistol", "grenade", "rocketlauncher", "turret", "throwingknife", "non-player", "item" };
+        private static readonly string[] Iw4PenetrateType = { "none", "small", "medium", "large" };
+        private static readonly string[] Iw4InventoryType = { "primary", "offhand", "item", "altmode", "exclusive", "scavenger" };
+        private static readonly string[] Iw4FireType = { "fullauto", "singleshot", "burst2", "burst3", "burst4", "doublebarrel" };
+        private static readonly string[] Iw4ImpactType =
         {
-            // The IW4 walk is the correct MW2 weapon reader; the classic weapType/weapClass/damage
-            // enums live in opaque field blocks (not semantically named), so they stay at the -1
-            // sentinel ("N/A" in the grid). Everything the IW4 structure DOES name is surfaced via
-            // DetailFields for the read-only detail view. Damage = -1 keeps the WaW-tuned editor off.
+            "none", "bullet small", "bullet large", "bullet ap", "bullet xtreme", "shotgun",
+            "grenade bounce", "grenade explode", "rifle grenade", "rocket explode",
+            "rocket explode xtreme", "projectile dud", "mortar shell", "tank shell",
+        };
+
+        private static string EnumName(string[] table, int v) => v >= 0 && v < table.Length ? table[v] : v.ToString();
+
+        // IW4 WeaponDef field byte offsets (validated against patch_mp.ff PS3 — see comments below).
+        // Same layout PC/PS3 up through these fields (the PC/PS3 size delta is the bool-flag tail).
+        private const int WeaponDefIStartAmmo = 0x208;
+        private const int WeaponDefIMaxAmmo = 0x21C;
+        private const int WeaponDefShotCount = 0x220;
+        private const int WeaponDefDamage = 0x230;
+        private const int WeaponDefPlayerDamage = 0x234;
+        private const int WeaponDefMeleeDamage = 0x238;
+
+        private static WeaponAsset ToWeaponAsset(FastFileLib.Iw4.WeaponVariantDef wp, byte[] zoneData)
+        {
+            // The IW4 walk is the correct MW2 weapon reader. The enum cluster + ammo/damage ints live
+            // in regions the ported reader stores as opaque blocks, but at known byte offsets (from the
+            // OpenAssetTools IW4 WeaponDef, validated against patch_mp.ff: model1887 → bullet/spread,
+            // 8-pellet shotCount, damage 35/pellet, melee 135; akimbo doubles reserve ammo). They're
+            // read straight from the zone (big-endian) at WeaponDef.Offset + field offset.
             var def = wp.WeaponDefPtr is { IsResolved: true } ? wp.WeaponDefPtr.Result : null;
+
+            int damage = -1, maxAmmo = -1, startAmmo = -1, shotCount = -1, playerDamage = -1, meleeDamage = -1;
+            if (def != null)
+            {
+                int b = def.Offset;
+                damage = ReadBE(zoneData, b + WeaponDefDamage);
+                playerDamage = ReadBE(zoneData, b + WeaponDefPlayerDamage);
+                meleeDamage = ReadBE(zoneData, b + WeaponDefMeleeDamage);
+                maxAmmo = ReadBE(zoneData, b + WeaponDefIMaxAmmo);
+                startAmmo = ReadBE(zoneData, b + WeaponDefIStartAmmo);
+                shotCount = ReadBE(zoneData, b + WeaponDefShotCount);
+            }
 
             var weapon = new WeaponAsset
             {
@@ -333,20 +382,51 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 FireTime = wp.iFireTime,
                 AdsTransInTime = wp.iAdsTransInTime,
                 AdsZoomFov = wp.fAdsZoomFov,
-                Damage = -1,
+                Damage = damage,
                 MinDamage = -1,
-                MaxAmmo = -1,
+                MaxAmmo = maxAmmo,
                 StartOffset = wp.Offset,
                 EndOffset = 0,
                 IsStructuredView = true,
                 AdditionalData = "IW4 pointer-walk",
+                // Impact comes from the per-variant impactType (the WeaponDef enum block has no
+                // impactType field; e.g. model1887 → shotgun).
+                ImpactName = EnumName(Iw4ImpactType, (int)wp.impactType),
             };
+
+            // The WeaponDef enum cluster the reader stores as the 8-int PlayerAnimTypeThroughStance
+            // block: [0]=playerAnimType, [1]=weapType, [2]=weapClass, [3]=penetrateType,
+            // [4]=inventoryType, [5]=fireType, [6]=offhandClass, [7]=stance (OAT IW4 order).
+            var anim = def?.PlayerAnimTypeThroughStance;
+            if (anim != null && anim.Length >= 8)
+            {
+                weapon.TypeName = EnumName(Iw4WeapType, anim[1]);
+                weapon.ClassName = EnumName(Iw4WeapClass, anim[2]);
+                weapon.PenetrateName = EnumName(Iw4PenetrateType, anim[3]);
+                weapon.InventoryName = EnumName(Iw4InventoryType, anim[4]);
+                weapon.FireTypeName = EnumName(Iw4FireType, anim[5]);
+            }
 
             var d = weapon.DetailFields;
             d.Add(("Variant", ""));
             d.Add(("internalName", wp.InternalName));
             d.Add(("displayName", S(wp.DisplayNamePtr)));
             d.Add(("altWeaponName", S(wp.szAltWeaponName)));
+            d.Add(("type", weapon.TypeName));
+            d.Add(("class", weapon.ClassName));
+            d.Add(("fireType", weapon.FireTypeName));
+            d.Add(("penetrateType", weapon.PenetrateName));
+            d.Add(("impactType", weapon.ImpactName));
+            d.Add(("inventoryType", weapon.InventoryName));
+            if (def != null)
+            {
+                d.Add(("damage", damage.ToString()));
+                d.Add(("playerDamage", playerDamage.ToString()));
+                d.Add(("meleeDamage", meleeDamage.ToString()));
+                d.Add(("shotCount", shotCount.ToString()));
+                d.Add(("startAmmo", startAmmo.ToString()));
+                d.Add(("maxAmmo (reserve)", maxAmmo.ToString()));
+            }
             d.Add(("clipSize", wp.iClipSize.ToString()));
             d.Add(("fireTime", $"{wp.iFireTime} ms"));
             d.Add(("adsTransInTime", $"{wp.iAdsTransInTime} ms"));

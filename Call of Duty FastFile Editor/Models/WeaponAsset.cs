@@ -157,6 +157,17 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// </summary>
         public List<(string Label, string Value)> DetailFields { get; set; } = new();
 
+        // IW4 (structured-view) enum field names, decoded from the WeaponDef enum block + the variant
+        // impactType using the authoritative IW4 enum value lists (weapType/weapClass from
+        // OpenAssetTools). Shown in the Weapons grid for IsStructuredView weapons instead of the
+        // WaW-flavoured enum columns (whose numeric values differ from IW4's). Empty when unknown.
+        public string TypeName { get; set; } = string.Empty;
+        public string ClassName { get; set; } = string.Empty;
+        public string FireTypeName { get; set; } = string.Empty;
+        public string PenetrateName { get; set; } = string.Empty;
+        public string ImpactName { get; set; } = string.Empty;
+        public string InventoryName { get; set; } = string.Empty;
+
         /// <summary>
         /// Gets a summary of the weapon properties.
         /// </summary>

@@ -2570,6 +2570,8 @@ namespace Call_of_Duty_FastFile_Editor
             xAnimsListView.AutoResizeColumns(ColumnHeaderAutoResizeStyle.HeaderSize);
         }
 
+        private static string Dash(string? s) => string.IsNullOrEmpty(s) ? "—" : s;
+
         private void PopulateWeapons()
         {
             // Check if we have any weapons in our processed results.
@@ -2615,17 +2617,36 @@ namespace Call_of_Duty_FastFile_Editor
                 // Create a new ListViewItem with the Name as the main text.
                 ListViewItem lvi = new ListViewItem(weapon.InternalName);
 
-                // Add subitems - use "N/A" for unparsed numeric fields (-1)
                 lvi.SubItems.Add(weapon.DisplayName);
-                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.WeapType.ToString() : "N/A");
-                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.WeapClass.ToString() : "N/A");
-                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.FireType.ToString() : "N/A");
-                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.PenetrateType.ToString() : "N/A");
-                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.ImpactType.ToString() : "N/A");
-                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.InventoryType.ToString() : "N/A");
-                lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.Damage.ToString() : "N/A");
-                lvi.SubItems.Add(weapon.ClipSize >= 0 ? weapon.ClipSize.ToString() : "N/A");
-                lvi.SubItems.Add(weapon.MaxAmmo >= 0 ? weapon.MaxAmmo.ToString() : "N/A");
+
+                if (weapon.IsStructuredView)
+                {
+                    // IW4 (MW2 PS3): enum columns come from the WeaponDef enum block decoded with the
+                    // IW4 enum lists; numeric Damage/MaxAmmo aren't located in the layout yet → "—".
+                    lvi.SubItems.Add(Dash(weapon.TypeName));
+                    lvi.SubItems.Add(Dash(weapon.ClassName));
+                    lvi.SubItems.Add(Dash(weapon.FireTypeName));
+                    lvi.SubItems.Add(Dash(weapon.PenetrateName));
+                    lvi.SubItems.Add(Dash(weapon.ImpactName));
+                    lvi.SubItems.Add(Dash(weapon.InventoryName));
+                    lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.Damage.ToString() : "—");
+                    lvi.SubItems.Add(weapon.ClipSize >= 0 ? weapon.ClipSize.ToString() : "—");
+                    lvi.SubItems.Add(weapon.MaxAmmo >= 0 ? weapon.MaxAmmo.ToString() : "—");
+                }
+                else
+                {
+                    // Add subitems - use "N/A" for unparsed numeric fields (-1)
+                    lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.WeapType.ToString() : "N/A");
+                    lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.WeapClass.ToString() : "N/A");
+                    lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.FireType.ToString() : "N/A");
+                    lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.PenetrateType.ToString() : "N/A");
+                    lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.ImpactType.ToString() : "N/A");
+                    lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.InventoryType.ToString() : "N/A");
+                    lvi.SubItems.Add(weapon.Damage >= 0 ? weapon.Damage.ToString() : "N/A");
+                    lvi.SubItems.Add(weapon.ClipSize >= 0 ? weapon.ClipSize.ToString() : "N/A");
+                    lvi.SubItems.Add(weapon.MaxAmmo >= 0 ? weapon.MaxAmmo.ToString() : "N/A");
+                }
+
                 lvi.SubItems.Add($"0x{weapon.StartOffset:X}");
                 lvi.SubItems.Add($"0x{weapon.EndOffset:X}");
 
