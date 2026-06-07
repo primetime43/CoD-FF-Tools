@@ -748,6 +748,7 @@ namespace Call_of_Duty_FastFile_Editor
             _hasUnsupportedAssets = !ZoneFileBuilder.ContainsOnlySupportedAssets(zone, _openedFastFile);
             _originalLocalizeCount = _localizedEntries?.Count ?? 0;
             _hasUnsavedChanges = false; // Reset - no changes made yet
+            _directZoneValueEdits = 0;  // Reset - no in-place value edits yet
             _localizeNeedsRebuild = false; // Reset - no rebuild needed yet
 
             // also store updated records
@@ -1172,7 +1173,7 @@ namespace Call_of_Duty_FastFile_Editor
                     return; // Error was already shown by helper
 
                 // Check if there were any changes
-                if (result.RawFileChangeCount == 0 && result.MenuChangeCount == 0 && result.LocalizeChangeCount == 0)
+                if (result.RawFileChangeCount == 0 && result.MenuChangeCount == 0 && result.LocalizeChangeCount == 0 && result.OtherChangeCount == 0)
                 {
                     MessageBox.Show("No changes to save.", "Save", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
@@ -1189,6 +1190,7 @@ namespace Call_of_Duty_FastFile_Editor
                 if (result.RawFileChangeCount > 0) changes.Add($"{result.RawFileChangeCount} raw file(s)");
                 if (result.MenuChangeCount > 0) changes.Add($"{result.MenuChangeCount} menu(s)");
                 if (result.LocalizeChangeCount > 0) changes.Add("localize entries");
+                if (result.OtherChangeCount > 0) changes.Add($"{result.OtherChangeCount} value edit(s)");
 
                 MessageBox.Show($"Fast File saved to:\n\n{_openedFastFile.FfFilePath}\n\n" +
                                 $"Patched {string.Join(" and ", changes)} in place. All assets preserved.",
@@ -1198,6 +1200,7 @@ namespace Call_of_Duty_FastFile_Editor
 
                 // Reset dirty flags after successful save
                 _hasUnsavedChanges = false;
+                _directZoneValueEdits = 0;
                 _localizeNeedsRebuild = false;
 
                 // Remove asterisk from title
@@ -1269,6 +1272,7 @@ namespace Call_of_Duty_FastFile_Editor
 
                         // Reset dirty flags after successful save
                         _hasUnsavedChanges = false;
+                        _directZoneValueEdits = 0;
                         _localizeNeedsRebuild = false;
 
                         // Remove asterisk from title
@@ -1297,7 +1301,15 @@ namespace Call_of_Duty_FastFile_Editor
             public int RawFileChangeCount { get; set; }
             public int MenuChangeCount { get; set; }
             public int LocalizeChangeCount { get; set; }
+            /// <summary>Direct in-place value edits already written to zone.Data (IW4 weapon fields,
+            /// menu rect/colors). They don't go through the typed rebuild paths, so they're counted
+            /// separately to keep "No changes to save" from skipping them.</summary>
+            public int OtherChangeCount { get; set; }
         }
+
+        // Count of direct byte edits made to zone.Data (IW4 weapon/menu value edits) since the last
+        // save. These are already patched into zone.Data; the save just needs to write + recompress.
+        private int _directZoneValueEdits;
 
         /// <summary>
         /// Applies all pending changes (raw files, menus, localize) to the zone data.
@@ -1503,6 +1515,10 @@ namespace Call_of_Duty_FastFile_Editor
                     }
                 }
             }
+
+            // Direct IW4 weapon/menu value edits are already in zone.Data — report them so the save
+            // doesn't short-circuit on "no changes".
+            result.OtherChangeCount = _directZoneValueEdits;
 
             return result;
         }
@@ -2217,18 +2233,26 @@ namespace Call_of_Duty_FastFile_Editor
             _menuPropsGrid = new DataGridView
             {
                 Dock = DockStyle.Fill,
-                ReadOnly = true,
+                ReadOnly = false, // per-cell: only value rows backed by a MenuValue are editable
                 AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false,
                 AllowUserToResizeRows = false,
                 RowHeadersVisible = false,
                 ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
-                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                SelectionMode = DataGridViewSelectionMode.CellSelect,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
                 BackgroundColor = SystemColors.Window,
             };
-            _menuPropsGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Property", FillWeight = 32, SortMode = DataGridViewColumnSortMode.NotSortable });
+            _menuPropsGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Property", FillWeight = 32, SortMode = DataGridViewColumnSortMode.NotSortable, ReadOnly = true });
             _menuPropsGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Value", FillWeight = 68, SortMode = DataGridViewColumnSortMode.NotSortable });
+            // Only rows tagged with a MenuValue (the menu's rect/colors/floats) are editable; everything
+            // else (name, itemCount, item props) is read-only. Edits patch the zone at the value's offset.
+            _menuPropsGrid.CellBeginEdit += (s, e) =>
+            {
+                if (e.ColumnIndex != 1 || _menuPropsGrid!.Rows[e.RowIndex].Tag is not MenuValue)
+                    e.Cancel = true;
+            };
+            _menuPropsGrid.CellEndEdit += MenuPropsGrid_CellEndEdit;
             rightSplit.Panel2.Controls.Add(_menuPropsGrid);
 
             menuFilesSplitContainer.Panel2.Controls.Add(rightSplit);
@@ -2317,21 +2341,66 @@ namespace Call_of_Duty_FastFile_Editor
             _menuPropsGrid.Rows.Clear();
             AddPropRow("name", string.IsNullOrEmpty(menu.Name) ? "(unnamed)" : menu.Name);
             AddPropRow("itemCount", menu.ItemCount.ToString());
-            if (menu.Window?.Rect is RectDef r)
-                AddPropRow("rect", $"{r.X:0.#}, {r.Y:0.#}, {r.W:0.#}, {r.H:0.#}");
             AddPropRow("offset", $"0x{menu.StartOffset:X}");
 
-            // EditableValues carry the menu's rect + 5 colors (parsed with their zone offsets). Show the
-            // colors as swatches so the layout reads visually.
+            // EditableValues carry the menu's rect + 5 colors (parsed with their zone offsets). These
+            // rows are editable — committing a change writes it back to the zone at the value's offset.
             if (menu.EditableValues != null)
             {
                 foreach (var v in menu.EditableValues)
                 {
-                    if (v.Type == MenuValueType.Color)
-                        AddPropRow(v.Name, v.GetDisplayValue(), ColorFromFloats(v.FloatValues));
-                    else if (v.Type != MenuValueType.Rect) // rect already shown above
-                        AddPropRow(v.Name, v.GetDisplayValue());
+                    Color? swatch = v.Type == MenuValueType.Color ? ColorFromFloats(v.FloatValues) : null;
+                    AddEditableRow(v, swatch);
                 }
+            }
+        }
+
+        /// <summary>Adds a menu-property row backed by an editable <see cref="MenuValue"/> (committing
+        /// the Value cell writes it to the zone). The row Tag carries the value so the edit handler
+        /// can find it.</summary>
+        private void AddEditableRow(MenuValue v, Color? swatch)
+        {
+            int i = _menuPropsGrid!.Rows.Add(v.Name, v.GetDisplayValue());
+            var row = _menuPropsGrid.Rows[i];
+            row.Tag = v;
+            row.Cells[1].ToolTipText = "Editable — double-click to change, Enter to commit";
+            if (swatch.HasValue)
+            {
+                row.Cells[1].Style.BackColor = swatch.Value;
+                double lum = 0.299 * swatch.Value.R + 0.587 * swatch.Value.G + 0.114 * swatch.Value.B;
+                row.Cells[1].Style.ForeColor = lum < 110 ? Color.White : Color.Black;
+            }
+        }
+
+        private void MenuPropsGrid_CellEndEdit(object? sender, DataGridViewCellEventArgs e)
+        {
+            if (_menuPropsGrid == null || e.ColumnIndex != 1) return;
+            var row = _menuPropsGrid.Rows[e.RowIndex];
+            if (row.Tag is not MenuValue mv) return;
+
+            string text = row.Cells[1].Value?.ToString() ?? string.Empty;
+            if (mv.ParseValue(text) && _openedFastFile?.OpenedFastFileZone?.Data != null)
+            {
+                mv.IsModified = true;
+                ZoneParsers.MenuDecompiler.ApplyMenuValueChanges(
+                    _openedFastFile.OpenedFastFileZone.Data, new List<MenuValue> { mv }, !_openedFastFile.IsPC);
+                _hasUnsavedChanges = true;
+                _directZoneValueEdits++;
+
+                // Re-display canonical formatting + refresh the color swatch.
+                row.Cells[1].Value = mv.GetDisplayValue();
+                if (mv.Type == MenuValueType.Color)
+                {
+                    var sw = ColorFromFloats(mv.FloatValues);
+                    row.Cells[1].Style.BackColor = sw;
+                    double lum = 0.299 * sw.R + 0.587 * sw.G + 0.114 * sw.B;
+                    row.Cells[1].Style.ForeColor = lum < 110 ? Color.White : Color.Black;
+                }
+            }
+            else
+            {
+                // Invalid input — revert to the stored value.
+                row.Cells[1].Value = mv.GetDisplayValue();
             }
         }
 
@@ -2868,8 +2937,18 @@ namespace Call_of_Duty_FastFile_Editor
             // byte layout. Show the structure detail view instead of the offset editor.
             if (weapon.IsStructuredView)
             {
-                using (var detail = new WeaponDetailForm(weapon))
-                    detail.ShowDialog(this);
+                // MW2 PS3 (IW4): the WaW-tuned editor would corrupt the 0x684 layout, so use the
+                // IW4 editor that writes only the byte-offset-verified scalar fields.
+                byte[] iw4Zone = _openedFastFile.OpenedFastFileZone.Data;
+                using (var editor = new Iw4WeaponEditorForm(weapon, iw4Zone))
+                {
+                    if (editor.ShowDialog(this) == DialogResult.OK && editor.ChangesSaved)
+                    {
+                        PopulateWeapons();
+                        _hasUnsavedChanges = true;
+                        _directZoneValueEdits++;
+                    }
+                }
                 return;
             }
 
@@ -2930,8 +3009,18 @@ namespace Call_of_Duty_FastFile_Editor
             // wrong layout and corrupt the zone, so show the read-only structure view instead.
             if (weapon.IsStructuredView)
             {
-                using (var detail = new WeaponDetailForm(weapon))
-                    detail.ShowDialog(this);
+                // MW2 PS3 (IW4): the WaW-tuned editor would corrupt the 0x684 layout, so use the
+                // IW4 editor that writes only the byte-offset-verified scalar fields.
+                byte[] iw4Zone = _openedFastFile.OpenedFastFileZone.Data;
+                using (var editor = new Iw4WeaponEditorForm(weapon, iw4Zone))
+                {
+                    if (editor.ShowDialog(this) == DialogResult.OK && editor.ChangesSaved)
+                    {
+                        PopulateWeapons();
+                        _hasUnsavedChanges = true;
+                        _directZoneValueEdits++;
+                    }
+                }
                 return;
             }
 

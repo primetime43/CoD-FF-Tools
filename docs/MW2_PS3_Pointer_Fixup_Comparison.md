@@ -125,7 +125,7 @@ Status legend: ✅ confirmed · ❌ our old assumption was wrong · 🔧 now imp
   PhysCollmap bodies, …) for other zones — same pattern: add a reader + model, register it. The
   engine + the common sub-readers (material/image/xmodel/fx/tracer) are all in place.
 - [x] **Wired `Iw4ZoneReader` into the editor for MW2 PS3** (rawfile + localize) via
-  `Services/Iw4AssetBridge` — see CLAUDE.md.
+  `Services/Iw4AssetBridge` — see `docs/IW4_Zone_Read_Path.md`.
 
 **Offset-pointer reading — the confirmed model (from Jacob Schroeder's EBOOT.ELF trace, June 2026)**
 

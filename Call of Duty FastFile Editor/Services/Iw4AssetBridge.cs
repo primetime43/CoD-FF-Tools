@@ -413,6 +413,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 MinDamage = minDamage,
                 MaxAmmo = maxAmmo,
                 StartOffset = wp.Offset,
+                WeaponDefOffset = def?.Offset ?? 0,
                 EndOffset = 0,
                 IsStructuredView = true,
                 AdditionalData = "IW4 pointer-walk",

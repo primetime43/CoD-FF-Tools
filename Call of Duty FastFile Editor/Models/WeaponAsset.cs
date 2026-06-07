@@ -169,6 +169,13 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public string InventoryName { get; set; } = string.Empty;
 
         /// <summary>
+        /// Zone byte offset of the inner WeaponDef (for IW4 structured-view weapons). The variant's
+        /// offset is <see cref="StartOffset"/>; this is where the WeaponDef scalar fields live
+        /// (damage/ammo/enums). 0 when the WeaponDef wasn't resolved inline.
+        /// </summary>
+        public int WeaponDefOffset { get; set; }
+
+        /// <summary>
         /// Gets a summary of the weapon properties.
         /// </summary>
         public string GetSummary()
