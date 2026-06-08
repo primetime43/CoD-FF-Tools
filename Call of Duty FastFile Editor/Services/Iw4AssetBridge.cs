@@ -16,6 +16,7 @@ namespace Call_of_Duty_FastFile_Editor.Services
         public List<TechSetAsset> TechSets { get; } = new();
         public List<MenuList> MenuLists { get; } = new();
         public List<StructuredDataDefAsset> StructuredDataDefs { get; } = new();
+        public List<MaterialAsset> Materials { get; } = new();
     }
 
     /// <summary>
@@ -94,6 +95,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         break;
                     case FastFileLib.Iw4.MaterialTechniqueSet ts:
                         result.TechSets.Add(ToTechSet(ts));
+                        break;
+                    case FastFileLib.Iw4.Material mat:
+                        result.Materials.Add(ToMaterial(mat));
                         break;
                     case FastFileLib.Iw4.MenuList ml:
                         iw4MenuLists.Add(ml);
@@ -559,6 +563,47 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 EndOffset = 0,
                 AdditionalData = "IW4 pointer-walk",
             };
+        }
+
+        private static MaterialAsset ToMaterial(FastFileLib.Iw4.Material m)
+        {
+            var mat = new MaterialAsset
+            {
+                Name = m.Info?.Name ?? string.Empty,
+                TextureCount = m.TextureCount,
+                ConstantCount = m.ConstantCount,
+                StateBitsCount = m.StateBitsCount,
+                StartOfFileHeader = m.Offset,
+                EndOffset = 0,
+                IsStructuredView = true,
+                AdditionalData = "IW4 pointer-walk",
+            };
+
+            // Technique set / texture table / constants resolve only when stored inline; shared
+            // ones are offset (block) pointers the reader doesn't dereference, so they stay empty
+            // and only the root counts above are shown.
+            var ts = m.TechniqueSet is { IsResolved: true, Result: not null } ? m.TechniqueSet.Result : null;
+            mat.TechniqueSetName = ts?.Name ?? string.Empty;
+            if (ts?.Techniques != null)
+                for (int i = 0; i < ts.Techniques.Length; i++)
+                    if (ts.Techniques[i] is { Kind: not FastFileLib.Iw4.PointerKind.Null })
+                        mat.Techniques.Add(TechniqueSlotName(i));
+
+            if (m.TextureTable is { IsResolved: true, Result: not null } table)
+                foreach (var t in table.Result)
+                {
+                    string img =
+                        t.Info?.Image is { IsResolved: true, Result: not null } gi ? gi.Result.Name :
+                        t.Info?.Water is { IsResolved: true } ? "<water>" : "<shared>";
+                    mat.Textures.Add($"{t.Semantic} : {img}");
+                }
+
+            if (m.ConstantTable is { IsResolved: true, Result: not null } consts)
+                foreach (var c in consts.Result)
+                    mat.Constants.Add(
+                        $"{c.Name} = ({c.Literal.A:0.###}, {c.Literal.R:0.###}, {c.Literal.G:0.###}, {c.Literal.B:0.###})");
+
+            return mat;
         }
 
         // ---- StructuredDataDef (IW4 raw/mp/*.def layout dump) ----

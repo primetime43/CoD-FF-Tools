@@ -2,22 +2,26 @@
 // IW4 (MW2 PS3) zone reader — ported from Jacob Schroeder's FastFile
 //   https://github.com/jacob-schroeder/FastFile
 // Ports: FastFile.Models/Assets/Material/Material.cs (Material + Image + Water models).
-// PS3 branch: Material.TECHNIQUE_COUNT = 38 (note: distinct from the techset's 37),
-// MaterialInfo has trailing Padding, GfxStateBits uses a LoadBits pointer + Unknown.
+// PS3 branch (#if PS3 of the reference): Material.TECHNIQUE_COUNT = 37, MaterialInfo
+// has a trailing Padding, the root carries UnknownXStringCount + MaterialPadding + the
+// ushort[37] table + UshortPadding[2] + a (block) ushort[] pointer, and GfxStateBits
+// uses a LoadBits pointer + Unknown. The material root is 144 bytes (after MaterialInfo).
 // =============================================================================
 
 namespace FastFileLib.Iw4;
 
 public class Material : BaseAsset
 {
-    public const int TECHNIQUE_COUNT = 38; // PS3
+    public const int TECHNIQUE_COUNT = 37; // PS3 (#elif XBOX 33, #else 48 in the reference)
 
     public Material() : base(XAssetType.Material) { }
     public MaterialInfo? Info { get; set; }
     public byte[] StateBitsEntry { get; set; } = new byte[TECHNIQUE_COUNT];
-    public byte TextureCount, ConstantCount, StateBitsCount, StateFlags, CameraRegion;
-    public ushort[] Ushorts { get; set; } = new ushort[TECHNIQUE_COUNT];
-    public ZonePointer<ushort[]>? UshortArray { get; set; }
+    public byte TextureCount, ConstantCount, StateBitsCount, StateFlags, CameraRegion, UnknownXStringCount;
+    public byte MaterialPadding;                                       // PS3
+    public ushort[] Ushorts { get; set; } = new ushort[TECHNIQUE_COUNT]; // PS3
+    public byte[] UshortPadding { get; set; } = new byte[2];           // PS3
+    public ZonePointer<ushort[]>? UshortArray { get; set; }            // PS3 (lives in a pushed block; left empty)
     public ZonePointer<MaterialTechniqueSet>? TechniqueSet { get; set; }
     public ZonePointer<MaterialTextureDef[]>? TextureTable { get; set; }
     public ZonePointer<MaterialConstantDef[]>? ConstantTable { get; set; }
@@ -59,6 +63,16 @@ public class Water
 public enum MaterialTextureSemantic : byte
 {
     TS_2D = 0x0,
+    TS_FUNCTION = 0x1,
+    TS_COLOR_MAP = 0x2,
+    TS_UNUSED_1 = 0x3,
+    TS_UNUSED_2 = 0x4,
+    TS_NORMAL_MAP = 0x5,
+    TS_UNUSED_3 = 0x6,
+    TS_UNUSED_4 = 0x7,
+    TS_SPECULAR_MAP = 0x8,
+    TS_UNUSED_5 = 0x9,
+    TS_UNUSED_6 = 0xA,
     TS_WATER_MAP = 0xB,
 }
 
@@ -74,6 +88,8 @@ public class MaterialTextureDef
     public uint NameHash;
     public byte NameStart, NameEnd, SampleState;
     public MaterialTextureSemantic Semantic;
+    // Present in the reference model but NOT in the IW4 on-disk struct — the reader does
+    // not read them (the entry is 12 bytes: NameHash + 4 bytes + the 4-byte Info union).
     public byte IsMatureContent;
     public byte[] Pad { get; set; } = new byte[3];
     public MaterialTextureDefInfo? Info { get; set; }

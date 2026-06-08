@@ -5,9 +5,10 @@
 // body readers RawFileReader / LocalizeReader / TechsetReader / StringTableReader,
 // plus XAssetReaderRegistry. Faithful ports.
 //
-// The nested/heavy readers (Weapon, Menu, Material, XModel, Fx, Sound, StructuredData,
-// …) are NOT ported yet — add them to XAssetReaderRegistry to walk further. Until then
-// the asset-body walk stops at the first asset of an un-ported type (see Iw4ZoneReader).
+// The heavy readers (Weapon, Menu, Material, StructuredData, …) are ported and registered
+// below. Remaining top-level types without a body reader (Image, XModel, Sound, Fx as a
+// pool entry, …) make the asset-body walk stop at the first asset of that type (see
+// Iw4ZoneReader) — add them to XAssetReaderRegistry to walk further.
 // =============================================================================
 
 namespace FastFileLib.Iw4;
@@ -175,6 +176,12 @@ internal static class XAssetReaderRegistry
             [XAssetType.MenuFile] = MenufileReader.Read,
             [XAssetType.StructuredDataDef] = StructuredDataReader.Read,
             [XAssetType.Weapon] = WeaponReader.Read,
+            [XAssetType.Material] = MaterialReader.Read,
+            // NOTE: XModel/Fx readers exist (ported for weapon sub-assets) but are NOT registered
+            // as top-level readers — they mis-read some standalone xmodels (e.g. mp_rust errors with
+            // "Invalid boolean value 255" on the 4th top-level XModel). Since xmodels precede
+            // materials in IW4 asset order, the walk can't reach a map zone's materials until the
+            // XModel reader is completed. Registering them would only turn a clean stop into an error.
         };
 
     public static bool TryGetReader(XAssetType type, out XAssetReader reader)

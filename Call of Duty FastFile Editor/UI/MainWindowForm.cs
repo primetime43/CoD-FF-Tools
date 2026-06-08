@@ -86,6 +86,12 @@ namespace Call_of_Duty_FastFile_Editor
         private List<StructuredDataDefAsset> _structuredDataDefs = new();
 
         /// <summary>
+        /// List of Material (shader) assets. Names come from the pattern scan for every game;
+        /// the MW2 PS3 IW4 walk enriches them with texture/constant counts and detail.
+        /// </summary>
+        private List<MaterialAsset> _materials = new();
+
+        /// <summary>
         /// List of tags extracted from the zone file.
         /// </summary>
         private TagCollection? _tags;
@@ -694,6 +700,7 @@ namespace Call_of_Duty_FastFile_Editor
                 _images = new List<ImageAsset>();
                 _stringTables = new List<StringTable>();
                 _structuredDataDefs = new List<StructuredDataDefAsset>();
+                _materials = new List<MaterialAsset>();
                 _hasUnsupportedAssets = true;       // IW6 has many types we don't parse
                 _originalLocalizeCount = 0;
                 _hasUnsavedChanges = false;
@@ -724,6 +731,7 @@ namespace Call_of_Duty_FastFile_Editor
             _weapons = loadWeapons ? (_processResult.Weapons ?? new List<WeaponAsset>()) : new List<WeaponAsset>();
             _images = loadImages ? (_processResult.Images ?? new List<ImageAsset>()) : new List<ImageAsset>();
             _stringTables = loadStringTables ? (_processResult.StringTables ?? new List<StringTable>()) : new List<StringTable>();
+            _materials = _processResult.Materials ?? new List<MaterialAsset>(); // names from the pattern scan
             _structuredDataDefs = new List<StructuredDataDefAsset>(); // only the IW4 walk (MW2 PS3) produces these
 
             // MW2 PS3: prefer the IW4 pointer-following reader over pattern matching for every asset
@@ -758,6 +766,10 @@ namespace Call_of_Duty_FastFile_Editor
                     if (loadMenuFiles && iw4.MenuLists.Count > 0)
                         _menuLists = iw4.MenuLists;
                     _structuredDataDefs = iw4.StructuredDataDefs;
+                    // Top-level materials are parsed by the IW4 walk too; prefer them (they carry
+                    // texture/constant counts + detail) over the scan's name-only entries when present.
+                    if (iw4.Materials.Count > 0)
+                        _materials = iw4.Materials;
                 }
             }
 
@@ -802,6 +814,7 @@ namespace Call_of_Duty_FastFile_Editor
             PopulateImages();
             PopulateStringTables();
             PopulateStructuredDataDefs();
+            PopulateMaterials();
             PopulateCollision_Map_Asset_StringData();
 
             // Handle tags tab based on loadTags flag (set by LoadAssetRecordsData)
@@ -3230,6 +3243,77 @@ namespace Call_of_Duty_FastFile_Editor
             }
         }
 
+        // Code-built "Materials" tab (shader materials). Built lazily so it only appears for zones
+        // that have material assets. Names come from the pattern scan for every game; the MW2 PS3
+        // IW4 walk adds texture/constant/state-bit counts, the technique-set name, and per-texture /
+        // per-constant detail (double-click).
+        private TabPage? _materialsTabPage;
+        private ListView? _materialsListView;
+
+        private void PopulateMaterials()
+        {
+            if (_materials == null || _materials.Count == 0)
+            {
+                if (_materialsTabPage != null && mainTabControl.TabPages.Contains(_materialsTabPage))
+                    mainTabControl.TabPages.Remove(_materialsTabPage);
+                return;
+            }
+
+            if (_materialsTabPage == null)
+            {
+                _materialsTabPage = new TabPage("Materials");
+                _materialsListView = new ListView
+                {
+                    Dock = DockStyle.Fill,
+                    View = View.Details,
+                    FullRowSelect = true,
+                    GridLines = true,
+                };
+                _materialsListView.Columns.Add("Name", 320);
+                _materialsListView.Columns.Add("Textures", 70);
+                _materialsListView.Columns.Add("Constants", 70);
+                _materialsListView.Columns.Add("State Bits", 70);
+                _materialsListView.Columns.Add("Technique Set", 220);
+                _materialsListView.Columns.Add("Source", 150);
+                _materialsListView.Columns.Add("Offset", 90);
+                _materialsListView.DoubleClick += materialsListView_DoubleClick;
+                _materialsTabPage.Controls.Add(_materialsListView);
+                // The form was already themed before this tab existed, so theme it now (the
+                // auto-themer only walks each form once); no-op in light mode.
+                UI.ThemeManager.ApplyTheme(_materialsTabPage);
+            }
+
+            if (!mainTabControl.TabPages.Contains(_materialsTabPage))
+                mainTabControl.TabPages.Add(_materialsTabPage);
+
+            _materialsListView!.Items.Clear();
+            foreach (var mat in _materials)
+            {
+                var lvi = new ListViewItem(mat.Name);
+                // The pattern scan only recovers the name, so counts are shown as "-" unless the
+                // IW4 walk filled them in.
+                lvi.SubItems.Add(mat.IsStructuredView ? mat.TextureCount.ToString() : "-");
+                lvi.SubItems.Add(mat.IsStructuredView ? mat.ConstantCount.ToString() : "-");
+                lvi.SubItems.Add(mat.IsStructuredView ? mat.StateBitsCount.ToString() : "-");
+                lvi.SubItems.Add(mat.TechniqueSetName);
+                lvi.SubItems.Add(mat.AdditionalData);
+                lvi.SubItems.Add($"0x{mat.StartOfFileHeader:X}");
+                lvi.Tag = mat;
+                _materialsListView.Items.Add(lvi);
+            }
+        }
+
+        private void materialsListView_DoubleClick(object? sender, EventArgs e)
+        {
+            if (_materialsListView == null || _materialsListView.SelectedItems.Count == 0)
+                return;
+            if (_materialsListView.SelectedItems[0].Tag is MaterialAsset mat)
+            {
+                using var viewer = new MaterialViewerForm(mat);
+                viewer.ShowDialog(this);
+            }
+        }
+
         /// <summary>
         /// Stores the parsed collision map data for the viewer.
         /// </summary>
@@ -4618,6 +4702,7 @@ namespace Call_of_Duty_FastFile_Editor
                 bool isStringTable = gameDefinition.IsStringTableType(assetTypeValue);
                 bool isWeapon = gameDefinition.IsWeaponType(assetTypeValue);
                 bool isImage = gameDefinition.IsImageType(assetTypeValue);
+                bool isMaterial = gameDefinition.IsMaterialType(assetTypeValue);
                 bool isStructuredData = gameDefinition.IsStructuredDataDefType(assetTypeValue);
 
                 var lvi = new ListViewItem((i + 1).ToString());
@@ -4639,7 +4724,7 @@ namespace Call_of_Duty_FastFile_Editor
                 // texture data, not external references. We just don't have a
                 // parser for the IW6 image struct yet.
                 string status;
-                bool isSupportedType = isRawFile || isLocalize || isMenuFile || isTechSet || isXAnim || isStringTable || isWeapon || isImage || isStructuredData;
+                bool isSupportedType = isRawFile || isLocalize || isMenuFile || isTechSet || isXAnim || isStringTable || isWeapon || isImage || isMaterial || isStructuredData;
                 bool isGhosts = _openedFastFile.IsGhostsFile;
                 if (isGhosts && isImage)
                 {

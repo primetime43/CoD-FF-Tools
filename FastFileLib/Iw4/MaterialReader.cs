@@ -24,20 +24,20 @@ internal static class MaterialReader
             StateBitsCount = context.ReadByte(),
             StateFlags = context.ReadByte(),
             CameraRegion = context.ReadByte(),
+            UnknownXStringCount = context.ReadByte(),
         };
 
-        // PS3-only: padding byte, ushort[TECHNIQUE_COUNT], then a pointer to another ushort[].
-        context.ReadByte();
+        // PS3 (#if PS3): material padding byte, ushort[TECHNIQUE_COUNT], 2 padding bytes, ushort[] pointer.
+        material.MaterialPadding = context.ReadByte();
         for (var i = 0; i < material.Ushorts.Length; i++)
             material.Ushorts[i] = context.ReadUInt16();
-        material.UshortArray = context.ReadPointer<ushort[]>(
-            (ref ZoneReadContext pointerContext, ZonePointer<ushort[]> pointer) =>
-            {
-                var values = new ushort[Material.TECHNIQUE_COUNT];
-                for (var i = 0; i < values.Length; i++)
-                    values[i] = pointerContext.ReadUInt16();
-                pointer.SetResult(values);
-            });
+        material.UshortPadding = context.ReadBytes(2);
+
+        // EBOOT pushes a block before this table loads, so it can't be followed with the inline
+        // cursor; the reference reads the pointer field and leaves the table empty. Real PS3 zones
+        // store it as an Offset (block) pointer, so the inline engine never consumes any bytes here.
+        material.UshortArray = context.ReadPointer<ushort[]>();
+        material.UshortArray.SetResult(Array.Empty<ushort>());
 
         material.TechniqueSet = context.ReadPointer<MaterialTechniqueSet>(
             (ref ZoneReadContext pointerContext, ZonePointer<MaterialTechniqueSet> pointer) =>
@@ -51,7 +51,8 @@ internal static class MaterialReader
         material.StateBitTable = context.ReadPointer<GfxStateBits[]>(
             (ref ZoneReadContext pointerContext, ZonePointer<GfxStateBits[]> pointer) =>
                 pointer.SetResult(ReadArray(ref pointerContext, material.StateBitsCount, ReadGfxStateBits)));
-        material.UnknownXStringArray = context.ReadPointer<ZonePointer<string>[]>();
+        material.UnknownXStringArray =
+            GenericReader.ReadStringPointerArrayPointer(ref context, material.UnknownXStringCount);
 
         return material;
     }
@@ -85,6 +86,8 @@ internal static class MaterialReader
 
     private static MaterialTextureDef ReadMaterialTextureDef(ref ZoneReadContext context)
     {
+        // IW4 materialTextureDef is 12 bytes: NameHash (4) + NameStart/NameEnd/SampleState/Semantic
+        // (4) + the 4-byte Info union. There is no isMatureContent/pad on disk.
         var texture = new MaterialTextureDef
         {
             NameHash = context.ReadUInt32(),
@@ -92,8 +95,6 @@ internal static class MaterialReader
             NameEnd = context.ReadByte(),
             SampleState = context.ReadByte(),
             Semantic = (MaterialTextureSemantic)context.ReadByte(),
-            IsMatureContent = context.ReadByte(),
-            Pad = context.ReadBytes(3),
         };
 
         var raw = context.ReadInt32();

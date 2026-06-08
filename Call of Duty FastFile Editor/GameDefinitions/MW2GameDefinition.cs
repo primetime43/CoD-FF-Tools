@@ -88,6 +88,23 @@ namespace Call_of_Duty_FastFile_Editor.GameDefinitions
         public override bool IsTechSetType(int assetType) => assetType == TechSetAssetType;
 
         /// <summary>
+        /// MW2 Material (shader) asset type ID — PS3 / Xbox 360 / PC all use 0x05 (material sits
+        /// below the vertexshader/vertexdecl enum shifts).
+        /// </summary>
+        public byte MaterialAssetType => IsPC
+            ? (byte)MW2AssetTypePC.material
+            : (IsXbox360 ? (byte)MW2AssetTypeXbox360.material : (byte)MW2AssetTypePS3.material);
+
+        /// <summary>
+        /// Recognise material records so the Asset Pool labels them as the supported view-only
+        /// type they are (like techsets) instead of "unsupported type". MW2 PS3 material bodies
+        /// come from the IW4 pointer-walk — but only once that walk can get past the XModels that
+        /// precede materials in IW4 asset order (the XModel body reader isn't complete yet), so
+        /// until then they stay typed-but-unparsed.
+        /// </summary>
+        public override bool IsMaterialType(int assetType) => assetType == MaterialAssetType;
+
+        /// <summary>
         /// MW2 StructuredDataDef asset type ID. PS3 = 0x26, Xbox 360 = 0x25, PC = 0x27.
         /// </summary>
         public byte StructuredDataDefAssetType => IsPC
