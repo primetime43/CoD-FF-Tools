@@ -148,7 +148,7 @@ namespace FastFileLib
 
             uint temp = Read(FastFileConstants.BlockSizeTempOffset);
             AddMemAlloc(Add, "BlockSizeTemp", temp, FastFileConstants.BlockSizeTempOffset, expTemp, fixedMemAlloc,
-                "Temp memory pool size (MemAlloc1) - a magic constant for this game/platform.");
+                "Temp memory pool size (MemAlloc1).");
 
             Add("BlockSizePhysical", Read(FastFileConstants.BlockSizePhysicalOffset), FastFileConstants.BlockSizePhysicalOffset, "Physical memory pool size (computed per zone).", "", ZoneFieldSeverity.Normal);
             Add("BlockSizeRuntime", Read(FastFileConstants.BlockSizeRuntimeOffset), FastFileConstants.BlockSizeRuntimeOffset, "Runtime memory pool size (computed per zone).", "", ZoneFieldSeverity.Normal);
@@ -166,7 +166,7 @@ namespace FastFileLib
             {
                 uint vertex = Read(FastFileConstants.BlockSizeVertexOffset);
                 AddMemAlloc(Add, "BlockSizeVertex", vertex, FastFileConstants.BlockSizeVertexOffset, expVertex, fixedMemAlloc,
-                    "Vertex memory pool size (MemAlloc2) - a magic constant for this game/platform.");
+                    "Vertex memory pool size (MemAlloc2).");
             }
 
             // ---- Asset list (XAssetList) ----
@@ -232,8 +232,8 @@ namespace FastFileLib
         {
             if (!fixedMemAlloc || expected == null)
             {
-                // PC / Wii allocate these per zone, so there is no single correct value to check against.
-                add(name, value, offset, meaning + " On PC/Wii this is per-zone, not a fixed value.", "per-zone (not validated)", ZoneFieldSeverity.Normal);
+                // MW2 / PC / Wii allocate these per zone, so there is no single correct value to check against.
+                add(name, value, offset, meaning + " Computed per zone — not a fixed value, so not validated.", "per-zone (not validated)", ZoneFieldSeverity.Normal);
                 return;
             }
 
@@ -260,7 +260,9 @@ namespace FastFileLib
                 GameVersion.WaW => isXbox360
                     ? (CoD5Definition.Xbox360MemAlloc1Value, CoD5Definition.Xbox360MemAlloc2Value, true)
                     : (CoD5Definition.MemAlloc1Value, CoD5Definition.MemAlloc2Value, true),
-                GameVersion.MW2 => (MW2Definition.MemAlloc1Value, MW2Definition.MemAlloc2Value, true),
+                // MW2 (IW4) computes these per zone — they scale with the zone's content (patch zones
+                // happen to be 0x3B4/0x1000, but retail map/load zones are larger and load fine). There
+                // is no single fixed value to validate against, so don't flag them.
                 _ => (null, null, false)
             };
         }

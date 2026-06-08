@@ -761,7 +761,7 @@ class Program
             GameVersion.CoD4 => FastFileLib.GameDefinitions.CoD4Definition.MemAlloc1Value,
             GameVersion.WaW  => isXbox360 ? FastFileLib.GameDefinitions.CoD5Definition.Xbox360MemAlloc1Value
                                           : FastFileLib.GameDefinitions.CoD5Definition.MemAlloc1Value,
-            GameVersion.MW2  => FastFileLib.GameDefinitions.MW2Definition.MemAlloc1Value,
+            // MW2 (IW4) computes MemAlloc per zone — no fixed value to validate against.
             _ => 0
         };
     }
