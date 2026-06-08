@@ -73,11 +73,21 @@ internal static class RawFileReader
             (ref ZoneReadContext pointerContext, ZonePointer<byte[]> pointer) =>
             {
                 asset.DataOffset = pointerContext.Position; // zone offset where the body begins
-                var length = asset.CompressedLen > 0 ? asset.CompressedLen : asset.Len;
-                asset.OnDiskSize = length;
+                var contentLength = asset.CompressedLen > 0 ? asset.CompressedLen : asset.Len;
+                asset.OnDiskSize = contentLength;
                 var value = pointerContext.ReadPointerValue(
                     pointer,
-                    (ref ZoneReadContext bufferContext) => bufferContext.ReadBytes(length));
+                    (ref ZoneReadContext bufferContext) =>
+                    {
+                        var bytes = bufferContext.ReadBytes(contentLength);
+                        // Uncompressed rawfile buffers are stored as content + a trailing null
+                        // (EBOOT reads Len+1, e.g. savedata/icon0.png). Consume that null so the
+                        // next asset stays aligned; it's not part of the content. Compressed buffers
+                        // (CompressedLen > 0) are exactly CompressedLen bytes with no trailing null.
+                        if (asset.CompressedLen == 0)
+                            bufferContext.ReadByte();
+                        return bytes;
+                    });
                 pointer.SetResult(value);
             });
 

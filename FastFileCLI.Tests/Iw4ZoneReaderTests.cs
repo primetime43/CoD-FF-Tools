@@ -70,7 +70,7 @@ public class Iw4ZoneReaderTests
     /// <summary>
     /// Builds: [52-byte BE header][scriptStrings: 1 inline ptr + "hi\0"]
     ///         [pool: firstAssetType(-1), Localize(-1)]
-    ///         [rawfile body: namePtr(-1), compLen 0, len 5, bufPtr(-1), "raw\0", 5 bytes]
+    ///         [rawfile body: namePtr(-1), compLen 0, len 5, bufPtr(-1), "raw\0", 5 bytes + trailing null]
     ///         [localize body: valuePtr(-1), namePtr(-1), "VAL\0", "KEY\0"]
     /// </summary>
     private static byte[] BuildSyntheticZone(int firstAssetType = (int)XAssetType.RawFile)
@@ -118,7 +118,8 @@ public class Iw4ZoneReaderTests
         I32(5);          // len
         I32(-1);         // bufferPtr inline
         Cstr("raw");     // name
-        b.AddRange(new byte[] { 1, 2, 3, 4, 5 }); // 5-byte buffer
+        b.AddRange(new byte[] { 1, 2, 3, 4, 5 }); // 5-byte buffer (content)
+        b.Add(0);        // trailing null: uncompressed rawfile buffers are stored Len+1 (EBOOT)
 
         // localize body
         I32(-1);         // valuePtr inline
