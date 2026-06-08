@@ -17,6 +17,15 @@ namespace Call_of_Duty_FastFile_Editor.Services
         public List<MenuList> MenuLists { get; } = new();
         public List<StructuredDataDefAsset> StructuredDataDefs { get; } = new();
         public List<MaterialAsset> Materials { get; } = new();
+
+        /// <summary>True when the IW4 walk read every asset body (no stop / no error).</summary>
+        public bool Complete { get; set; }
+
+        /// <summary>Number of localize-typed pool entries the zone declares (resolved or not).</summary>
+        public int DeclaredLocalizeCount { get; set; }
+
+        /// <summary>Number of material-typed pool entries the zone declares (resolved or not).</summary>
+        public int DeclaredMaterialCount { get; set; }
     }
 
     /// <summary>
@@ -61,11 +70,14 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 return null;
             }
 
-            // Only trust a complete walk; a stop/error means later assets weren't read.
-            if (walk.Error != null || walk.StoppedAtType != null)
-                return null;
-
-            var result = new Iw4BridgeResult();
+            // A complete walk replaces the pattern scanner wholesale; a partial walk (stopped at an
+            // un-ported type) is still usable for any asset type it read IN FULL — see the caller.
+            var result = new Iw4BridgeResult
+            {
+                Complete = walk.Error == null && walk.StoppedAtType == null,
+                DeclaredLocalizeCount = walk.AssetList.Assets.Count(a => a.Type == FastFileLib.Iw4.XAssetType.Localize),
+                DeclaredMaterialCount = walk.AssetList.Assets.Count(a => a.Type == FastFileLib.Iw4.XAssetType.Material),
+            };
             var iw4MenuLists = new List<FastFileLib.Iw4.MenuList>();
 
             // Every top-level asset body's start offset. The byte spans of inline data (e.g. a

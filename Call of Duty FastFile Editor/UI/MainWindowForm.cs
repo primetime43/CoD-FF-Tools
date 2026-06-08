@@ -746,29 +746,45 @@ namespace Call_of_Duty_FastFile_Editor
                 var iw4 = Iw4AssetBridge.TryRead(zone);
                 if (iw4 != null)
                 {
-                    if (loadRawFiles)
+                    if (iw4.Complete)
                     {
-                        var iw4Names = new HashSet<string>(iw4.RawFileNodes.Select(n => n.FileName), StringComparer.OrdinalIgnoreCase);
-                        var scannerOnly = _rawFileNodes.Where(n => !iw4Names.Contains(n.FileName)).ToList();
-                        _rawFileNodes = iw4.RawFileNodes
-                            .Where(r => !menuListNames.Contains(r.FileName))
-                            .Concat(scannerOnly)
-                            .ToList();
+                        // A complete walk is authoritative for every type it covers — replace the scan.
+                        if (loadRawFiles)
+                        {
+                            var iw4Names = new HashSet<string>(iw4.RawFileNodes.Select(n => n.FileName), StringComparer.OrdinalIgnoreCase);
+                            var scannerOnly = _rawFileNodes.Where(n => !iw4Names.Contains(n.FileName)).ToList();
+                            _rawFileNodes = iw4.RawFileNodes
+                                .Where(r => !menuListNames.Contains(r.FileName))
+                                .Concat(scannerOnly)
+                                .ToList();
+                        }
+                        if (loadLocalizedEntries)
+                            _localizedEntries = iw4.LocalizedEntries;
+                        if (loadStringTables)
+                            _stringTables = iw4.StringTables;
+                        if (loadWeapons)
+                            _weapons = iw4.Weapons;
+                        if (loadTechSets)
+                            _techSets = iw4.TechSets;
+                        if (loadMenuFiles && iw4.MenuLists.Count > 0)
+                            _menuLists = iw4.MenuLists;
+                        _structuredDataDefs = iw4.StructuredDataDefs;
                     }
-                    if (loadLocalizedEntries)
+                    else if (loadLocalizedEntries
+                             && iw4.LocalizedEntries.Count > 0
+                             && iw4.LocalizedEntries.Count == iw4.DeclaredLocalizeCount)
+                    {
+                        // Partial walk, but it read EVERY declared localize entry before stopping
+                        // (e.g. code_post_gfx_mp.ff: the whole localize block sits before the first
+                        // un-ported type, Sound). Use the pointer-walk localize instead of the
+                        // FF-marker pattern scan. Other types stay on the scanner for this zone.
                         _localizedEntries = iw4.LocalizedEntries;
-                    if (loadStringTables)
-                        _stringTables = iw4.StringTables;
-                    if (loadWeapons)
-                        _weapons = iw4.Weapons;
-                    if (loadTechSets)
-                        _techSets = iw4.TechSets;
-                    if (loadMenuFiles && iw4.MenuLists.Count > 0)
-                        _menuLists = iw4.MenuLists;
-                    _structuredDataDefs = iw4.StructuredDataDefs;
-                    // Top-level materials are parsed by the IW4 walk too; prefer them (they carry
-                    // texture/constant counts + detail) over the scan's name-only entries when present.
-                    if (iw4.Materials.Count > 0)
+                    }
+
+                    // Materials surface from a full read of the material pool (complete walk, or a
+                    // partial walk that still resolved every declared material).
+                    if (iw4.Materials.Count > 0
+                        && (iw4.Complete || iw4.Materials.Count == iw4.DeclaredMaterialCount))
                         _materials = iw4.Materials;
                 }
             }

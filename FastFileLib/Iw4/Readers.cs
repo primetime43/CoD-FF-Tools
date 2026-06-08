@@ -177,6 +177,7 @@ internal static class XAssetReaderRegistry
             [XAssetType.StructuredDataDef] = StructuredDataReader.Read,
             [XAssetType.Weapon] = WeaponReader.Read,
             [XAssetType.Material] = MaterialReader.Read,
+            [XAssetType.Font] = FontReader.Read,
             // NOTE: XModel/Fx readers exist (ported for weapon sub-assets) but are NOT registered
             // as top-level readers — they mis-read some standalone xmodels (e.g. mp_rust errors with
             // "Invalid boolean value 255" on the 4th top-level XModel). Since xmodels precede
