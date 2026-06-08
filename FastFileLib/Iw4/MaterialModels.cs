@@ -110,8 +110,17 @@ public class MaterialInfo
 
 public class GfxImage : BaseAsset
 {
+    // PS3 EBOOT GfxImage root is 0x50: a 0x28 prefix (width/height/format/resourceSize/…), the
+    // LoadDef pointer @0x28, a 0x20 suffix, and the name pointer @0x4C.
+    public const int EBOOT_ROOT_SIZE = 0x50;
+    public const int EBOOT_LOAD_DEF_POINTER_OFFSET = 0x28;
+    public const int EBOOT_NAME_POINTER_OFFSET = 0x4C;
+
     public GfxImage() : base(XAssetType.Image) { }
+
+    public byte[] EbootRootPrefix { get; set; } = new byte[EBOOT_LOAD_DEF_POINTER_OFFSET];
     public ZonePointer<GfxImageLoadDef>? LoadDef { get; set; }
+    public byte[] EbootRootSuffix { get; set; } = new byte[EBOOT_NAME_POINTER_OFFSET - EBOOT_LOAD_DEF_POINTER_OFFSET - 4];
     public byte MapType, Semantic, Category, UseSrgbReads;
     public byte[] Picmip { get; set; } = new byte[2];
     public byte NoPicmip, Track;

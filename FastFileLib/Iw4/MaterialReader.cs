@@ -39,20 +39,41 @@ internal static class MaterialReader
         material.UshortArray = context.ReadPointer<ushort[]>();
         material.UshortArray.SetResult(Array.Empty<ushort>());
 
-        material.TechniqueSet = context.ReadPointer<MaterialTechniqueSet>(
-            (ref ZoneReadContext pointerContext, ZonePointer<MaterialTechniqueSet> pointer) =>
-                pointer.SetResult(pointerContext.ReadPointerValue(pointer, TechsetReader.Read)));
-        material.TextureTable = context.ReadPointer<MaterialTextureDef[]>(
-            (ref ZoneReadContext pointerContext, ZonePointer<MaterialTextureDef[]> pointer) =>
-                pointer.SetResult(ReadArray(ref pointerContext, material.TextureCount, ReadMaterialTextureDef)));
-        material.ConstantTable = context.ReadPointer<MaterialConstantDef[]>(
-            (ref ZoneReadContext pointerContext, ZonePointer<MaterialConstantDef[]> pointer) =>
-                pointer.SetResult(ReadArray(ref pointerContext, material.ConstantCount, ReadMaterialConstantDef)));
-        material.StateBitTable = context.ReadPointer<GfxStateBits[]>(
-            (ref ZoneReadContext pointerContext, ZonePointer<GfxStateBits[]> pointer) =>
-                pointer.SetResult(ReadArray(ref pointerContext, material.StateBitsCount, ReadGfxStateBits)));
-        material.UnknownXStringArray =
-            GenericReader.ReadStringPointerArrayPointer(ref context, material.UnknownXStringCount);
+        // Per-field stream blocks (reference ResolveMaterialChildren): TechniqueSet from TEMP, the
+        // texture/constant/state tables + unknown-xstring array from LARGE. Read each pointer field
+        // in root order, then queue its block-scoped resolver.
+        material.TechniqueSet = context.ReadPointer<MaterialTechniqueSet>();
+        context.ResolvePointerInBlock(material.TechniqueSet, ZoneStreamBlock.Temp,
+            (ref ZoneReadContext c, ZonePointer<MaterialTechniqueSet> p) =>
+                p.SetResult(c.ReadPointerValue(p, TechsetReader.Read)));
+
+        material.TextureTable = context.ReadPointer<MaterialTextureDef[]>();
+        context.ResolvePointerInBlock(material.TextureTable, ZoneStreamBlock.Large,
+            (ref ZoneReadContext c, ZonePointer<MaterialTextureDef[]> p) =>
+                p.SetResult(ReadArray(ref c, material.TextureCount, ReadMaterialTextureDef)));
+
+        material.ConstantTable = context.ReadPointer<MaterialConstantDef[]>();
+        context.ResolvePointerInBlock(material.ConstantTable, ZoneStreamBlock.Large,
+            (ref ZoneReadContext c, ZonePointer<MaterialConstantDef[]> p) =>
+                p.SetResult(ReadArray(ref c, material.ConstantCount, ReadMaterialConstantDef)));
+
+        material.StateBitTable = context.ReadPointer<GfxStateBits[]>();
+        context.ResolvePointerInBlock(material.StateBitTable, ZoneStreamBlock.Large,
+            (ref ZoneReadContext c, ZonePointer<GfxStateBits[]> p) =>
+                p.SetResult(ReadArray(ref c, material.StateBitsCount, ReadGfxStateBits)));
+
+        material.UnknownXStringArray = context.ReadPointer<ZonePointer<string>[]>();
+        int xStringCount = material.UnknownXStringCount;
+        context.ResolvePointerInBlock(material.UnknownXStringArray, ZoneStreamBlock.Large,
+            (ref ZoneReadContext c, ZonePointer<ZonePointer<string>[]> p) =>
+            {
+                var values = new ZonePointer<string>[Math.Max(0, xStringCount)];
+                for (var i = 0; i < values.Length; i++)
+                    values[i] = c.ReadPointer<string>();
+                p.SetResult(values);
+                foreach (var v in values)
+                    GenericReader.ResolveStringPointerNow(ref c, v);
+            });
 
         return material;
     }
@@ -111,9 +132,9 @@ internal static class MaterialReader
         }
         else
         {
-            context.ResolvePointer(texture.Info.Image!,
-                (ref ZoneReadContext pointerContext, ZonePointer<GfxImage> pointer) =>
-                    pointer.SetResult(pointerContext.ReadPointerValue(pointer, ImageReader.Read)));
+            // The image is allocated from TEMP (its name from LARGE, its pixel data from the
+            // physical/runtime block) — see ImageReader.
+            ImageReader.ResolveImagePointer(ref context, texture.Info.Image!);
         }
 
         return texture;
@@ -131,16 +152,20 @@ internal static class MaterialReader
 
     private static GfxStateBits ReadGfxStateBits(ref ZoneReadContext context)
     {
-        var stateBits = new GfxStateBits();
-        stateBits.LoadBits = context.ReadPointer<int[]>(
-            (ref ZoneReadContext pointerContext, ZonePointer<int[]> pointer) =>
+        var stateBits = new GfxStateBits
+        {
+            LoadBits = context.ReadPointer<int[]>(),
+            Unknown = context.ReadInt32(),
+        };
+        // LoadBits (int[2]) is allocated from TEMP on PS3.
+        context.ResolvePointerInBlock(stateBits.LoadBits!, ZoneStreamBlock.Temp,
+            (ref ZoneReadContext c, ZonePointer<int[]> p) =>
             {
                 var values = new int[2];
                 for (var i = 0; i < values.Length; i++)
-                    values[i] = pointerContext.ReadInt32();
-                pointer.SetResult(values);
+                    values[i] = c.ReadInt32();
+                p.SetResult(values);
             });
-        stateBits.Unknown = context.ReadInt32();
         return stateBits;
     }
 
@@ -198,52 +223,117 @@ internal static class MaterialReader
     }
 }
 
+// IW4 PS3 image reader — faithful port of the reference ImageReader.cs. The GfxImage root is the
+// 0x50 EBOOT layout (0x28 prefix carrying width/height/format/resourceSize/…, the LoadDef pointer,
+// a 0x20 suffix, then the name pointer). The name comes from LARGE; the pixel payload from the
+// physical (or runtime, for cubemaps) block, 128-aligned in that block but stored contiguously in
+// the file (AlignStreamOnly).
 internal static class ImageReader
 {
+    private const int WidthOffset = 0x08, HeightOffset = 0x0A, DepthOffset = 0x0C;
+    private const int UseSrgbReadsOffset = 0x18, MapTypeOffset = 0x19, SemanticOffset = 0x1A, CategoryOffset = 0x1B;
+    private const int ResourceSizeOffset = 0x1C, CardMemoryOffset = 0x20;
+
     public static GfxImage Read(ref ZoneReadContext context)
     {
-        var asset = new GfxImage { Offset = context.Position };
+        var asset = new GfxImage
+        {
+            Offset = context.Position,
+            EbootRootPrefix = context.ReadBytes(GfxImage.EBOOT_LOAD_DEF_POINTER_OFFSET),
+        };
+        ApplyRootPrefix(asset);
 
-        asset.LoadDef = context.ReadPointer<GfxImageLoadDef>(ReadImageLoadDef);
-        asset.MapType = context.ReadByte();
-        asset.Semantic = context.ReadByte();
-        asset.Category = context.ReadByte();
-        asset.UseSrgbReads = context.ReadByte();
-        asset.Picmip = context.ReadBytes(2);
-        asset.NoPicmip = context.ReadByte();
-        asset.Track = context.ReadByte();
-        asset.CardMemory = new[] { context.ReadInt32(), context.ReadInt32() };
-        asset.Width = context.ReadUInt16();
-        asset.Height = context.ReadUInt16();
-        asset.Depth = context.ReadUInt16();
-        asset.DelayLoadPixels = context.ReadByte();
-        asset.Pad = context.ReadBytes(3);
-        asset.NamePtr = GenericReader.ReadStringPointer(ref context);
+        asset.LoadDef = context.ReadPointer<GfxImageLoadDef>();
+        asset.EbootRootSuffix = context.ReadBytes(
+            GfxImage.EBOOT_NAME_POINTER_OFFSET - GfxImage.EBOOT_LOAD_DEF_POINTER_OFFSET - 4);
+        asset.NamePtr = GenericReader.ReadStringPointer(ref context, resolve: false);
 
+        context.ResolvePointerInBlock(asset.NamePtr, ZoneStreamBlock.Large, GenericReader.ReadStringPointerValue);
+        ResolveImageLoadDef(ref context, asset);
         return asset;
     }
 
     public static ZonePointer<GfxImage> ReadImagePointer(ref ZoneReadContext context)
     {
-        return context.ReadPointer<GfxImage>(
-            (ref ZoneReadContext pointerContext, ZonePointer<GfxImage> pointer) =>
-                pointer.SetResult(pointerContext.ReadPointerValue(pointer, Read)));
+        var pointer = context.ReadPointer<GfxImage>();
+        ResolveImagePointer(ref context, pointer);
+        return pointer;
     }
 
-    private static GfxImageLoadDef ReadImageLoadDef(ref ZoneReadContext context)
+    /// <summary>Image asset pointers are alias and resolve from the TEMP block.</summary>
+    public static void ResolveImagePointer(ref ZoneReadContext context, ZonePointer<GfxImage> pointer)
+        => context.ResolvePointerInBlock(pointer, ZoneStreamBlock.Temp,
+            (ref ZoneReadContext c, ZonePointer<GfxImage> p) => p.SetResult(c.ReadPointerValue(p, Read)));
+
+    private static void ResolveImageLoadDef(ref ZoneReadContext context, GfxImage asset)
     {
-        var loadDef = new GfxImageLoadDef
-        {
-            LevelCount = context.ReadByte(),
-            Pad = context.ReadBytes(3),
-            Flags = context.ReadInt32(),
-            Format = context.ReadInt32(),
-            ResourceSize = context.ReadInt32(),
-        };
+        // mapType 11 (cubemap) pixel data is allocated from RUNTIME, everything else from PHYSICAL.
+        var payloadBlock = asset.MapType == 11 ? ZoneStreamBlock.Runtime : ZoneStreamBlock.Physical;
+        context.ResolvePointerInBlock(asset.LoadDef!, payloadBlock,
+            (ref ZoneReadContext c, ZonePointer<GfxImageLoadDef> p) =>
+            {
+                c.AlignStreamOnly(128); // align the payload block only — no on-disk padding
+                p.SetResult(c.ReadPointerValue(p, (ref ZoneReadContext dc) => ReadImageLoadDefBytes(ref dc, asset)));
+            });
+    }
 
+    private static GfxImageLoadDef ReadImageLoadDefBytes(ref ZoneReadContext context, GfxImage asset)
+    {
+        var loadDef = CreateLoadDefFromRoot(asset);
         if (loadDef.ResourceSize > 0)
+        {
+            if (loadDef.ResourceSize > context.Span.Length - context.Position)
+                throw new InvalidDataException(
+                    $"Image pixel payload size 0x{loadDef.ResourceSize:X8} is outside the remaining zone stream at image offset 0x{asset.Offset:X8} ({asset.Width}x{asset.Height}x{asset.Depth}, map={asset.MapType}).");
             loadDef.Data = context.ReadBytes(loadDef.ResourceSize);
-
+        }
         return loadDef;
     }
+
+    private static GfxImageLoadDef CreateLoadDefFromRoot(GfxImage asset)
+    {
+        var prefix = asset.EbootRootPrefix;
+        return new GfxImageLoadDef
+        {
+            LevelCount = GetByte(prefix, 0),
+            Pad = GetBytes(prefix, 1, 3),
+            Flags = ReadInt32(prefix, 4),
+            Format = GetByte(prefix, 0), // PS3 packs the GCM format in byte 0
+            ResourceSize = ReadInt32(prefix, ResourceSizeOffset),
+        };
+    }
+
+    private static void ApplyRootPrefix(GfxImage asset)
+    {
+        var prefix = asset.EbootRootPrefix;
+        asset.Width = ReadUInt16(prefix, WidthOffset);
+        asset.Height = ReadUInt16(prefix, HeightOffset);
+        asset.Depth = ReadUInt16(prefix, DepthOffset);
+        asset.UseSrgbReads = GetByte(prefix, UseSrgbReadsOffset);
+        asset.MapType = GetByte(prefix, MapTypeOffset);
+        asset.Semantic = GetByte(prefix, SemanticOffset);
+        asset.Category = GetByte(prefix, CategoryOffset);
+        asset.Picmip = GetBytes(prefix, 1, 2);
+        asset.NoPicmip = GetByte(prefix, 3);
+        asset.Track = GetByte(prefix, UseSrgbReadsOffset);
+        asset.CardMemory = new[] { ReadInt32(prefix, CardMemoryOffset), ReadInt32(prefix, CardMemoryOffset + 4) };
+        asset.DelayLoadPixels = GetByte(prefix, 0x26);
+        asset.Pad = GetBytes(prefix, 0x15, 3);
+    }
+
+    private static byte GetByte(byte[] v, int o) => o >= 0 && o < v.Length ? v[o] : (byte)0;
+
+    private static byte[] GetBytes(byte[] v, int o, int count)
+    {
+        var b = new byte[count];
+        if (o >= 0 && o < v.Length && count > 0)
+            Array.Copy(v, o, b, 0, Math.Min(count, v.Length - o));
+        return b;
+    }
+
+    private static int ReadInt32(byte[] v, int o)
+        => o >= 0 && o + 4 <= v.Length ? System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(v.AsSpan(o, 4)) : 0;
+
+    private static ushort ReadUInt16(byte[] v, int o)
+        => o >= 0 && o + 2 <= v.Length ? System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(v.AsSpan(o, 2)) : (ushort)0;
 }

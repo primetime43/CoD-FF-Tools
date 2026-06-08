@@ -34,6 +34,7 @@ public sealed class Iw4ZoneReader
 {
     private readonly byte[] _buffer;
     private int _position;
+    private ZoneReadStreamBlocks? _streamBlocks;
 
     public Iw4ZoneReader(byte[] buffer)
     {
@@ -44,6 +45,8 @@ public sealed class Iw4ZoneReader
     {
         _position = 0;
         var header = ParseHeader();
+        // Per-block stream positions (IW4 XFILE_BLOCK model) — created from the header block sizes.
+        _streamBlocks = new ZoneReadStreamBlocks(header.BlockSize);
         var (assetList, stoppedType, stoppedIndex, error) = ParseXAssetList();
 
         return new Iw4ZoneReadResult
@@ -79,13 +82,19 @@ public sealed class Iw4ZoneReader
 
     private (XAssetList list, XAssetType? stoppedType, int stoppedIndex, string? error) ParseXAssetList()
     {
-        var context = new ZoneReadContext(_buffer, _position);
+        var context = new ZoneReadContext(_buffer, _position, _streamBlocks);
         var assetList = ReadXAssetList(ref context);
 
         XAssetType? stoppedType = null;
         int stoppedIndex = -1;
         string? error = null;
 
+        // Asset bodies are allocated from the LARGE block (the primary serialized asset-data block);
+        // resolve them with LARGE active so block-targeted inline data (e.g. shader bytecode that a
+        // pass reads from TEMP) aligns against the correct per-block cursor. The XAssetList header
+        // (counts + the two array pointers) was already read above with TEMP active, matching the
+        // reference — that 16-byte TEMP advance is what later TEMP-block alignment is relative to.
+        context.PushStreamBlock(ZoneStreamBlock.Large);
         try
         {
             context.ResolveQueued();
@@ -105,6 +114,10 @@ public sealed class Iw4ZoneReader
                 while (inner.InnerException != null) inner = inner.InnerException;
                 error = inner.Message;
             }
+        }
+        finally
+        {
+            context.PopStreamBlock();
         }
 
         _position = context.Position;

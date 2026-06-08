@@ -163,8 +163,8 @@ public struct Vec4
 
 public enum MaterialWorldVertexFormat : byte { }
 
-/// <summary>Placeholder type-arg: techset technique pointers are read but not resolved.</summary>
-public class MaterialTechnique { }
+// MaterialTechnique (+ MaterialPass / shaders / args) live in Techset.cs — resolved inline via the
+// multi-block engine so a techset that owns its techniques doesn't misalign the walk.
 
 public class MaterialTechniqueSet : BaseAsset
 {

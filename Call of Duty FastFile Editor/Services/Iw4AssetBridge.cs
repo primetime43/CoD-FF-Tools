@@ -85,6 +85,10 @@ namespace Call_of_Duty_FastFile_Editor.Services
             // stream order, so this sorted set lets us bound each menu's data without re-scanning.
             var bodyOffsets = new SortedSet<int>();
 
+            // Editor material ↔ IW4 material pairs, so we can fill in the technique-set link after all
+            // techsets are read (materials usually precede techsets in pool order).
+            var materialRefs = new List<(MaterialAsset Editor, FastFileLib.Iw4.Material Iw4)>();
+
             foreach (var asset in walk.AssetList.Assets)
             {
                 var body = asset.XAssetPtr?.Result;
@@ -109,7 +113,9 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         result.TechSets.Add(ToTechSet(ts));
                         break;
                     case FastFileLib.Iw4.Material mat:
-                        result.Materials.Add(ToMaterial(mat));
+                        var editorMat = ToMaterial(mat);
+                        result.Materials.Add(editorMat);
+                        materialRefs.Add((editorMat, mat));
                         break;
                     case FastFileLib.Iw4.MenuList ml:
                         iw4MenuLists.Add(ml);
@@ -118,6 +124,20 @@ namespace Call_of_Duty_FastFile_Editor.Services
                         result.StructuredDataDefs.Add(ToStructuredDataDef(sd));
                         break;
                 }
+            }
+
+            // Technique-set link. A material points at its techset via an ALIAS offset pointer — the
+            // decoded offset lands on a 4-byte alias cell that the engine fills at load time, and that
+            // cell is empty in the serialized zone, so the link can't be followed from the bytes. But
+            // when the walk read exactly one techset, every material that references a techset uses it,
+            // so attribute it (only to materials whose TechniqueSet is actually a non-null reference).
+            if (result.TechSets.Count == 1 && !string.IsNullOrEmpty(result.TechSets[0].Name))
+            {
+                string only = result.TechSets[0].Name;
+                foreach (var (editorMat, iw4Mat) in materialRefs)
+                    if (string.IsNullOrEmpty(editorMat.TechniqueSetName)
+                        && iw4Mat.TechniqueSet is { Kind: FastFileLib.Iw4.PointerKind.Offset })
+                        editorMat.TechniqueSetName = only;
             }
 
             // Add every menuDef's offset to the boundary set so consecutive menus inside one list
@@ -591,9 +611,6 @@ namespace Call_of_Duty_FastFile_Editor.Services
                 AdditionalData = "IW4 pointer-walk",
             };
 
-            // Technique set / texture table / constants resolve only when stored inline; shared
-            // ones are offset (block) pointers the reader doesn't dereference, so they stay empty
-            // and only the root counts above are shown.
             var ts = m.TechniqueSet is { IsResolved: true, Result: not null } ? m.TechniqueSet.Result : null;
             mat.TechniqueSetName = ts?.Name ?? string.Empty;
             if (ts?.Techniques != null)

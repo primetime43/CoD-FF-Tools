@@ -114,8 +114,14 @@ internal static class TechsetReader
             Unused = context.ReadBytes(2),
         };
 
+        // Resolve each technique pointer in the LARGE block. Shared (offset) technique pointers
+        // resolve to default; inline ones pull in the technique/pass/shader bodies (which the
+        // multi-block engine reads from LARGE/TEMP), keeping the next asset aligned.
         for (var i = 0; i < asset.Techniques.Length; i++)
+        {
             asset.Techniques[i] = context.ReadPointer<MaterialTechnique>();
+            context.ResolvePointerInBlock(asset.Techniques[i], ZoneStreamBlock.Large, TechniqueReader.ResolveTechnique);
+        }
 
         return asset;
     }
@@ -177,12 +183,16 @@ internal static class XAssetReaderRegistry
             [XAssetType.StructuredDataDef] = StructuredDataReader.Read,
             [XAssetType.Weapon] = WeaponReader.Read,
             [XAssetType.Material] = MaterialReader.Read,
-            [XAssetType.Font] = FontReader.Read,
-            // NOTE: XModel/Fx readers exist (ported for weapon sub-assets) but are NOT registered
-            // as top-level readers — they mis-read some standalone xmodels (e.g. mp_rust errors with
-            // "Invalid boolean value 255" on the 4th top-level XModel). Since xmodels precede
-            // materials in IW4 asset order, the walk can't reach a map zone's materials until the
-            // XModel reader is completed. Registering them would only turn a clean stop into an error.
+            [XAssetType.Font] = FontReader.Read, // 24-byte root; lets language zones walk past fonts to localize
+            // NOTE: Material is intentionally NOT registered as a top-level reader. The material body
+            // reader is correct for *size* (so it keeps weapon sub-asset walks aligned), but a standalone
+            // material's technique set / shaders store their data in OTHER stream blocks (TEMP/LARGE),
+            // which this single-cursor reader can't follow — so reading a standalone material misaligns
+            // the walk and yields garbage (empty names, bogus counts). Registering it also made tiny
+            // self-contained zones (e.g. mp_favela_load) *falsely* complete the walk, so the bridge
+            // trusted garbage over the pattern scanner. Likewise XModel/Fx are not registered (XModel
+            // mis-reads standalone xmodels). Reaching standalone materials needs the multi-block stream
+            // engine the reference has but this port doesn't.
         };
 
     public static bool TryGetReader(XAssetType type, out XAssetReader reader)

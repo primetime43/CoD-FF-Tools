@@ -25,12 +25,34 @@ internal interface IQueuedZonePointerResolver
 
 internal sealed class QueuedZonePointerResolver<T>(
     ZonePointer<T> pointer,
-    ZonePointerResolver<T> resolver) : IQueuedZonePointerResolver
+    ZonePointerResolver<T> resolver,
+    ZoneStreamBlock? block = null,
+    int alignment = 0) : IQueuedZonePointerResolver
 {
     public string Name => typeof(T).Name;
 
     public void Resolve(ref ZoneReadContext context)
     {
+        // Block-scoped resolvers re-establish their stream block (so alignment + inserts use the
+        // right per-block cursor) for the duration of the inline read, exactly like the reference's
+        // ResolvePointerInBlock / ResolvePointerAlignedInBlock.
+        if (block is { } streamBlock)
+        {
+            context.PushStreamBlock(streamBlock);
+            try { ResolveCore(ref context); }
+            finally { context.PopStreamBlock(); }
+        }
+        else
+        {
+            ResolveCore(ref context);
+        }
+    }
+
+    private void ResolveCore(ref ZoneReadContext context)
+    {
+        if (alignment > 0)
+            context.AlignStreamAndPosition(alignment);
+
         var start = context.Position;
         Memory.ResolvePointer(pointer, context.Position);
 
@@ -52,14 +74,16 @@ internal sealed class QueuedZonePointerResolver<T>(
 internal ref struct ZoneReadContext
 {
     private readonly ReadOnlySpan<byte> _span;
+    private readonly ZoneReadStreamBlocks? _streamBlocks;
     private readonly List<IQueuedZonePointerResolver> _inlineResolvers = new();
     private readonly List<IQueuedZonePointerResolver> _deferredResolvers = new();
     private bool _deferInlinePointers;
     public Action<string, int, int>? Trace { get; set; }
 
-    public ZoneReadContext(ReadOnlySpan<byte> span, int position)
+    public ZoneReadContext(ReadOnlySpan<byte> span, int position, ZoneReadStreamBlocks? streamBlocks = null)
     {
         _span = span;
+        _streamBlocks = streamBlocks;
         Position = position;
     }
 
@@ -82,43 +106,57 @@ internal ref struct ZoneReadContext
     public int ReadInt32()
     {
         EnsureAvailable(4, "Int32");
-        return _span.ReadInt32(ref Position);
+        var value = _span.ReadInt32(ref Position);
+        AdvanceStream(4);
+        return value;
     }
 
     public ushort ReadUInt16()
     {
         EnsureAvailable(2, "UInt16");
-        return _span.ReadUInt16(ref Position);
+        var value = _span.ReadUInt16(ref Position);
+        AdvanceStream(2);
+        return value;
     }
 
     public uint ReadUInt32()
     {
         EnsureAvailable(4, "UInt32");
-        return _span.ReadUInt32(ref Position);
+        var value = _span.ReadUInt32(ref Position);
+        AdvanceStream(4);
+        return value;
     }
 
     public ulong ReadUInt64()
     {
         EnsureAvailable(8, "UInt64");
-        return _span.ReadUInt64(ref Position);
+        var value = _span.ReadUInt64(ref Position);
+        AdvanceStream(8);
+        return value;
     }
 
     public float ReadFloat()
     {
         EnsureAvailable(4, "Float");
-        return _span.ReadFloat(ref Position);
+        var value = _span.ReadFloat(ref Position);
+        AdvanceStream(4);
+        return value;
     }
 
     public byte ReadByte()
     {
         EnsureAvailable(1, "Byte");
-        return _span.ReadByte(ref Position);
+        var value = _span.ReadByte(ref Position);
+        AdvanceStream(1);
+        return value;
     }
 
     public Vec4 ReadVec4()
     {
         EnsureAvailable(16, "Vec4");
-        return _span.ReadVec4(ref Position);
+        var value = _span.ReadVec4(ref Position);
+        AdvanceStream(16);
+        return value;
     }
 
     public bool ReadBool()
@@ -127,7 +165,9 @@ internal ref struct ZoneReadContext
         try
         {
             EnsureAvailable(1, "Boolean");
-            return _span.ReadBool(ref Position);
+            var value = _span.ReadBool(ref Position);
+            AdvanceStream(Position - start);
+            return value;
         }
         catch (Exception ex) when (ex is not Iw4UnsupportedTypeException && ex is not InvalidDataException { InnerException: not null })
         {
@@ -140,7 +180,9 @@ internal ref struct ZoneReadContext
         var start = Position;
         try
         {
-            return _span.ReadCStringAt(ref Position);
+            var value = _span.ReadCStringAt(ref Position);
+            AdvanceStream(Position - start);
+            return value;
         }
         catch (Exception ex) when (ex is not Iw4UnsupportedTypeException && ex is not InvalidDataException { InnerException: not null })
         {
@@ -158,19 +200,25 @@ internal ref struct ZoneReadContext
     public string ReadString(int length)
     {
         EnsureAvailable(length, $"String[{length}]");
-        return _span.ReadString(ref Position, length);
+        var value = _span.ReadString(ref Position, length);
+        AdvanceStream(length);
+        return value;
     }
 
     public byte[] ReadBytes(int length)
     {
         EnsureAvailable(length, $"Byte[{length}]");
-        return _span.Read(ref Position, length);
+        var value = _span.Read(ref Position, length);
+        AdvanceStream(length);
+        return value;
     }
 
     public ZonePointer<T> ReadPointer<T>()
     {
         EnsureAvailable(4, $"Pointer<{typeof(T).Name}>");
-        return Memory.ReadPointer<T>(_span, ref Position);
+        var value = Memory.ReadPointer<T>(_span, ref Position);
+        AdvanceStream(4);
+        return value;
     }
 
     public ZonePointer<T> ReadPointer<T>(ZoneValueReader<T> reader)
@@ -406,13 +454,51 @@ internal ref struct ZoneReadContext
         _deferredResolvers.Clear();
     }
 
-    private void AddInlineResolver<T>(ZonePointer<T> pointer, ZonePointerResolver<T> resolver)
+    private void AddInlineResolver<T>(
+        ZonePointer<T> pointer,
+        ZonePointerResolver<T> resolver,
+        ZoneStreamBlock? block = null,
+        int alignment = 0)
     {
-        var queuedResolver = new QueuedZonePointerResolver<T>(pointer, resolver);
+        var queuedResolver = new QueuedZonePointerResolver<T>(pointer, resolver, block, alignment);
         if (_deferInlinePointers)
             _deferredResolvers.Add(queuedResolver);
         else
             _inlineResolvers.Add(queuedResolver);
+    }
+
+    /// <summary>Resolve an inline/insert pointer with its data read while <paramref name="block"/>
+    /// is the active stream block (so per-block alignment is correct). Offset/Null → default.</summary>
+    public void ResolvePointerInBlock<T>(ZonePointer<T> pointer, ZoneStreamBlock block, ZonePointerResolver<T> resolver)
+        => ResolvePointerInBlockCore(pointer, block, alignment: 0, resolver);
+
+    /// <summary>As <see cref="ResolvePointerInBlock{T}"/>, but aligns the block's cursor to
+    /// <paramref name="alignment"/> before reading (e.g. shader bytecode is 4-byte aligned in TEMP).</summary>
+    public void ResolvePointerAlignedInBlock<T>(ZonePointer<T> pointer, ZoneStreamBlock block, int alignment, ZonePointerResolver<T> resolver)
+        => ResolvePointerInBlockCore(pointer, block, alignment, resolver);
+
+    private void ResolvePointerInBlockCore<T>(ZonePointer<T> pointer, ZoneStreamBlock block, int alignment, ZonePointerResolver<T> resolver)
+    {
+        if (pointer.IsResolved)
+            return;
+
+        try
+        {
+            switch (pointer.Kind)
+            {
+                case PointerKind.Null:
+                case PointerKind.Offset:
+                    pointer.SetResult(default);
+                    break;
+                case PointerKind.Inline:
+                    AddInlineResolver(pointer, resolver, block, alignment);
+                    break;
+            }
+        }
+        catch (Exception ex) when (ex is not Iw4UnsupportedTypeException && ex is not InvalidDataException { InnerException: not null })
+        {
+            throw PointerFailure(pointer, typeof(T).Name, ex);
+        }
     }
 
     public void AlignPosition(int alignment)
@@ -424,8 +510,46 @@ internal ref struct ZoneReadContext
         if (remainder == 0)
             return;
 
-        Position += alignment - remainder;
+        var padding = alignment - remainder;
+        Position += padding;
+        AdvanceStream(padding);
     }
+
+    // ---- Multi-block stream bookkeeping (IW4 XFILE_BLOCK model) ----
+    //
+    // Reads advance both the sequential Position and the active block's position (AdvanceStream).
+    // Alignment / insert reservation operate on the active block (whose position differs from
+    // Position by a per-block constant), so block-targeted data (e.g. shader bytecode in TEMP)
+    // aligns to its own block cursor — see ZoneReadStreamBlocks.
+
+    private void AdvanceStream(int byteCount) => _streamBlocks?.Advance(byteCount);
+
+    public void PushStreamBlock(ZoneStreamBlock block) => _streamBlocks?.PushStreamBlock(block);
+
+    public void PopStreamBlock() => _streamBlocks?.PopStreamBlock();
+
+    /// <summary>Aligns the active block's position, then advances the sequential Position by the
+    /// same padding (so the two stay in lockstep). This is the alignment standalone shaders need.</summary>
+    public void AlignStreamAndPosition(int alignment)
+    {
+        if (_streamBlocks is null)
+        {
+            AlignPosition(alignment);
+            return;
+        }
+
+        var padding = _streamBlocks.AlignAndGetPadding(alignment);
+        if (padding == 0)
+            return;
+
+        EnsureAvailable(padding, $"Stream alignment padding ({alignment})");
+        Position += padding;
+    }
+
+    /// <summary>Aligns ONLY the active block's position — the sequential Position (the file byte
+    /// cursor) is left alone. Used for image pixel data, which is 128-aligned in block memory but
+    /// stored contiguously in the file (no on-disk padding), unlike shader bytecode.</summary>
+    public void AlignStreamOnly(int alignment) => _streamBlocks?.Align(alignment);
 
     private void EnsureAvailable(int length, string operation)
     {

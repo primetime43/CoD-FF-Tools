@@ -781,8 +781,9 @@ namespace Call_of_Duty_FastFile_Editor
                         _localizedEntries = iw4.LocalizedEntries;
                     }
 
-                    // Materials surface from a full read of the material pool (complete walk, or a
-                    // partial walk that still resolved every declared material).
+                    // Materials surface from a full read of the material pool — a complete walk, or a
+                    // partial walk that still resolved every declared material (the multi-block reader
+                    // reads standalone materials/techsets/shaders correctly, e.g. mp_favela_load).
                     if (iw4.Materials.Count > 0
                         && (iw4.Complete || iw4.Materials.Count == iw4.DeclaredMaterialCount))
                         _materials = iw4.Materials;
@@ -4701,6 +4702,7 @@ namespace Call_of_Duty_FastFile_Editor
             int structDataIndex = 0;
             int weaponIndex = 0;
             int imageIndex = 0;
+            int materialIndex = 0;
 
             // Iterate through ALL asset records from the asset pool
             for (int i = 0; i < _zoneAssetRecords.Count; i++)
@@ -4868,6 +4870,19 @@ namespace Call_of_Duty_FastFile_Editor
                     dataStart = $"0x{sdd.Offset:X}";
                     status = $"IW4 pointer-walk ({sdd.DefCount} defs, {sdd.EnumCount} enums, {sdd.StructCount} structs)";
                     structDataIndex++;
+                }
+                else if (isMaterial && _materials != null && materialIndex < _materials.Count)
+                {
+                    // Materials parsed in pool order (IW4 walk for MW2 PS3, MaterialParser scan otherwise).
+                    var mat = _materials[materialIndex];
+                    isParsed = true;
+                    name = string.IsNullOrEmpty(mat.Name) ? "-" : mat.Name;
+                    dataStart = $"0x{mat.StartOfFileHeader:X}";
+                    string parseMethod = !string.IsNullOrEmpty(mat.AdditionalData) ? mat.AdditionalData : "Parsed";
+                    status = mat.IsStructuredView
+                        ? $"{parseMethod} (tex {mat.TextureCount}, const {mat.ConstantCount}, techset {(string.IsNullOrEmpty(mat.TechniqueSetName) ? "—" : mat.TechniqueSetName)})"
+                        : parseMethod;
+                    materialIndex++;
                 }
 
                 // Generic fallback: if no typed parser claimed this record but the
