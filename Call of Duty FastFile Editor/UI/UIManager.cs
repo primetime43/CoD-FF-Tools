@@ -77,33 +77,26 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
         private static void SetNodeColorsRecursive(TreeNodeCollection nodes)
         {
+            bool dark = ThemeManager.IsDark;
+
             foreach (TreeNode node in nodes)
             {
-                // Apply colors based on file extension
+                // Apply colors based on file extension. Dark mode uses lighter, higher-
+                // contrast variants so the labels stay readable on a dark background.
                 if (node.Text.Contains(".cfg"))
-                {
-                    node.ForeColor = Color.Teal;
-                }
+                    node.ForeColor = dark ? Color.FromArgb(78, 201, 176) : Color.Teal;
                 else if (node.Text.Contains(".gsc"))
-                {
-                    node.ForeColor = Color.Blue;
-                }
+                    node.ForeColor = dark ? Color.FromArgb(86, 156, 214) : Color.Blue;
                 else if (node.Text.Contains(".atr"))
-                {
-                    node.ForeColor = Color.Green;
-                }
+                    node.ForeColor = dark ? Color.FromArgb(115, 201, 145) : Color.Green;
                 else if (node.Text.Contains(".vision"))
-                {
-                    node.ForeColor = Color.DarkViolet;
-                }
+                    node.ForeColor = dark ? Color.FromArgb(197, 134, 192) : Color.DarkViolet;
                 else if (node.Text.Contains(".rmb"))
-                {
-                    node.ForeColor = Color.Brown;
-                }
+                    node.ForeColor = dark ? Color.FromArgb(206, 145, 120) : Color.Brown;
                 else if (node.Text.Contains(".csc"))
-                {
-                    node.ForeColor = Color.Red;
-                }
+                    node.ForeColor = dark ? Color.FromArgb(244, 71, 71) : Color.Red;
+                else
+                    node.ForeColor = dark ? Color.FromArgb(241, 241, 241) : Color.Empty;
 
                 // Recursively process child nodes (files inside folders)
                 if (node.Nodes.Count > 0)

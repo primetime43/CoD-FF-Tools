@@ -1,8 +1,10 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Xml;
 using Be.Windows.Forms;
 using Call_of_Duty_FastFile_Editor.Constants;
 using ICSharpCode.TextEditor; // TextEditorControlEx lives here (in the TextEditorEx assembly)
+using ICSharpCode.TextEditor.Document;
 
 namespace Call_of_Duty_FastFile_Editor.UI
 {
@@ -52,6 +54,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
             _initialized = true;
 
             Current = LoadPersistedTheme();
+            RegisterDarkSyntaxMode();
             ApplyToolStripRenderer();
             Application.Idle += OnApplicationIdle;
         }
@@ -302,64 +305,109 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
         #region ICSharpCode text editor
 
-        // The editor's highlighting types (HighlightColor, DefaultHighlightingStrategy)
-        // exist in BOTH referenced editor assemblies, so naming them directly is an
-        // ambiguous reference. Drive the color overrides via reflection to stay decoupled.
+        private const string DarkHighlightingName = "C# Dark";
+
+        // Remembers each editor's light-mode syntax highlighter so it can be restored.
+        private static readonly Dictionary<TextEditorControlEx, string> _editorBaseHighlighting = new();
+        private static bool _darkSyntaxRegistered;
+
         private static void ThemeTextEditor(TextEditorControlEx editor, bool dark)
         {
             editor.BackColor = dark ? DarkControl : SystemColors.Window;
 
+            // Capture the editor's normal (light) highlighter the first time we see it.
+            if (!_editorBaseHighlighting.TryGetValue(editor, out string? baseHl))
+            {
+                baseHl = string.IsNullOrEmpty(editor.SyntaxHighlighting) ? "C#" : editor.SyntaxHighlighting;
+                _editorBaseHighlighting[editor] = baseHl;
+            }
+
+            // The stock "C#" token colors were authored for a white background (dark-blue
+            // keywords, etc.) and become unreadable on dark. Swap to the dark-recolored
+            // "C# Dark" definition in dark mode, and back to the original in light mode.
+            string targetHl = dark ? DarkHighlightingName : baseHl!;
             try
             {
-                object? doc = editor.GetType().GetProperty("Document")?.GetValue(editor);
-                object? strat = doc?.GetType().GetProperty("HighlightingStrategy")?.GetValue(doc);
-                if (strat != null)
+                if (!string.Equals(editor.SyntaxHighlighting, targetHl, StringComparison.OrdinalIgnoreCase))
+                    editor.SetHighlighting(targetHl);
+            }
+            catch { /* unknown highlighter name — keep current */ }
+
+            // The .xshd only defines token colors; the editor "environment" (page
+            // background, default text, gutter, selection) still needs theming.
+            if (editor.Document?.HighlightingStrategy is DefaultHighlightingStrategy hl)
+            {
+                void Set(string name, Color fore, Color back) =>
+                    hl.SetColorFor(name, new HighlightColor(fore, back, false, false));
+
+                if (dark)
                 {
-                    Type? hcType = strat.GetType().Assembly
-                        .GetType("ICSharpCode.TextEditor.Document.HighlightColor");
-                    var setColorFor = hcType == null
-                        ? null
-                        : strat.GetType().GetMethod("SetColorFor", new[] { typeof(string), hcType });
-
-                    if (hcType != null && setColorFor != null)
-                    {
-                        void Set(string name, Color fore, Color back) => setColorFor.Invoke(
-                            strat, new object[] { name, Activator.CreateInstance(hcType, fore, back, false, false)! });
-
-                        if (dark)
-                        {
-                            Set("Default", DarkText, DarkControl);
-                            Set("LineNumbers", DarkTextDim, DarkSurface);
-                            Set("CaretMarker", Color.FromArgb(50, 50, 53), Color.FromArgb(50, 50, 53));
-                            Set("Selection", DarkSelectionText, DarkSelection);
-                            Set("VRuler", DarkBorder, DarkControl);
-                            Set("FoldLine", DarkTextDim, DarkSurface);
-                            Set("FoldMarker", DarkText, DarkSurface);
-                            Set("EOLMarkers", DarkBorder, DarkControl);
-                            Set("SpaceMarkers", DarkBorder, DarkControl);
-                            Set("TabMarkers", DarkBorder, DarkControl);
-                        }
-                        else
-                        {
-                            Color win = SystemColors.Window;
-                            Color gutter = Color.FromArgb(224, 224, 224);
-                            Set("Default", SystemColors.WindowText, win);
-                            Set("LineNumbers", Color.Gray, win);
-                            Set("CaretMarker", Color.Yellow, Color.Yellow);
-                            Set("Selection", Color.White, SystemColors.Highlight);
-                            Set("VRuler", gutter, win);
-                            Set("FoldLine", Color.FromArgb(128, 128, 128), Color.White);
-                            Set("FoldMarker", Color.FromArgb(50, 50, 50), Color.White);
-                            Set("EOLMarkers", gutter, win);
-                            Set("SpaceMarkers", gutter, win);
-                            Set("TabMarkers", gutter, win);
-                        }
-                    }
+                    Set("Default", DarkText, DarkControl);
+                    Set("LineNumbers", DarkTextDim, DarkSurface);
+                    Set("CaretMarker", Color.FromArgb(50, 50, 53), Color.FromArgb(50, 50, 53));
+                    Set("Selection", DarkSelectionText, DarkSelection);
+                    Set("VRuler", DarkBorder, DarkControl);
+                    Set("FoldLine", DarkTextDim, DarkSurface);
+                    Set("FoldMarker", DarkText, DarkSurface);
+                    Set("EOLMarkers", DarkBorder, DarkControl);
+                    Set("SpaceMarkers", DarkBorder, DarkControl);
+                    Set("TabMarkers", DarkBorder, DarkControl);
+                }
+                else
+                {
+                    Color win = SystemColors.Window;
+                    Color gutter = Color.FromArgb(224, 224, 224);
+                    Set("Default", SystemColors.WindowText, win);
+                    Set("LineNumbers", Color.Gray, win);
+                    Set("CaretMarker", Color.Yellow, Color.Yellow);
+                    Set("Selection", Color.White, SystemColors.Highlight);
+                    Set("VRuler", gutter, win);
+                    Set("FoldLine", Color.FromArgb(128, 128, 128), Color.White);
+                    Set("FoldMarker", Color.FromArgb(50, 50, 50), Color.White);
+                    Set("EOLMarkers", gutter, win);
+                    Set("SpaceMarkers", gutter, win);
+                    Set("TabMarkers", gutter, win);
                 }
             }
-            catch { /* highlighting theming is best-effort */ }
 
             editor.Refresh();
+        }
+
+        // Registers the embedded "C# Dark" .xshd with the editor's highlighting manager.
+        private static void RegisterDarkSyntaxMode()
+        {
+            if (_darkSyntaxRegistered) return;
+            try
+            {
+                var asm = typeof(ThemeManager).Assembly;
+                string? resName = asm.GetManifestResourceNames()
+                    .FirstOrDefault(n => n.EndsWith("CSharp-Dark.xshd", StringComparison.OrdinalIgnoreCase));
+                if (resName == null) return;
+
+                using var stream = asm.GetManifestResourceStream(resName);
+                if (stream == null) return;
+                using var reader = new StreamReader(stream);
+                string xshd = reader.ReadToEnd();
+
+                HighlightingManager.Manager.AddSyntaxModeFileProvider(new DarkSyntaxModeProvider(xshd));
+                _darkSyntaxRegistered = true;
+            }
+            catch { /* fall back to the light highlighter if registration fails */ }
+        }
+
+        private sealed class DarkSyntaxModeProvider : ISyntaxModeFileProvider
+        {
+            private readonly string _xshd;
+            private readonly SyntaxMode _mode = new("CSharp-Dark.xshd", DarkHighlightingName, ".csdark");
+
+            public DarkSyntaxModeProvider(string xshd) => _xshd = xshd;
+
+            public ICollection<SyntaxMode> SyntaxModes => new List<SyntaxMode> { _mode };
+
+            public XmlTextReader GetSyntaxModeFile(SyntaxMode syntaxMode) =>
+                new(new StringReader(_xshd));
+
+            public void UpdateSyntaxModeList() { }
         }
 
         #endregion

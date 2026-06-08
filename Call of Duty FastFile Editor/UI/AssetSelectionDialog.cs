@@ -153,6 +153,13 @@ namespace Call_of_Duty_FastFile_Editor.UI
             return result;
         }
 
+        // Row text colors, brightened in dark mode for contrast on the dark background.
+        private static Color SupportedColor =>
+            ThemeManager.IsDark ? Color.FromArgb(78, 201, 160) : Color.DarkGreen;
+
+        private static Color UnsupportedColor =>
+            ThemeManager.IsDark ? Color.FromArgb(150, 150, 150) : Color.Gray;
+
         private void PopulateAssetList()
         {
             assetListView.Items.Clear();
@@ -174,7 +181,7 @@ namespace Call_of_Duty_FastFile_Editor.UI
                     IsSelected = true
                 };
                 tagItem.Checked = true;
-                tagItem.ForeColor = Color.DarkGreen;
+                tagItem.ForeColor = SupportedColor;
                 assetListView.Items.Add(tagItem);
                 supportedCount += _tagCount;
             }
@@ -189,12 +196,12 @@ namespace Call_of_Duty_FastFile_Editor.UI
 
                 if (asset.IsSupported)
                 {
-                    item.ForeColor = Color.DarkGreen;
+                    item.ForeColor = SupportedColor;
                     supportedCount += asset.Count;
                 }
                 else
                 {
-                    item.ForeColor = Color.Gray;
+                    item.ForeColor = UnsupportedColor;
                     unsupportedCount += asset.Count;
                 }
 

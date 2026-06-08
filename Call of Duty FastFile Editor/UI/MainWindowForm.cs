@@ -170,6 +170,14 @@ namespace Call_of_Duty_FastFile_Editor
             // Reflect the persisted theme in the View > Dark Mode toggle.
             darkModeToolStripMenuItem.Checked = ThemeManager.IsDark;
 
+            // Re-color the raw-files tree (extension-based colors) when the theme changes
+            // live, so its node colors switch to the readable light/dark variants.
+            ThemeManager.ThemeChanged += () =>
+            {
+                if (filesTreeView.Nodes.Count > 0)
+                    UIManager.SetRawFileTreeNodeColors(filesTreeView);
+            };
+
             // Create loading panel
             CreateLoadingPanel();
         }
