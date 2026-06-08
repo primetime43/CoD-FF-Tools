@@ -63,7 +63,9 @@ namespace Call_of_Duty_FastFile_Editor.UI
         {
             maxSizeLabel.Text = $"Max Size: {maxSize} (dec)";
             currentSizeLabel.Text = $"Current Size: {currentSize} (dec)";
-            currentSizeLabel.ForeColor = currentSize > maxSize ? Color.Red : Color.Black;
+            currentSizeLabel.ForeColor = currentSize > maxSize
+                ? Color.Red
+                : (ThemeManager.IsDark ? Color.White : Color.Black);
             maxSizeLabel.Visible = true;
             currentSizeLabel.Visible = true;
         }

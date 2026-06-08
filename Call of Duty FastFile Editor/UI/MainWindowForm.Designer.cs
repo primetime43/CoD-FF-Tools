@@ -58,6 +58,7 @@ namespace Call_of_Duty_FastFile_Editor
             fileInfoToolStripMenuItem = new ToolStripMenuItem();
             zoneHexViewToolStripMenuItem = new ToolStripMenuItem();
             fileReportToolStripMenuItem = new ToolStripMenuItem();
+            darkModeToolStripMenuItem = new ToolStripMenuItem();
             rawFileToolsMenuItem = new ToolStripMenuItem();
             reloadRawFilesPatternMatchingToolStripMenuItem = new ToolStripMenuItem();
             increaseRawFileSizeToolStripMenuItem = new ToolStripMenuItem();
@@ -357,10 +358,19 @@ namespace Call_of_Duty_FastFile_Editor
             //
             // viewToolStripMenuItem
             //
-            viewToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { fileInfoToolStripMenuItem, zoneHexViewToolStripMenuItem, fileReportToolStripMenuItem });
+            viewToolStripMenuItem.DropDownItems.AddRange(new ToolStripItem[] { fileInfoToolStripMenuItem, zoneHexViewToolStripMenuItem, fileReportToolStripMenuItem, darkModeToolStripMenuItem });
             viewToolStripMenuItem.Name = "viewToolStripMenuItem";
             viewToolStripMenuItem.Size = new Size(53, 24);
             viewToolStripMenuItem.Text = "View";
+            //
+            // darkModeToolStripMenuItem
+            //
+            darkModeToolStripMenuItem.CheckOnClick = true;
+            darkModeToolStripMenuItem.Name = "darkModeToolStripMenuItem";
+            darkModeToolStripMenuItem.Size = new Size(195, 24);
+            darkModeToolStripMenuItem.Text = "Dark Mode";
+            darkModeToolStripMenuItem.ToolTipText = "Toggle the application's dark color theme";
+            darkModeToolStripMenuItem.Click += darkModeToolStripMenuItem_Click;
             //
             // fileInfoToolStripMenuItem
             //
@@ -1201,6 +1211,7 @@ namespace Call_of_Duty_FastFile_Editor
         private ToolStripMenuItem editToolStripMenuItem;
         private ToolStripMenuItem toolsToolStripMenuItem;
         private ToolStripMenuItem viewToolStripMenuItem;
+        private ToolStripMenuItem darkModeToolStripMenuItem;
         private ToolStripMenuItem optionsToolStripMenuItem;
         private ToolStripMenuItem fileInfoToolStripMenuItem;
         private ToolStripMenuItem zoneHexViewToolStripMenuItem;

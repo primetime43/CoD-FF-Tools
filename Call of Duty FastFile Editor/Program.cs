@@ -2,6 +2,7 @@ using System;
 using System.Windows.Forms;
 using Microsoft.Extensions.DependencyInjection;
 using Call_of_Duty_FastFile_Editor.Services;
+using Call_of_Duty_FastFile_Editor.UI;
 using FastFileLib.Logging;
 
 namespace Call_of_Duty_FastFile_Editor
@@ -20,6 +21,9 @@ namespace Call_of_Duty_FastFile_Editor
             LogService.Info("App", "FastFile Editor starting");
 
             ApplicationConfiguration.Initialize();
+
+            // Load the persisted light/dark theme and start auto-theming every form.
+            ThemeManager.Initialize();
 
             // Create the service collection
             var services = new ServiceCollection();

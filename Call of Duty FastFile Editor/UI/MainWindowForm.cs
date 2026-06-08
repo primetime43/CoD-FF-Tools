@@ -167,8 +167,17 @@ namespace Call_of_Duty_FastFile_Editor
             // Asset pool search filter
             assetPoolSearchTextBox.TextChanged += AssetPoolSearchTextBox_TextChanged;
 
+            // Reflect the persisted theme in the View > Dark Mode toggle.
+            darkModeToolStripMenuItem.Checked = ThemeManager.IsDark;
+
             // Create loading panel
             CreateLoadingPanel();
+        }
+
+        private void darkModeToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            // CheckOnClick has already flipped Checked by the time we get here.
+            ThemeManager.SetTheme(darkModeToolStripMenuItem.Checked ? AppTheme.Dark : AppTheme.Light);
         }
 
         /// <summary>
