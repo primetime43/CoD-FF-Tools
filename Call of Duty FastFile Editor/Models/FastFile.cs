@@ -43,7 +43,10 @@ namespace Call_of_Duty_FastFile_Editor.Models
         /// </summary>
         public bool IsXbox360 => !IsPC && !IsWii && !IsGhostsFile && (
             OpenedFastFileHeader.IsSigned ||
-            OpenedFastFileHeader.GameVersion == FastFileLib.GameDefinitions.MW2Definition.DevBuildVersionValue);
+            OpenedFastFileHeader.GameVersion == FastFileLib.GameDefinitions.MW2Definition.DevBuildVersionValue ||
+            // Unsigned Xbox 360 (e.g. converter output, unsigned MW2 Xbox 360): the header
+            // looks identical to PS3, but FastFileInfo's zone peek positively identified it.
+            OpenedFastFileHeader.Platform == "Xbox 360");
 
         /// <summary>
         /// Indicates if this FastFile is from a PC version.
@@ -73,7 +76,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
         public string Platform => IsPC ? "PC"
                                 : IsWii ? "Wii"
                                 : IsGhostsFile ? "PS3"  // Ghosts is signed on PS3 retail; no Xbox 360 samples tested yet
-                                : OpenedFastFileHeader.IsSigned ? "Xbox 360"
+                                : IsXbox360 ? "Xbox 360"  // signed, dev-build, or zone-peek-confirmed unsigned Xbox 360
                                 : "PS3";
 
         /// <summary>
@@ -222,6 +225,15 @@ namespace Call_of_Duty_FastFile_Editor.Models
             /// </summary>
             public bool IsWii { get; private set; }
 
+            /// <summary>
+            /// Refined platform string from <see cref="FastFileInfo.FromFile"/> — for unsigned
+            /// big-endian console FFs this is the result of peeking the decompressed zone
+            /// (WaW MemAlloc1 magic / MW2 header layout) to split PS3 from Xbox 360, rather
+            /// than the header-only "PS3/Xbox 360". Empty for zone-loaded FastFiles. Values:
+            /// "PS3", "Xbox 360", "PC", "Wii", or "PS3/Xbox 360" when genuinely undecidable.
+            /// </summary>
+            public string Platform { get; private set; } = "";
+
             public FastFileHeader(string filePath)
             {
                 // Single source of truth: delegate to FastFileLib.FastFileInfo so detection
@@ -245,6 +257,7 @@ namespace Call_of_Duty_FastFile_Editor.Models
                 IsSigned = info.IsSigned;
                 IsPC = info.IsPC;
                 IsWii = info.IsWii;
+                Platform = info.Platform ?? "";
 
                 switch (info.GameVersion)
                 {
